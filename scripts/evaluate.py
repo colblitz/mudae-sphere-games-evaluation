@@ -5,33 +5,30 @@ Builds the harness binary if needed, runs the evaluation, updates the
 leaderboard and README if the result enters the top 5, and optionally
 creates a pair of git commits to record the strategy and its scores.
 
-Normal usage (iterate freely, no commits):
+Normal usage — iterate freely, results printed only, no files changed:
   python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py
 
 When you're happy with your strategy and want to record it:
   python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py --commit
 
 The --commit flow makes two commits:
-  1. "strategy: oc my_strategy.py" — commits the strategy file itself, so it
-     gets a stable commit hash.
+  1. "strategy: oc my_strategy.py" — commits the strategy file so it has a
+     stable hash.  Skipped if the file is already committed and unmodified.
   2. "scores: oc my_strategy.py ev=78.43" — runs evaluation using that hash,
-     updates leaderboards/<game>.json and README.md with the correct commit
-     reference, and commits those artifacts.
-
-This ensures the score artifact always points to the exact committed version
-of the strategy that produced it.
+     updates leaderboards/<game>.json and README.md (if top-5), and commits
+     those artifacts.
 
 Flags
 -----
-  --game         one of: oh oc oq ot                     (required)
-  --strategy     path to the strategy file (.py/.cpp/.js) (required)
-  --commit       make two commits: strategy file + scoring artifacts
-  --games N      (oh) number of Monte Carlo games         default: 100000
-  --seed S       (oh) RNG seed
-  --n-colors X   (ot) 6|7|8|9|all                        default: all
-  --threads N    (ot) number of parallel threads          default: all cores
-  --boards-dir   override boards directory
-  --no-leaderboard  skip leaderboard/README update (just print results)
+  --game            one of: oh oc oq ot                     (required)
+  --strategy        path to the strategy file (.py/.cpp/.js) (required)
+  --commit          two commits: strategy file + scoring artifacts
+  --games N         (oh) number of Monte Carlo games         default: 100000
+  --seed S          (oh) RNG seed
+  --n-colors X      (ot) 6|7|8|9|all                        default: all
+  --threads N       (ot) number of parallel threads          default: all cores
+  --boards-dir      override boards directory
+  --no-leaderboard  (with --commit) skip leaderboard/README updates
 """
 
 from __future__ import annotations
@@ -430,23 +427,28 @@ def main() -> None:
     print("\n--- Result ---")
     print(json.dumps(result, indent=2))
 
+    if not args.commit:
+        # Normal run: print only, no file changes.
+        return
+
     if args.no_leaderboard:
+        # --commit --no-leaderboard: commit strategy + scores artifact only,
+        # skip leaderboard/README updates.
+        ev = result.get("ev") or result.get("aggregate_ev", 0.0)
+        strat_short = strategy_path.name
+        msg2 = f"scores: {args.game} {strat_short} ev={ev:.2f}"
+        artifact_files: list[Path] = []
+        scores_hash = git_commit(msg2, artifact_files) if artifact_files else git_short_hash()
+        print(f"[commit 2/2] {msg2}  ({scores_hash})")
         return
 
     # ------------------------------------------------------------------
-    # Update leaderboard and README
+    # --commit: update leaderboard + README, then commit 2
     # ------------------------------------------------------------------
-    # Use the strategy commit hash in the leaderboard entry if we just
-    # committed it; otherwise use whatever HEAD currently is.
+    # Use the hash of the strategy commit (step 1) in the leaderboard entry.
     commit_for_entry = strategy_commit_hash or git_short_hash()
 
-    # Temporarily monkey-patch git_short_hash so make_entry picks up the
-    # right hash without needing to thread it through every call.
-    import scripts.evaluate as _self  # noqa: F401 — we're already in this module
-    _orig_hash = git_short_hash.__code__
-
-    # Simpler: just pass commit_for_entry directly into make_entry
-    def _make_entry_with_hash(result: dict[str, Any], spath: str) -> dict[str, Any]:
+    def _make_entry_with_hash(res: dict[str, Any], spath: str) -> dict[str, Any]:
         entry: dict[str, Any] = {
             "filename": spath,
             "commit": commit_for_entry,
@@ -455,11 +457,10 @@ def main() -> None:
         for key in ("ev", "stdev", "red_rate", "oc_rate",
                     "avg_clicks", "perfect_rate", "all_ships_rate", "loss_5050_rate",
                     "n_games", "n_boards", "aggregate_ev"):
-            if key in result:
-                entry[key] = result[key]
+            if key in res:
+                entry[key] = res[key]
         return entry
 
-    # Patch make_entry for this run
     global make_entry  # noqa: PLW0603
     _original_make_entry = make_entry
     make_entry = _make_entry_with_hash  # type: ignore[assignment]
@@ -475,17 +476,12 @@ def main() -> None:
 
     update_readme()
 
-    # ------------------------------------------------------------------
-    # --commit: commit 2 — scoring artifacts
-    # ------------------------------------------------------------------
-    if args.commit:
-        ev = result.get("ev") or result.get("aggregate_ev", 0.0)
-        strat_short = strategy_path.name
-        lb_note = " (leaderboard updated)" if lb_changed else ""
-        msg2 = f"scores: {args.game} {strat_short} ev={ev:.2f}{lb_note}"
-        artifact_files = [LEADERBOARD_DIR / f"{args.game}.json", README_PATH]
-        scores_hash = git_commit(msg2, artifact_files)
-        print(f"[commit 2/2] {msg2}  ({scores_hash})")
+    ev = result.get("ev") or result.get("aggregate_ev", 0.0)
+    strat_short = strategy_path.name
+    lb_note = " (leaderboard updated)" if lb_changed else ""
+    msg2 = f"scores: {args.game} {strat_short} ev={ev:.2f}{lb_note}"
+    scores_hash = git_commit(msg2, [LEADERBOARD_DIR / f"{args.game}.json", README_PATH])
+    print(f"[commit 2/2] {msg2}  ({scores_hash})")
 
 
 if __name__ == "__main__":
