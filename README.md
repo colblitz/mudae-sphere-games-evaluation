@@ -235,15 +235,20 @@ register(new MyOCStrategy());
 1. Create a file in `strategies/<game>/` (e.g. `strategies/oc/my_strategy.py`).
 2. Subclass the appropriate ABC from `interface/strategy.py` (Python), inherit from the base class in `interface/strategy.h` (C++), or extend the class in `interface/strategy.js` (JS).
 3. Implement `next_click`. Optionally implement `init_run` and `init_payload`.
-4. Run the evaluator:
+4. Iterate: run the evaluator as many times as you like during development. No commits are made without `--commit`.
    ```bash
    python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py
    ```
-5. If your EV enters the top 5, commit the result:
+   The leaderboard and README are updated locally on each run if your EV enters the top 5, but nothing is committed.
+5. When you're satisfied, record it with `--commit`:
    ```bash
    python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py --commit
    ```
-   This stages `leaderboards/oc.json` + `README.md` and creates a commit automatically.
+   This makes **two commits** automatically:
+   - **Commit 1** — `strategy: oc my_strategy.py` — commits the strategy file so it has a stable hash.
+   - **Commit 2** — `scores: oc my_strategy.py ev=78.43` — runs evaluation, updates `leaderboards/oc.json` and `README.md` with the commit hash from step 1, and commits those artifacts.
+
+   The scoring artifact always references the exact committed version of the strategy that produced it. If the strategy file was already committed and unmodified, commit 1 is skipped and the existing HEAD hash is used.
 
 The evaluator builds the harness binary automatically if it is not already built or is out of date. For C++ strategies, it also compiles your `.cpp` to a `.so` automatically.
 
@@ -282,14 +287,14 @@ make clean             # Remove compiled binaries and strategy .so files
 ### evaluate.py flags
 
 ```
---game         oh | oc | oq | ot                (required)
---strategy     path to strategy file            (required)
---commit       update leaderboard + README and git commit
---games N      (oh) number of MC games          default: 100000
---seed S       (oh) RNG seed
---n-colors X   (ot) 6|7|8|9|all                default: all
---threads N    (ot) parallel threads            default: all cores
---no-leaderboard  skip leaderboard/README update
+--game            oh | oc | oq | ot                 (required)
+--strategy        path to strategy file             (required)
+--commit          two commits: strategy file + scoring artifacts
+--games N         (oh) number of MC games           default: 100000
+--seed S          (oh) RNG seed
+--n-colors X      (ot) 6|7|8|9|all                 default: all
+--threads N       (ot) parallel threads             default: all cores
+--no-leaderboard  skip leaderboard/README update (just print results)
 ```
 
 ---

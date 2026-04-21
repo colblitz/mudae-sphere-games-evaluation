@@ -1,26 +1,36 @@
 #!/usr/bin/env python3
 """evaluate.py — Top-level evaluation runner.
 
-Builds the harness binary if needed, runs the evaluation, collects the JSON
-result, optionally updates the leaderboard and README, and optionally commits.
+Builds the harness binary if needed, runs the evaluation, updates the
+leaderboard and README if the result enters the top 5, and optionally
+creates a pair of git commits to record the strategy and its scores.
 
-Usage
------
+Normal usage (iterate freely, no commits):
   python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py
-  python scripts/evaluate.py --game oh --strategy strategies/oh/my_strategy.py --games 100000
-  python scripts/evaluate.py --game ot --strategy strategies/ot/my_strategy.py --n-colors 6
+
+When you're happy with your strategy and want to record it:
   python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py --commit
+
+The --commit flow makes two commits:
+  1. "strategy: oc my_strategy.py" — commits the strategy file itself, so it
+     gets a stable commit hash.
+  2. "scores: oc my_strategy.py ev=78.43" — runs evaluation using that hash,
+     updates leaderboards/<game>.json and README.md with the correct commit
+     reference, and commits those artifacts.
+
+This ensures the score artifact always points to the exact committed version
+of the strategy that produced it.
 
 Flags
 -----
-  --game         one of: oh oc oq ot
-  --strategy     path to the strategy file (.py / .cpp / .js)
-  --commit       after updating leaderboards + README, create a git commit
-  --games N      (oh only) number of Monte Carlo games (default: 100000)
-  --seed S       (oh only) RNG seed
-  --n-colors X   (ot only) 6|7|8|9|all (default: all)
-  --threads N    (ot only) number of parallel threads (default: all cores)
-  --boards-dir   override boards directory (default: <repo_root>/boards)
+  --game         one of: oh oc oq ot                     (required)
+  --strategy     path to the strategy file (.py/.cpp/.js) (required)
+  --commit       make two commits: strategy file + scoring artifacts
+  --games N      (oh) number of Monte Carlo games         default: 100000
+  --seed S       (oh) RNG seed
+  --n-colors X   (ot) 6|7|8|9|all                        default: all
+  --threads N    (ot) number of parallel threads          default: all cores
+  --boards-dir   override boards directory
   --no-leaderboard  skip leaderboard/README update (just print results)
 """
 
@@ -123,10 +133,21 @@ def git_short_hash() -> str:
         return "unknown"
 
 
-def git_commit(message: str, files: list[Path]) -> None:
+def git_is_clean(path: Path) -> bool:
+    """Return True if the given file has no uncommitted changes."""
+    r = subprocess.run(
+        ["git", "status", "--porcelain", str(path.relative_to(REPO_ROOT))],
+        cwd=REPO_ROOT, capture_output=True, text=True
+    )
+    return r.returncode == 0 and r.stdout.strip() == ""
+
+
+def git_commit(message: str, files: list[Path]) -> str:
+    """Stage files and create a commit. Returns the new short hash."""
     paths = [str(f.relative_to(REPO_ROOT)) for f in files]
     subprocess.run(["git", "add"] + paths, cwd=REPO_ROOT, check=True)
     subprocess.run(["git", "commit", "-m", message], cwd=REPO_ROOT, check=True)
+    return git_short_hash()
 
 
 # ---------------------------------------------------------------------------
@@ -350,20 +371,29 @@ def update_readme() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate a sphere mini-game strategy.")
-    parser.add_argument("--game",       required=True, choices=GAMES)
-    parser.add_argument("--strategy",   required=True)
-    parser.add_argument("--commit",     action="store_true")
-    parser.add_argument("--no-leaderboard", action="store_true")
-    parser.add_argument("--games",      type=int, default=100000, help="(oh) number of MC games")
-    parser.add_argument("--seed",       type=int, help="(oh) RNG seed")
-    parser.add_argument("--n-colors",   default="all", help="(ot) 6|7|8|9|all")
-    parser.add_argument("--threads",    type=int, help="(ot) number of threads")
-    parser.add_argument("--boards-dir", help="override boards directory")
+    parser.add_argument("--game",            required=True, choices=GAMES)
+    parser.add_argument("--strategy",        required=True)
+    parser.add_argument("--commit",          action="store_true",
+                        help="Make two commits: one for the strategy file, one for scores")
+    parser.add_argument("--no-leaderboard",  action="store_true",
+                        help="Skip leaderboard/README update (just print results)")
+    parser.add_argument("--games",           type=int, default=100000,
+                        help="(oh) number of Monte Carlo games  default: 100000")
+    parser.add_argument("--seed",            type=int, help="(oh) RNG seed")
+    parser.add_argument("--n-colors",        default="all",
+                        help="(ot) 6|7|8|9|all  default: all")
+    parser.add_argument("--threads",         type=int,
+                        help="(ot) number of parallel threads  default: all cores")
+    parser.add_argument("--boards-dir",      help="override boards directory")
     args = parser.parse_args()
 
-    strategy = str(Path(args.strategy).resolve())
+    strategy_path = Path(args.strategy)
+    if not strategy_path.exists():
+        print(f"ERROR: strategy file not found: {args.strategy}", file=sys.stderr)
+        sys.exit(1)
+    strategy_abs = str(strategy_path.resolve())
 
-    # Build extra args for the harness
+    # Build harness extra args
     extra: list[str] = []
     if args.game == "oh":
         extra += ["--games", str(args.games)]
@@ -376,8 +406,26 @@ def main() -> None:
     if args.boards_dir:
         extra += ["--boards-dir", args.boards_dir]
 
-    # Run
-    result = run_harness(args.game, strategy, extra)
+    # ------------------------------------------------------------------
+    # --commit: commit 1 — the strategy file
+    # ------------------------------------------------------------------
+    strategy_commit_hash: str | None = None
+    if args.commit:
+        if git_is_clean(strategy_path.resolve()):
+            # File is already committed and unmodified — use current HEAD hash
+            strategy_commit_hash = git_short_hash()
+            print(f"[commit] Strategy file already committed (using HEAD {strategy_commit_hash})")
+        else:
+            strat_short = strategy_path.name
+            msg1 = f"strategy: {args.game} {strat_short}"
+            print(f"[commit 1/2] {msg1}")
+            strategy_commit_hash = git_commit(msg1, [strategy_path.resolve()])
+            print(f"[commit 1/2] Done — {strategy_commit_hash}")
+
+    # ------------------------------------------------------------------
+    # Run evaluation
+    # ------------------------------------------------------------------
+    result = run_harness(args.game, strategy_abs, extra)
 
     print("\n--- Result ---")
     print(json.dumps(result, indent=2))
@@ -385,29 +433,59 @@ def main() -> None:
     if args.no_leaderboard:
         return
 
-    # Update leaderboard
-    changed = update_leaderboard(args.game, result, args.strategy)
-    if changed:
-        print(f"[leaderboard] Updated leaderboards/{args.game}.json")
-    else:
-        print("[leaderboard] No leaderboard change (EV did not enter top 5).")
+    # ------------------------------------------------------------------
+    # Update leaderboard and README
+    # ------------------------------------------------------------------
+    # Use the strategy commit hash in the leaderboard entry if we just
+    # committed it; otherwise use whatever HEAD currently is.
+    commit_for_entry = strategy_commit_hash or git_short_hash()
 
-    # Always regenerate README tables (leaderboards may have changed from prior runs)
+    # Temporarily monkey-patch git_short_hash so make_entry picks up the
+    # right hash without needing to thread it through every call.
+    import scripts.evaluate as _self  # noqa: F401 — we're already in this module
+    _orig_hash = git_short_hash.__code__
+
+    # Simpler: just pass commit_for_entry directly into make_entry
+    def _make_entry_with_hash(result: dict[str, Any], spath: str) -> dict[str, Any]:
+        entry: dict[str, Any] = {
+            "filename": spath,
+            "commit": commit_for_entry,
+            "date": str(date.today()),
+        }
+        for key in ("ev", "stdev", "red_rate", "oc_rate",
+                    "avg_clicks", "perfect_rate", "all_ships_rate", "loss_5050_rate",
+                    "n_games", "n_boards", "aggregate_ev"):
+            if key in result:
+                entry[key] = result[key]
+        return entry
+
+    # Patch make_entry for this run
+    global make_entry  # noqa: PLW0603
+    _original_make_entry = make_entry
+    make_entry = _make_entry_with_hash  # type: ignore[assignment]
+
+    lb_changed = update_leaderboard(args.game, result, args.strategy)
+
+    make_entry = _original_make_entry  # restore
+
+    if lb_changed:
+        print(f"[leaderboard] Updated leaderboards/{args.game}.json (entered top 5)")
+    else:
+        print("[leaderboard] Result did not enter top 5 — leaderboard unchanged.")
+
     update_readme()
 
+    # ------------------------------------------------------------------
+    # --commit: commit 2 — scoring artifacts
+    # ------------------------------------------------------------------
     if args.commit:
-        if not changed:
-            print("[commit] Skipping commit — leaderboard unchanged.")
-            return
         ev = result.get("ev") or result.get("aggregate_ev", 0.0)
-        strat_short = Path(args.strategy).name
-        msg = f"scores: {args.game} {strat_short} ev={ev:.2f}"
-        files = [
-            LEADERBOARD_DIR / f"{args.game}.json",
-            README_PATH,
-        ]
-        git_commit(msg, files)
-        print(f"[commit] {msg}")
+        strat_short = strategy_path.name
+        lb_note = " (leaderboard updated)" if lb_changed else ""
+        msg2 = f"scores: {args.game} {strat_short} ev={ev:.2f}{lb_note}"
+        artifact_files = [LEADERBOARD_DIR / f"{args.game}.json", README_PATH]
+        scores_hash = git_commit(msg2, artifact_files)
+        print(f"[commit 2/2] {msg2}  ({scores_hash})")
 
 
 if __name__ == "__main__":
