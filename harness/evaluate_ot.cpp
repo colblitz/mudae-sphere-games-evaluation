@@ -1,0 +1,398 @@
+/**
+ * evaluate_ot.cpp — Exhaustive evaluator for /sphere trace (ot).
+ *
+ * Runs the strategy against all boards for each n_colors variant (6–9) and
+ * reports, per variant and aggregated:
+ *   ev             — mean score
+ *   stdev          — standard deviation
+ *   avg_clicks     — average total clicks per game (blue + free ship cells)
+ *   perfect_rate   — fraction of games where all ship cells were revealed
+ *   all_ships_rate — fraction of games where all ships were hit (≥1 cell each)
+ *   loss_5050_rate — fraction of games ended by a blue click where
+ *                    P(blue) was between 0.25 and 0.75 ("true 50/50 loss")
+ *
+ * Board model (n_colors = 6..9, n_rare = n_colors - 4):
+ *   5×5 grid, 25 cells start covered.  Blue click budget: 4.
+ *   Ships: teal(4), green(3), yellow(3), orange(2), var_rare_k(2) × n_var_rare.
+ *   Clicking a ship cell is FREE (does not cost a blue click).
+ *   Extra Chance: if blues_used < 4 and ships_hit < 5 after the 4th blue,
+ *     the game continues; each additional blue while ships_hit < 5 extends it.
+ *     After ships_hit ≥ 5, the next blue ends the game.
+ *
+ * Ship SP values: spT=20 spG=35 spY=55 spO=90 spL=76 spD=104 spR=150 spW=500
+ * Blue (spB) = 0 SP (just an empty cell).
+ *
+ * Evaluation is run with OpenMP parallelism (--threads N, default: all cores).
+ *
+ * Output: JSON to stdout on completion, progress to stdout during run.
+ *
+ * Usage:
+ *   evaluate_ot --strategy <path> [--boards-dir <dir>]
+ *               [--n-colors 6|7|8|9|all] [--threads N]
+ */
+
+#include <algorithm>
+#include <atomic>
+#include <cassert>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
+#include "common/board_io.h"
+#include "common/progress.h"
+#include "common/stats.h"
+#include "common/strategy_bridge.h"
+#include "common/types.h"
+
+#ifndef REPO_ROOT
+#define REPO_ROOT "."
+#endif
+
+using namespace sphere;
+
+// ---------------------------------------------------------------------------
+// ot constants
+// ---------------------------------------------------------------------------
+
+static constexpr int OT_BASE_CLICKS = 4;
+
+static int ot_ship_value(const std::string& color) {
+    if (color == "spT") return 20;
+    if (color == "spG") return 35;
+    if (color == "spY") return 55;
+    if (color == "spO") return 90;
+    if (color == "spL") return 76;
+    if (color == "spD") return 104;
+    if (color == "spR") return 150;
+    if (color == "spW") return 500;
+    return 0;  // spB (blue = 0)
+}
+
+static bool ot_is_ship(const std::string& color) {
+    return color != "spB";
+}
+
+// ---------------------------------------------------------------------------
+// Extra Chance logic
+// ---------------------------------------------------------------------------
+
+// Returns true if game should end after this blue click.
+// Game ends when: blues_used >= 4 AND ships_hit >= 5.
+// Extra Chance keeps the game alive if blues_used >= 4 but ships_hit < 5.
+static bool ot_game_over(int blues_used, int ships_hit) {
+    return blues_used >= OT_BASE_CLICKS && ships_hit >= 5;
+}
+
+// ---------------------------------------------------------------------------
+// Simulate one ot game
+// ---------------------------------------------------------------------------
+
+struct OTGameResult {
+    double score        = 0.0;
+    int    total_clicks = 0;
+    bool   perfect      = false;  // all ship cells revealed
+    bool   all_ships    = false;  // all distinct ships hit
+    bool   loss_5050    = false;  // lost on a ~50/50 blue decision
+};
+
+static OTGameResult run_ot_game(
+    const OTBoard&              board,
+    const std::vector<std::string>& colors,  // pre-derived cell colors
+    int                         n_colors,
+    StrategyBridge&             strategy,
+    std::string&                state_json)
+{
+    bool clicked[N_CELLS] = {};
+    std::vector<Cell> revealed;
+    double score      = 0.0;
+    int    blues_used = 0;
+    int    ships_hit  = 0;
+    int    total_clicks = 0;
+
+    // Compute total ship cells and per-ship membership for perfect/all_ships tracking
+    int total_ship_cells = 0;
+    int32_t all_ship_mask = board.teal | board.green | board.yellow | board.spo;
+    for (int k = 0; k < board.n_var_rare; ++k) all_ship_mask |= board.var_rare[k];
+    total_ship_cells = __builtin_popcount(static_cast<uint32_t>(all_ship_mask));
+
+    // Per-ship hit tracking for all_ships_rate
+    // Ships: teal, green, yellow, spo, var_rare_0..
+    int n_ships = 4 + board.n_var_rare;
+    std::vector<bool> ship_hit(n_ships, false);
+
+    std::string meta = "{\"n_colors\":" + std::to_string(n_colors)
+                     + ",\"ships_hit\":0,\"blues_used\":0"
+                     + ",\"max_clicks\":" + std::to_string(OT_BASE_CLICKS) + "}";
+    state_json = strategy.init_run(meta, state_json);
+
+    auto ship_index_for_cell = [&](int idx) -> int {
+        int32_t bit = 1 << idx;
+        if (board.teal   & bit) return 0;
+        if (board.green  & bit) return 1;
+        if (board.yellow & bit) return 2;
+        if (board.spo    & bit) return 3;
+        for (int k = 0; k < board.n_var_rare; ++k)
+            if (board.var_rare[k] & bit) return 4 + k;
+        return -1;
+    };
+
+    int revealed_ship_cells = 0;
+    // Track whether game-ending blue was ~50/50
+    bool last_blue_was_5050 = false;
+
+    while (true) {
+        // Check game over condition
+        if (ot_game_over(blues_used, ships_hit)) break;
+
+        // Build meta
+        meta = "{\"n_colors\":" + std::to_string(n_colors)
+             + ",\"ships_hit\":" + std::to_string(ships_hit)
+             + ",\"blues_used\":" + std::to_string(blues_used)
+             + ",\"max_clicks\":" + std::to_string(OT_BASE_CLICKS) + "}";
+
+        Click c = strategy.next_click(revealed, meta, state_json);
+        if (auto* pb = dynamic_cast<PythonBridge*>(&strategy))
+            state_json = pb->last_state();
+
+        int idx = rc_to_idx(c.row, c.col);
+        if (idx < 0 || idx >= N_CELLS || clicked[idx]) {
+            // Invalid click — count as blue (worst case)
+            ++blues_used;
+            ++total_clicks;
+            if (ot_game_over(blues_used, ships_hit)) break;
+            continue;
+        }
+        clicked[idx] = true;
+        ++total_clicks;
+
+        const std::string& color = colors[idx];
+        bool is_ship = ot_is_ship(color);
+
+        revealed.push_back({static_cast<int8_t>(c.row),
+                             static_cast<int8_t>(c.col), color});
+
+        if (is_ship) {
+            score += ot_ship_value(color);
+            ++ships_hit;
+            ++revealed_ship_cells;
+            int si = ship_index_for_cell(idx);
+            if (si >= 0 && si < n_ships) ship_hit[si] = true;
+            // Ship click is free — no blues_used increment
+        } else {
+            // Blue click
+            // Estimate P(blue) for 50/50 detection: count remaining unclicked cells
+            int unclicked_count = 0, unclicked_blue = 0;
+            for (int i = 0; i < N_CELLS; ++i) {
+                if (!clicked[i]) {
+                    ++unclicked_count;
+                    if (!ot_is_ship(colors[i])) ++unclicked_blue;
+                }
+            }
+            double p_blue = unclicked_count > 0
+                          ? static_cast<double>(unclicked_blue) / static_cast<double>(unclicked_count)
+                          : 0.0;
+            last_blue_was_5050 = (p_blue > 0.25 && p_blue < 0.75);
+
+            ++blues_used;
+            if (ot_game_over(blues_used, ships_hit)) break;
+        }
+    }
+
+    OTGameResult res;
+    res.score        = score;
+    res.total_clicks = total_clicks;
+    res.perfect      = (revealed_ship_cells == total_ship_cells);
+    res.all_ships    = true;
+    for (int s = 0; s < n_ships; ++s)
+        if (!ship_hit[s]) { res.all_ships = false; break; }
+    // 50/50 loss: game ended (blues_used >= 4 && ships_hit >= 5 is a normal end;
+    // we flag loss if ships_hit < total_ship_cells at game end AND last blue was ~50/50)
+    res.loss_5050 = (!res.perfect && last_blue_was_5050);
+    return res;
+}
+
+// ---------------------------------------------------------------------------
+// Evaluate one n_colors variant
+// ---------------------------------------------------------------------------
+
+static OTVariantResult evaluate_variant(
+    const std::vector<OTBoard>& boards,
+    int                         n_colors,
+    const std::string&          strategy_path,
+    int                         n_threads)
+{
+    uint64_t total = boards.size();
+    printf("  n_colors=%d: %llu boards\n", n_colors, (unsigned long long)total);
+    fflush(stdout);
+
+    // Per-thread accumulators
+    std::vector<Welford>  ev_acc(n_threads);
+    std::vector<Welford>  clicks_acc(n_threads);
+    std::vector<uint64_t> perfect_count(n_threads, 0);
+    std::vector<uint64_t> all_ships_count(n_threads, 0);
+    std::vector<uint64_t> loss_5050_count(n_threads, 0);
+
+    std::atomic<uint64_t> done_count(0);
+    ProgressReporter prog(total, std::max<uint64_t>(total / 20, 50000));
+
+    // Each thread gets its own strategy instance
+    std::vector<std::unique_ptr<StrategyBridge>> bridges(n_threads);
+    for (int t = 0; t < n_threads; ++t) {
+        bridges[t] = StrategyBridge::load(strategy_path, "ot");
+    }
+
+    std::vector<std::string> state_jsons(n_threads);
+    for (int t = 0; t < n_threads; ++t)
+        state_jsons[t] = bridges[t]->init_payload();
+
+#ifdef _OPENMP
+    omp_set_num_threads(n_threads);
+    #pragma omp parallel for schedule(dynamic, 256)
+#endif
+    for (int64_t i = 0; i < static_cast<int64_t>(total); ++i) {
+#ifdef _OPENMP
+        int tid = omp_get_thread_num();
+#else
+        int tid = 0;
+#endif
+        auto colors = ot_board_colors(boards[i]);
+        auto res    = run_ot_game(boards[i], colors, n_colors,
+                                  *bridges[tid], state_jsons[tid]);
+        ev_acc[tid].update(res.score);
+        clicks_acc[tid].update(res.total_clicks);
+        if (res.perfect)   ++perfect_count[tid];
+        if (res.all_ships) ++all_ships_count[tid];
+        if (res.loss_5050) ++loss_5050_count[tid];
+
+        uint64_t d = done_count.fetch_add(1) + 1;
+        if (d % prog.interval == 0) prog.report(d, ev_acc[tid].mean);
+    }
+    prog.done(ev_acc[0].mean);
+
+    // Merge per-thread accumulators
+    // For simplicity: merge means/counts using Chan's parallel algorithm
+    double mean_total  = 0.0, clicks_total = 0.0;
+    double M2_ev = 0.0, M2_cl = 0.0;
+    uint64_t count_total = 0;
+    uint64_t perf = 0, all_s = 0, loss5050 = 0;
+
+    for (int t = 0; t < n_threads; ++t) {
+        uint64_t nb = ev_acc[t].count;
+        if (nb == 0) continue;
+        double delta   = ev_acc[t].mean - mean_total;
+        double delta_c = clicks_acc[t].mean - clicks_total;
+        uint64_t nc = count_total + nb;
+        mean_total   += delta   * static_cast<double>(nb) / static_cast<double>(nc);
+        clicks_total += delta_c * static_cast<double>(nb) / static_cast<double>(nc);
+        // Combine M2 via parallel Welford
+        M2_ev += ev_acc[t].M2 + delta * delta * static_cast<double>(count_total)
+                 * static_cast<double>(nb) / static_cast<double>(nc);
+        M2_cl += clicks_acc[t].M2 + delta_c * delta_c * static_cast<double>(count_total)
+                 * static_cast<double>(nb) / static_cast<double>(nc);
+        count_total = nc;
+        perf     += perfect_count[t];
+        all_s    += all_ships_count[t];
+        loss5050 += loss_5050_count[t];
+    }
+
+    OTVariantResult r;
+    r.n_colors       = n_colors;
+    r.n_boards       = count_total;
+    r.ev             = mean_total;
+    r.stdev          = count_total > 1 ? std::sqrt(M2_ev / static_cast<double>(count_total - 1)) : 0.0;
+    r.avg_clicks     = clicks_total;
+    r.perfect_rate   = count_total > 0 ? static_cast<double>(perf)     / static_cast<double>(count_total) : 0.0;
+    r.all_ships_rate = count_total > 0 ? static_cast<double>(all_s)    / static_cast<double>(count_total) : 0.0;
+    r.loss_5050_rate = count_total > 0 ? static_cast<double>(loss5050) / static_cast<double>(count_total) : 0.0;
+    return r;
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+int main(int argc, char* argv[]) {
+    std::string strategy_path;
+    std::string boards_dir = std::string(REPO_ROOT) + "/boards";
+    std::string n_colors_arg = "all";
+    int n_threads = 1;
+#ifdef _OPENMP
+    n_threads = omp_get_max_threads();
+#endif
+
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "--strategy")  && i + 1 < argc) strategy_path = argv[++i];
+        else if (!strcmp(argv[i], "--boards-dir") && i + 1 < argc) boards_dir   = argv[++i];
+        else if (!strcmp(argv[i], "--n-colors")   && i + 1 < argc) n_colors_arg = argv[++i];
+        else if (!strcmp(argv[i], "--threads")    && i + 1 < argc) n_threads    = atoi(argv[++i]);
+    }
+    if (strategy_path.empty()) {
+        fprintf(stderr,
+            "Usage: evaluate_ot --strategy <path> [--boards-dir <dir>]\n"
+            "                   [--n-colors 6|7|8|9|all] [--threads N]\n");
+        return 1;
+    }
+
+    std::vector<int> variants;
+    if (n_colors_arg == "all") variants = {6, 7, 8, 9};
+    else variants = {atoi(n_colors_arg.c_str())};
+
+    printf("evaluate_ot  strategy=%s  threads=%d\n", strategy_path.c_str(), n_threads);
+    fflush(stdout);
+
+    OTResult overall_result;
+    double   total_boards_weighted = 0.0;
+    double   weighted_ev           = 0.0;
+
+    for (int nc : variants) {
+        int n_rare = nc - 4;
+        std::string board_path = boards_dir + "/ot_boards_" + std::to_string(n_rare) + ".bin.lzma";
+        printf("Loading %s ...\n", board_path.c_str());
+        fflush(stdout);
+        auto boards = load_ot_boards(board_path, n_rare);
+        if (boards.empty()) {
+            fprintf(stderr, "WARNING: could not load boards for n_colors=%d, skipping.\n", nc);
+            continue;
+        }
+        printf("Loaded %zu boards for n_colors=%d\n", boards.size(), nc);
+        fflush(stdout);
+
+        OTVariantResult vr = evaluate_variant(boards, nc, strategy_path, n_threads);
+        int vi = nc - 6;
+        overall_result.variants[vi] = vr;
+
+        weighted_ev           += vr.ev * static_cast<double>(vr.n_boards);
+        total_boards_weighted += static_cast<double>(vr.n_boards);
+    }
+
+    if (total_boards_weighted > 0.0)
+        overall_result.aggregate_ev = weighted_ev / total_boards_weighted;
+
+    // Print JSON result
+    printf("\nRESULT_JSON: {\"game\":\"ot\",\"strategy\":\"%s\",\"aggregate_ev\":%.4f,\"variants\":[",
+           strategy_path.c_str(), overall_result.aggregate_ev);
+    bool first = true;
+    for (int nc : variants) {
+        if (!first) printf(",");
+        first = false;
+        const OTVariantResult& vr = overall_result.variants[nc - 6];
+        if (vr.n_boards == 0) continue;
+        printf("{\"n_colors\":%d,\"n_boards\":%llu,"
+               "\"ev\":%.4f,\"stdev\":%.4f,"
+               "\"avg_clicks\":%.4f,\"perfect_rate\":%.4f,"
+               "\"all_ships_rate\":%.4f,\"loss_5050_rate\":%.4f}",
+               vr.n_colors, (unsigned long long)vr.n_boards,
+               vr.ev, vr.stdev, vr.avg_clicks, vr.perfect_rate,
+               vr.all_ships_rate, vr.loss_5050_rate);
+    }
+    printf("]}\n");
+    fflush(stdout);
+    return 0;
+}

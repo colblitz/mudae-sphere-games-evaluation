@@ -1,0 +1,12 @@
+{
+  "game": "ot",
+  "metric": "ev",
+  "updated": "",
+  "top5": [],
+  "by_variant": {
+    "6": {"n_colors": 6, "top5": []},
+    "7": {"n_colors": 7, "top5": []},
+    "8": {"n_colors": 8, "top5": []},
+    "9": {"n_colors": 9, "top5": []}
+  }
+}

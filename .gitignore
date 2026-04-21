@@ -1,0 +1,35 @@
+# Build artifacts
+harness/build/
+harness/**/*.o
+harness/**/*.so
+harness/evaluate_oh
+harness/evaluate_oc
+harness/evaluate_oq
+harness/evaluate_ot
+scripts/generate_boards
+
+# Compiled strategy shared libraries
+strategies/**/*.so
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# Human-readable board exports (generated locally via --text flag)
+boards/*.txt
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Evaluation result JSON (raw, not leaderboard)
+results/

@@ -1,0 +1,45 @@
+{
+  "generated_at": "2026-04-20T13:44:16+00:00",
+  "source": "data/sphere_spD2_results.jsonl",
+  "total_observations": 3274,
+  "distribution": {
+    "spG": {
+      "count": 387,
+      "rate": 0.11820403
+    },
+    "spO": {
+      "count": 378,
+      "rate": 0.1154551
+    },
+    "spY": {
+      "count": 373,
+      "rate": 0.11392792
+    },
+    "spL": {
+      "count": 370,
+      "rate": 0.11301161
+    },
+    "spR": {
+      "count": 368,
+      "rate": 0.11240073
+    },
+    "spB": {
+      "count": 357,
+      "rate": 0.10904093
+    },
+    "spW": {
+      "count": 355,
+      "rate": 0.10843005
+    },
+    "spT": {
+      "count": 352,
+      "rate": 0.10751374
+    },
+    "spP": {
+      "count": 334,
+      "rate": 0.10201588
+    }
+  },
+  "mean_value": 104.2339,
+  "spl_value_used": 76.2208
+}
