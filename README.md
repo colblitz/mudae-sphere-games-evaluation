@@ -245,7 +245,7 @@ register(new MyOCStrategy());
    ```
    This makes **two commits** automatically:
    - **Commit 1** — `strategy: oc my_strategy.py` — commits the strategy file so it has a stable hash. Skipped if the file is already committed and unmodified.
-   - **Commit 2** — `scores: oc my_strategy.py ev=78.43` — runs evaluation, updates `leaderboards/oc.json` and `README.md` with the commit hash from step 1 (if the score enters the top 5), and commits those artifacts.
+   - **Commit 2** — `scores: oc my_strategy.py ev=78.43` — runs evaluation, always updates `README.md`, updates `leaderboards/oc.json` with the commit hash from step 1 if the score enters the top 5, and commits those artifacts.
 
    The score artifact always references the exact committed version of the strategy that produced it.
 
