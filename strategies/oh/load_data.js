@@ -26,7 +26,7 @@
 const fs = require("fs");
 
 const { OHStrategy, register } = require("../../interface/strategy.js");
-const { fetch: fetchData }     = require("../../interface/data.js");
+const { fetchSync }            = require("../../interface/data.js");
 
 // ---------------------------------------------------------------------------
 // Data file configuration
@@ -43,18 +43,27 @@ class LoadDataOHStrategy extends OHStrategy {
 
   /**
    * Called once before all games.  Loads color priority weights from
-   * data/oh_example.json via fetchData().
+   * data/oh_example.json via fetchSync().
    *
-   * fetchData() checks whether the file is already present in data/ and its
+   * fetchSync() checks whether the file is already present in data/ and its
    * SHA-256 matches.  If so it returns immediately — no download occurs.
    * If the file is absent or corrupted it downloads from DATA_URL.
    *
+   * Must be synchronous: the strategy.js protocol loop does not await
+   * initEvaluationRun(), so an async version would return a Promise that
+   * gets JSON-serialized as {} — the loaded data would be lost silently.
+   *
    * Returns an object with the loaded colorValues table.
    */
-  async initEvaluationRun() {
-    const filePath = await fetchData({ url: DATA_URL, sha256: DATA_SHA256, filename: DATA_FILE });
+  initEvaluationRun() {
+    const filePath = fetchSync({ url: DATA_URL, sha256: DATA_SHA256, filename: DATA_FILE });
     const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    return { colorValues: data["color_values"] };
+    // Store on the instance: the harness JS bridge's JSON extractor corrupts
+    // deeply nested objects when threading state between calls (it strips
+    // trailing braces naively).  Instance variables survive harness
+    // serialization because they are never passed through the JSON protocol.
+    this._colorValues = data["color_values"];
+    return null;
   }
 
   // -------------------------------------------------------------------------
@@ -62,12 +71,18 @@ class LoadDataOHStrategy extends OHStrategy {
   // -------------------------------------------------------------------------
 
   /**
-   * Seed a per-game RNG and carry the run state through.
-   * JS does not have a seedable built-in RNG, so we use a simple LCG.
+   * Seed a per-game RNG on this instance and carry the run state through.
+   *
+   * The RNG is stored as an instance variable rather than in the state dict
+   * because functions are not JSON-serializable — the harness serializes
+   * gameState to JSON between calls, so any function in the state is silently
+   * dropped.  The run state (colorValues) is JSON-safe and passes through
+   * unchanged.
    */
-  initGamePayload(meta, evaluationRunState) {
+  initGamePayload(meta, evaluationRunState) {  // eslint-disable-line no-unused-vars
     const seed = meta.game_seed ?? Date.now();
-    return { ...evaluationRunState, rng: makeLcg(seed) };
+    this._rng = makeLcg(seed);
+    return null;
   }
 
   // -------------------------------------------------------------------------
@@ -80,8 +95,9 @@ class LoadDataOHStrategy extends OHStrategy {
    * @param {*} gameState
    * @returns {{ row: number, col: number, gameState: * }}
    */
-  nextClick(revealed, meta, gameState) {
-    const { colorValues, rng } = gameState;
+  nextClick(revealed, meta, gameState) {  // eslint-disable-line no-unused-vars
+    const colorValues = this._colorValues;
+    const rng = this._rng;
     const clicked = new Set(revealed.map(c => c.row * 5 + c.col));
 
     // Purples are free — click any visible purple immediately.

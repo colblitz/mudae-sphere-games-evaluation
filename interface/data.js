@@ -208,4 +208,90 @@ function download(url, dest) {
   });
 }
 
-module.exports = { fetch };
+// ---------------------------------------------------------------------------
+// Synchronous helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Synchronous SHA-256 of a local file.
+ */
+function fileSha256Sync(filePath) {
+  const hash = crypto.createHash("sha256");
+  hash.update(fs.readFileSync(filePath));
+  return hash.digest("hex");
+}
+
+/**
+ * Download url → dest synchronously using curl or wget via execSync.
+ */
+function downloadSync(url, dest) {
+  const { execSync } = require("child_process");
+  const tmp = dest + ".part";
+  try {
+    try {
+      execSync(`curl -fL --progress-bar -o "${tmp}" "${url}"`, { stdio: ["ignore", "ignore", "inherit"] });
+    } catch (_) {
+      execSync(`wget -q --show-progress -O "${tmp}" "${url}"`, { stdio: ["ignore", "ignore", "inherit"] });
+    }
+    fs.renameSync(tmp, dest);
+  } catch (err) {
+    if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+    throw err;
+  }
+}
+
+/**
+ * Synchronous version of fetch(). Use this in initEvaluationRun() so the
+ * protocol loop in strategy.js does not need to await the result.
+ *
+ * The JS protocol loop calls initEvaluationRun() without await, so an async
+ * initEvaluationRun returns a Promise that gets JSON-serialized as {} — the
+ * loaded data is lost silently.  fetchSync() avoids this by performing all
+ * I/O synchronously.
+ *
+ * @param {Object} options
+ * @param {string} options.url      Direct download URL.
+ * @param {string} options.sha256   Expected lowercase hex SHA-256 of the file.
+ * @param {string} options.filename Basename for the cached file in data/.
+ * @returns {string}                Absolute path to the verified local copy.
+ */
+function fetchSync({ url, sha256, filename }) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  const dest = path.join(DATA_DIR, filename);
+
+  if (fs.existsSync(dest)) {
+    const actual = fileSha256Sync(dest);
+    if (actual === sha256.toLowerCase()) return dest;
+    process.stderr.write(`[data] ${filename}: hash mismatch — re-downloading.\n`);
+  }
+
+  process.stderr.write(`[data] Downloading ${filename} ...\n`);
+  try {
+    downloadSync(url, dest);
+  } catch (err) {
+    fatal(
+      `Could not download ${filename}.\n` +
+      `  URL    : ${url}\n` +
+      `  Error  : ${err.message}\n` +
+      `  If the file should be committed to this repo, restore it with:\n` +
+      `    git checkout data/${filename}`
+    );
+  }
+
+  const actual = fileSha256Sync(dest);
+  if (actual !== sha256.toLowerCase()) {
+    fs.unlinkSync(dest);
+    fatal(
+      `SHA-256 mismatch for ${filename} — file removed.\n` +
+      `  expected : ${sha256.toLowerCase()}\n` +
+      `  got      : ${actual}\n` +
+      `  Check that the url and sha256 are correct.`
+    );
+  }
+
+  const size = fs.statSync(dest).size;
+  process.stderr.write(`[data] ${filename}: OK (${size.toLocaleString()} bytes)\n`);
+  return dest;
+}
+
+module.exports = { fetch, fetchSync };
