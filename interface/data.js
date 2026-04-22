@@ -30,6 +30,29 @@
  *   const DATA_DIR = path.join(__dirname, "..", "data");
  *   const lutPath = path.join(DATA_DIR, "oh_harvest_lut.bin.lzma");
  *
+ * See also strategies/oh/load_data.js for a working end-to-end example that
+ * calls fetch() and uses the returned path.
+ *
+ * Hosting options for large files
+ * --------------------------------
+ * When a file is too large to commit (> ~80 MB compressed), host it externally
+ * and pass the URL to fetch().  Options:
+ *
+ *   Hugging Face Datasets  — recommended.  Free, no size limit, permanent
+ *                            URLs.  https://huggingface.co/docs/datasets/
+ *   Google Drive           — free (15 GB).  Use a direct URL:
+ *                              https://drive.google.com/uc?export=download&id=<FILE_ID>
+ *                            Note: files > ~100 MB trigger a virus-scan
+ *                            interstitial that may break the download.  For
+ *                            large files prefer Hugging Face.
+ *   Dropbox                — free (2 GB).  Change ?dl=0 → ?dl=1 in the share
+ *                            link to get a direct download URL.
+ *   GitHub (raw)           — free, files must be ≤ 100 MB (hard git limit).
+ *                            URL: https://raw.githubusercontent.com/<org>/<repo>/main/data/<file>
+ *   GitHub Releases        — free, up to 2 GB per file.  URL tied to a release tag.
+ *   Zenodo                 — free, up to 50 GB, DOI-backed permanent URLs.
+ *                            https://zenodo.org
+ *
  * Notes
  * -----
  * - Uses only Node.js built-in modules (https, fs, crypto, path) — no npm.

@@ -72,7 +72,7 @@ return `game_state` unchanged from next_click().
 
 See also
 --------
-oh/random_clicks.py   — minimal stateless example
+oh/load_data.py       — init_evaluation_run() loading a data file via interface.data.fetch()
 oc/global_state.py    — init_evaluation_run() (global state) example
 oq/stateful.py        — init_game_payload() + state threading (per-game state) example
 """

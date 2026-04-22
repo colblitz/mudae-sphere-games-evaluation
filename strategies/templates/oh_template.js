@@ -67,7 +67,7 @@
  *
  * See also
  * --------
- * oh/random_clicks.js   — minimal stateless example
+ * oh/load_data.js       — initEvaluationRun() loading a data file via interface/data.js
  * oc/global_state.js    — initEvaluationRun() (global state) example
  * oq/stateful.js        — initGamePayload() + state threading (per-game state) example
  */

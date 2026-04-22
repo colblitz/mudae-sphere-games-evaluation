@@ -289,23 +289,25 @@ Files added with `git add -f` are tracked normally once committed — no further
 
 ### Auto-download helper
 
-`interface/data` provides a `fetch()` function in all three languages. Call it in `init_evaluation_run` (or `initEvaluationRun` / `strategy_init_evaluation_run` for JS/C++). The file is downloaded once to `data/`, its SHA-256 is verified, and it is reused on every subsequent run.
+`interface/data` provides a `fetch()` function in all three languages. Call it in `init_evaluation_run` (or `initEvaluationRun` for JS/C++). The file is downloaded once to `data/`, its SHA-256 is verified, and it is reused on every subsequent run. If the file is already present with a matching hash, no download occurs.
+
+See `strategies/oh/load_data.py` (and `.cpp`, `.js`) for a complete working example.
 
 **Python:**
 
 ```python
 from interface.data import fetch
 
-# External data: oh_harvest_lut.bin.lzma
-# Size: ~66 MB compressed / ~14 GB uncompressed
-# Hosted at: https://huggingface.co/datasets/org/repo/resolve/main/oh_harvest_lut.bin.lzma
-_LUT_URL    = "https://huggingface.co/datasets/org/repo/resolve/main/oh_harvest_lut.bin.lzma"
-_LUT_SHA256 = "<hex sha256>"
+# External data: oh_example.json
+# Size: < 1 KB
+# Source: https://raw.githubusercontent.com/colblitz/mudae-sphere-games-evaluation/main/data/oh_example.json
+_DATA_URL    = "https://raw.githubusercontent.com/..."
+_DATA_SHA256 = "<hex sha256>"
 
 class MyOHStrategy(OHStrategy):
     def init_evaluation_run(self):
-        lut_path = fetch(url=_LUT_URL, sha256=_LUT_SHA256, filename="oh_harvest_lut.bin.lzma")
-        return {"lut": load_lut(lut_path)}
+        path = fetch(url=_DATA_URL, sha256=_DATA_SHA256, filename="my_lut.bin.lzma")
+        return {"lut": load_lut(path)}
 ```
 
 **JavaScript:**
@@ -318,7 +320,7 @@ class MyOHStrategy extends OHStrategy {
     const filePath = await fetchData({
       url: "https://...",
       sha256: "<hex sha256>",
-      filename: "oh_harvest_lut.bin.lzma",
+      filename: "my_lut.bin.lzma",
     });
     return { lut: loadLut(filePath) };
   }
@@ -332,7 +334,7 @@ class MyOHStrategy extends OHStrategy {
 
 std::string init_evaluation_run() override {
     std::string path = sphere::data::fetch(
-        "https://...", "<hex sha256>", "oh_harvest_lut.bin.lzma"
+        "https://...", "<hex sha256>", "my_lut.bin.lzma"
     );
     load_lut(path);  // store result in a member variable
     return "{}";
@@ -341,13 +343,14 @@ std::string init_evaluation_run() override {
 
 ### Hosting large files
 
-| Host | File size limit | Cost | URL stability |
-|------|----------------|------|--------------|
-| [Hugging Face Datasets](https://huggingface.co/docs/datasets/) | None | Free | Permanent |
-| GitHub Releases | 2 GB per file | Free | Tied to release tag |
-| [Zenodo](https://zenodo.org) | 50 GB | Free | DOI-backed, permanent |
-
-Hugging Face Datasets is recommended for most cases.
+| Host | Size limit | Cost | URL stability |
+|------|-----------|------|--------------|
+| [Hugging Face Datasets](https://huggingface.co/docs/datasets/) | None | Free | Permanent — recommended for large files |
+| [Google Drive](https://drive.google.com) | 15 GB free | Free tier | Use `https://drive.google.com/uc?export=download&id=<FILE_ID>`. Files > ~100 MB trigger a virus-scan interstitial that breaks `urllib`/`curl` — prefer Hugging Face for large files. |
+| [Dropbox](https://www.dropbox.com) | 2 GB free | Free tier | Change `?dl=0` → `?dl=1` in the share link for a direct download URL. |
+| GitHub (raw) | 100 MB per file | Free | `https://raw.githubusercontent.com/<org>/<repo>/main/data/<file>` — permanent once committed. |
+| GitHub Releases | 2 GB per file | Free | URL tied to a release tag. |
+| [Zenodo](https://zenodo.org) | 50 GB | Free | DOI-backed, permanent. |
 
 ---
 

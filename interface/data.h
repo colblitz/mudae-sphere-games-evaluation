@@ -28,6 +28,29 @@
  *   // DATA_DIR is injected by the Makefile at compile time via -DREPO_ROOT=...
  *   std::string path = std::string(REPO_ROOT) + "/data/oh_harvest_lut.bin.lzma";
  *
+ * See also strategies/oh/load_data.cpp for a working end-to-end example that
+ * calls fetch() and uses the returned path.
+ *
+ * Hosting options for large files
+ * --------------------------------
+ * When a file is too large to commit (> ~80 MB compressed), host it externally
+ * and pass the URL to fetch().  Options:
+ *
+ *   Hugging Face Datasets  — recommended.  Free, no size limit, permanent
+ *                            URLs.  https://huggingface.co/docs/datasets/
+ *   Google Drive           — free (15 GB).  Use a direct URL:
+ *                              https://drive.google.com/uc?export=download&id=<FILE_ID>
+ *                            Note: files > ~100 MB trigger a virus-scan
+ *                            interstitial that breaks curl/wget.  For large
+ *                            files prefer Hugging Face.
+ *   Dropbox                — free (2 GB).  Change ?dl=0 → ?dl=1 in the share
+ *                            link to get a direct download URL.
+ *   GitHub (raw)           — free, files must be ≤ 100 MB (hard git limit).
+ *                            URL: https://raw.githubusercontent.com/<org>/<repo>/main/data/<file>
+ *   GitHub Releases        — free, up to 2 GB per file.  URL tied to a release tag.
+ *   Zenodo                 — free, up to 50 GB, DOI-backed permanent URLs.
+ *                            https://zenodo.org
+ *
  * Notes
  * -----
  * - Uses curl(1) or wget(1) (whichever is on PATH) to perform the download.

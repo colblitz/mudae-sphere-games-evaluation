@@ -54,7 +54,7 @@
  *
  * See also
  * --------
- * oh/random_clicks.cpp   — minimal stateless example
+ * oh/load_data.cpp       — init_evaluation_run() loading a data file via interface/data.h
  * oc/global_state.cpp    — init_evaluation_run() (global state) example
  * oq/stateful.cpp        — init_game_payload() + state threading (per-game state) example
  */

@@ -192,8 +192,24 @@ std::string init_evaluation_run() override {
 }
 ```
 
+### Hosting options for large files
+
+When a file is too large to commit (> ~80 MB compressed), host it externally
+and pass the URL to `fetch()`:
+
+| Host | Size limit | Cost | URL stability |
+|------|-----------|------|--------------|
+| [Hugging Face Datasets](https://huggingface.co/docs/datasets/) | None | Free | Permanent — **recommended** |
+| [Google Drive](https://drive.google.com) | 15 GB free | Free tier | Use `https://drive.google.com/uc?export=download&id=<FILE_ID>`. Files > ~100 MB trigger a virus-scan interstitial that breaks `urllib`/`curl` — prefer Hugging Face for large files. |
+| [Dropbox](https://www.dropbox.com) | 2 GB free | Free tier | Change `?dl=0` → `?dl=1` in the share link for a direct download URL. |
+| GitHub (raw) | 100 MB per file | Free | `https://raw.githubusercontent.com/<org>/<repo>/main/data/<file>` — permanent once committed. |
+| GitHub Releases | 2 GB per file | Free | URL tied to a release tag. |
+| [Zenodo](https://zenodo.org) | 50 GB | Free | DOI-backed, permanent. |
+
 **Common mistakes:**
 
 - **Hard-coding an absolute path.** Always use `fetch()` or `DATA_DIR` from `interface/data` — they resolve `data/` relative to the repo root regardless of where `evaluate.py` is run from.
 - **Storing downloaded data in `run_state` and mutating it.** `run_state` is shared across all games; treat it as read-only after `init_evaluation_run` returns. Load the file once and store the result immutably.
 - **Forgetting to add a comment block.** Put a comment near the top of your strategy file documenting the external dependency (filename, size, URL) so contributors know what to expect before running.
+
+See `strategies/oh/load_data.py` (and `.cpp`, `.js`) for a working end-to-end example.

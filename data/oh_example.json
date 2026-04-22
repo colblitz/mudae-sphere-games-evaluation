@@ -1,0 +1,16 @@
+{
+  "description": "Example color priority weights for the load_data oh strategy.",
+  "note": "This file is committed directly to data/ (it is tiny). For large files, host externally and use fetch() — it will download only when the file is absent or the hash does not match.",
+  "color_values": {
+    "spW": 300,
+    "spR": 150,
+    "spD": 104,
+    "spO": 90,
+    "spL": 76,
+    "spY": 55,
+    "spG": 35,
+    "spT": 20,
+    "spB": 10,
+    "spP": 8
+  }
+}
