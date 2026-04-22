@@ -221,8 +221,9 @@ def make_entry(result: dict[str, Any], strategy_path: str) -> dict[str, Any]:
         "date": str(date.today()),
     }
     # Copy all numeric stats
-    for key in ("ev", "stdev", "red_rate", "oc_rate",
-                "avg_clicks", "perfect_rate", "all_ships_rate", "loss_5050_rate",
+    for key in ("ev", "stdev", "stdev_ev", "red_rate", "oc_rate",
+                "avg_clicks", "stdev_clicks", "avg_ship_clicks", "stdev_ship_clicks",
+                "perfect_rate", "all_ships_rate", "loss_5050_rate",
                 "n_games", "n_boards", "aggregate_ev", "seed"):
         if key in result:
             entry[key] = result[key]
@@ -349,15 +350,17 @@ def render_ot_tables(lb: dict[str, Any]) -> str:
         top5 = vdata.get("top5", [])
         sections.append(f"\n**{nc}-color variant**\n")
         v_lines = [
-            "| Rank | Strategy | EV | Stdev | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Commit | Date |",
-            "|------|----------|----|-------|----------|------------|-------------|------------|--------|------|",
+            "| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |",
+            "|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|",
         ]
         for i, e in enumerate(top5, 1):
             fname = Path(e.get("filename", "")).name
             v_lines.append(
-                f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} | {_fmt_f(e.get('stdev'))} "
+                f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} | {_fmt_f(e.get('stdev_ev','—'))} "
                 f"| {_fmt_pct(e.get('perfect_rate','—'))} | {_fmt_pct(e.get('all_ships_rate','—'))} "
                 f"| {_fmt_pct(e.get('loss_5050_rate','—'))} | {_fmt_f(e.get('avg_clicks','—'))} "
+                f"| {_fmt_f(e.get('stdev_clicks','—'))} | {_fmt_f(e.get('avg_ship_clicks','—'))} "
+                f"| {_fmt_f(e.get('stdev_ship_clicks','—'))} "
                 f"| `{e.get('commit','?')}` | {e.get('date','?')} |"
             )
         sections.append("\n".join(v_lines))
@@ -503,8 +506,9 @@ def main() -> None:
             "commit": commit_for_entry,
             "date": str(date.today()),
         }
-        for key in ("ev", "stdev", "red_rate", "oc_rate",
-                    "avg_clicks", "perfect_rate", "all_ships_rate", "loss_5050_rate",
+        for key in ("ev", "stdev", "stdev_ev", "red_rate", "oc_rate",
+                    "avg_clicks", "stdev_clicks", "avg_ship_clicks", "stdev_ship_clicks",
+                    "perfect_rate", "all_ships_rate", "loss_5050_rate",
                     "n_games", "n_boards", "aggregate_ev", "seed"):
             if key in res:
                 entry[key] = res[key]

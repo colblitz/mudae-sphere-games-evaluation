@@ -56,14 +56,17 @@ struct OQResult {
 };
 
 struct OTVariantResult {
-    int      n_colors       = 0;
-    double   ev             = 0.0;
-    double   stdev          = 0.0;
-    double   avg_clicks     = 0.0;  // average total clicks per game (blue + free)
-    double   perfect_rate   = 0.0;  // fraction of games where all ship cells were revealed
-    double   all_ships_rate = 0.0;  // fraction of games where all ships were hit
-    double   loss_5050_rate = 0.0;  // fraction of games lost on a ~50/50 blue decision
-    uint64_t n_boards       = 0;
+    int      n_colors            = 0;
+    double   ev                  = 0.0;
+    double   stdev_ev            = 0.0;  // stdev of score
+    double   avg_clicks          = 0.0;  // average total clicks per game (blue + free)
+    double   stdev_clicks        = 0.0;  // stdev of total clicks
+    double   avg_ship_clicks     = 0.0;  // average number of clicks that hit a ship cell
+    double   stdev_ship_clicks   = 0.0;  // stdev of ship-cell clicks
+    double   perfect_rate        = 0.0;  // fraction of games where all ship cells were revealed
+    double   all_ships_rate      = 0.0;  // fraction of games where all ships were hit
+    double   loss_5050_rate      = 0.0;  // fraction of games lost on a ~50/50 blue decision
+    uint64_t n_boards            = 0;
 };
 
 struct OTResult {

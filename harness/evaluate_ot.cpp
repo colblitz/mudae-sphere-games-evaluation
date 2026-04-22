@@ -3,13 +3,16 @@
  *
  * Runs the strategy against all boards for each n_colors variant (6–9) and
  * reports, per variant and aggregated:
- *   ev             — mean score
- *   stdev          — standard deviation
- *   avg_clicks     — average total clicks per game (blue + free ship cells)
- *   perfect_rate   — fraction of games where all ship cells were revealed
- *   all_ships_rate — fraction of games where all ships were hit (≥1 cell each)
- *   loss_5050_rate — fraction of games ended by a blue click where
- *                    P(blue) was between 0.25 and 0.75 ("true 50/50 loss")
+ *   ev                — mean score
+ *   stdev_ev          — standard deviation of score
+ *   avg_clicks        — average total clicks per game (blue + free ship cells)
+ *   stdev_clicks      — standard deviation of total clicks
+ *   avg_ship_clicks   — average number of clicks that hit a ship cell
+ *   stdev_ship_clicks — standard deviation of ship-cell clicks
+ *   perfect_rate      — fraction of games where all ship cells were revealed
+ *   all_ships_rate    — fraction of games where all ships were hit (≥1 cell each)
+ *   loss_5050_rate    — fraction of games ended by a blue click where
+ *                       P(blue) was between 0.25 and 0.75 ("true 50/50 loss")
  *
  * Board model (n_colors = 6..9, n_rare = n_colors - 4):
  *   5×5 grid, 25 cells start covered.  Blue click budget: 4.
@@ -184,6 +187,7 @@ static bool ot_game_over(int blues_used, int ships_hit) {
 struct OTGameResult {
     double score        = 0.0;
     int    total_clicks = 0;
+    int    ship_clicks  = 0;   // number of clicks that hit a ship cell
     bool   perfect      = false;  // all ship cells revealed
     bool   all_ships    = false;  // all distinct ships hit
     bool   loss_5050    = false;  // lost on a ~50/50 blue decision
@@ -231,6 +235,7 @@ static OTGameResult run_ot_game(
     };
 
     int revealed_ship_cells = 0;
+    int ship_clicks         = 0;  // clicks that hit a ship cell
     // Track whether game-ending blue was ~50/50
     bool last_blue_was_5050 = false;
 
@@ -269,6 +274,7 @@ static OTGameResult run_ot_game(
             score += ot_ship_value(color);
             ++ships_hit;
             ++revealed_ship_cells;
+            ++ship_clicks;
             int si = ship_index_for_cell(idx);
             if (si >= 0 && si < n_ships) ship_hit[si] = true;
             // Ship click is free — no blues_used increment
@@ -295,6 +301,7 @@ static OTGameResult run_ot_game(
     OTGameResult res;
     res.score        = score;
     res.total_clicks = total_clicks;
+    res.ship_clicks  = ship_clicks;
     res.perfect      = (revealed_ship_cells == total_ship_cells);
     res.all_ships    = true;
     for (int s = 0; s < n_ships; ++s)
@@ -336,6 +343,7 @@ static OTVariantResult evaluate_variant(
     // Per-thread accumulators
     std::vector<Welford>  ev_acc(n_threads);
     std::vector<Welford>  clicks_acc(n_threads);
+    std::vector<Welford>  ship_clicks_acc(n_threads);
     // For fractional stats (weighted per board): accumulate as doubles
     std::vector<double>   perfect_acc(n_threads, 0.0);
     std::vector<double>   all_ships_acc(n_threads, 0.0);
@@ -368,25 +376,28 @@ static OTVariantResult evaluate_variant(
         // Each assignment runs an independent game; the per-board observation
         // fed into Welford is the probability-weighted sum of scores, so stdev
         // reflects across-board spatial variance only.
-        double board_ev       = 0.0;
-        double board_clicks   = 0.0;
-        double board_perfect  = 0.0;
-        double board_allships = 0.0;
-        double board_loss5050 = 0.0;
+        double board_ev          = 0.0;
+        double board_clicks      = 0.0;
+        double board_ship_clicks = 0.0;
+        double board_perfect     = 0.0;
+        double board_allships    = 0.0;
+        double board_loss5050    = 0.0;
 
         for (const auto& assign : assignments) {
             auto colors = ot_board_colors_assigned(boards[i], assign);
             auto res    = run_ot_game(boards[i], colors, n_colors,
                                       *bridges[tid], evaluation_run_states[tid]);
-            board_ev       += assign.weight * res.score;
-            board_clicks   += assign.weight * static_cast<double>(res.total_clicks);
-            board_perfect  += assign.weight * (res.perfect   ? 1.0 : 0.0);
-            board_allships += assign.weight * (res.all_ships  ? 1.0 : 0.0);
-            board_loss5050 += assign.weight * (res.loss_5050  ? 1.0 : 0.0);
+            board_ev          += assign.weight * res.score;
+            board_clicks      += assign.weight * static_cast<double>(res.total_clicks);
+            board_ship_clicks += assign.weight * static_cast<double>(res.ship_clicks);
+            board_perfect     += assign.weight * (res.perfect   ? 1.0 : 0.0);
+            board_allships    += assign.weight * (res.all_ships  ? 1.0 : 0.0);
+            board_loss5050    += assign.weight * (res.loss_5050  ? 1.0 : 0.0);
         }
 
         ev_acc[tid].update(board_ev);
         clicks_acc[tid].update(board_clicks);
+        ship_clicks_acc[tid].update(board_ship_clicks);
         perfect_acc[tid]  += board_perfect;
         all_ships_acc[tid] += board_allships;
         loss_5050_acc[tid] += board_loss5050;
@@ -397,38 +408,48 @@ static OTVariantResult evaluate_variant(
     prog.done(ev_acc[0].mean);
 
     // Merge per-thread accumulators via Chan's parallel Welford algorithm
-    double mean_total  = 0.0, clicks_total = 0.0;
-    double M2_ev = 0.0, M2_cl = 0.0;
+    double mean_total        = 0.0;
+    double clicks_total      = 0.0;
+    double ship_clicks_total = 0.0;
+    double M2_ev = 0.0, M2_cl = 0.0, M2_sc = 0.0;
     uint64_t count_total = 0;
     double perf = 0.0, all_s = 0.0, loss5050 = 0.0;
 
     for (int t = 0; t < n_threads; ++t) {
         uint64_t nb = ev_acc[t].count;
         if (nb == 0) continue;
-        double delta   = ev_acc[t].mean - mean_total;
-        double delta_c = clicks_acc[t].mean - clicks_total;
+        double delta    = ev_acc[t].mean        - mean_total;
+        double delta_c  = clicks_acc[t].mean    - clicks_total;
+        double delta_sc = ship_clicks_acc[t].mean - ship_clicks_total;
         uint64_t nc = count_total + nb;
-        mean_total   += delta   * static_cast<double>(nb) / static_cast<double>(nc);
-        clicks_total += delta_c * static_cast<double>(nb) / static_cast<double>(nc);
-        M2_ev += ev_acc[t].M2 + delta * delta * static_cast<double>(count_total)
-                 * static_cast<double>(nb) / static_cast<double>(nc);
-        M2_cl += clicks_acc[t].M2 + delta_c * delta_c * static_cast<double>(count_total)
-                 * static_cast<double>(nb) / static_cast<double>(nc);
+        double w = static_cast<double>(nb) / static_cast<double>(nc);
+        mean_total        += delta    * w;
+        clicks_total      += delta_c  * w;
+        ship_clicks_total += delta_sc * w;
+        double cross = static_cast<double>(count_total) * static_cast<double>(nb)
+                       / static_cast<double>(nc);
+        M2_ev += ev_acc[t].M2        + delta    * delta    * cross;
+        M2_cl += clicks_acc[t].M2    + delta_c  * delta_c  * cross;
+        M2_sc += ship_clicks_acc[t].M2 + delta_sc * delta_sc * cross;
         count_total = nc;
         perf     += perfect_acc[t];
         all_s    += all_ships_acc[t];
         loss5050 += loss_5050_acc[t];
     }
 
+    double denom = count_total > 1 ? static_cast<double>(count_total - 1) : 1.0;
     OTVariantResult r;
-    r.n_colors       = n_colors;
-    r.n_boards       = count_total;
-    r.ev             = mean_total;
-    r.stdev          = count_total > 1 ? std::sqrt(M2_ev / static_cast<double>(count_total - 1)) : 0.0;
-    r.avg_clicks     = clicks_total;
-    r.perfect_rate   = count_total > 0 ? perf     / static_cast<double>(count_total) : 0.0;
-    r.all_ships_rate = count_total > 0 ? all_s    / static_cast<double>(count_total) : 0.0;
-    r.loss_5050_rate = count_total > 0 ? loss5050 / static_cast<double>(count_total) : 0.0;
+    r.n_colors            = n_colors;
+    r.n_boards            = count_total;
+    r.ev                  = mean_total;
+    r.stdev_ev            = count_total > 1 ? std::sqrt(M2_ev / denom) : 0.0;
+    r.avg_clicks          = clicks_total;
+    r.stdev_clicks        = count_total > 1 ? std::sqrt(M2_cl / denom) : 0.0;
+    r.avg_ship_clicks     = ship_clicks_total;
+    r.stdev_ship_clicks   = count_total > 1 ? std::sqrt(M2_sc / denom) : 0.0;
+    r.perfect_rate        = count_total > 0 ? perf     / static_cast<double>(count_total) : 0.0;
+    r.all_ships_rate      = count_total > 0 ? all_s    / static_cast<double>(count_total) : 0.0;
+    r.loss_5050_rate      = count_total > 0 ? loss5050 / static_cast<double>(count_total) : 0.0;
     return r;
 }
 
@@ -504,11 +525,16 @@ int main(int argc, char* argv[]) {
         const OTVariantResult& vr = overall_result.variants[nc - 6];
         if (vr.n_boards == 0) continue;
         printf("{\"n_colors\":%d,\"n_boards\":%llu,"
-               "\"ev\":%.4f,\"stdev\":%.4f,"
-               "\"avg_clicks\":%.4f,\"perfect_rate\":%.4f,"
+               "\"ev\":%.4f,\"stdev_ev\":%.4f,"
+               "\"avg_clicks\":%.4f,\"stdev_clicks\":%.4f,"
+               "\"avg_ship_clicks\":%.4f,\"stdev_ship_clicks\":%.4f,"
+               "\"perfect_rate\":%.4f,"
                "\"all_ships_rate\":%.4f,\"loss_5050_rate\":%.4f}",
                vr.n_colors, (unsigned long long)vr.n_boards,
-               vr.ev, vr.stdev, vr.avg_clicks, vr.perfect_rate,
+               vr.ev, vr.stdev_ev,
+               vr.avg_clicks, vr.stdev_clicks,
+               vr.avg_ship_clicks, vr.stdev_ship_clicks,
+               vr.perfect_rate,
                vr.all_ships_rate, vr.loss_5050_rate);
     }
     printf("]}\n");
