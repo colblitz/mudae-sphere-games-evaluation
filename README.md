@@ -18,125 +18,26 @@ Submit a strategy, run the evaluator, and see how it compares against others on 
 
 ---
 
-## Leaderboards
+## Submitting a Strategy
 
-The top 5 strategies per game, ranked by expected value (EV). Updated automatically by `scripts/evaluate.py --commit`.
+1. Create a file in `strategies/<game>/` (e.g. `strategies/oc/my_strategy.py`).
+2. Subclass the appropriate ABC from `interface/strategy.py` (Python), inherit from the base class in `interface/strategy.h` (C++), or extend the class in `interface/strategy.js` (JS).
+3. Implement `next_click`. Optionally implement `init_run` and `init_payload`.
+4. Iterate freely — run the evaluator as many times as you like. Results are printed only; no files are changed.
+   ```bash
+   python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py
+   ```
+5. When you're satisfied with your strategy, record it with `--commit`:
+   ```bash
+   python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py --commit
+   ```
+   This makes **two commits** automatically:
+   - **Commit 1** — `strategy: oc my_strategy.py` — commits the strategy file so it has a stable hash. Skipped if the file is already committed and unmodified.
+   - **Commit 2** — `scores: oc my_strategy.py ev=78.43` — runs evaluation, writes a scores artifact to `scores/oc/<timestamp>_<commit>_<basename>.json`, and commits it. If the result enters the top 5, `leaderboards/oc.json` and `README.md` are also updated and included in the same commit.
 
-<!-- LEADERBOARD_START -->
-### /sphere harvest (oh)
+   The scores artifact records the timestamp, strategy commit hash, filename, all harness stats, and run parameters. It is always written on `--commit` regardless of leaderboard placement.
 
-| Rank | Strategy | EV | Stdev | OC Rate | Commit | Date |
-|------|----------|----|-------|---------|--------|------|
-| 1 | `random_clicks.py` | 117.63 | 224.46 | 4.1% | `e5b8664` | 2026-04-21 |
-
-### /sphere chest (oc)
-
-| Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
-|------|----------|----|-------|-------|--------|------|
-| 1 | `global_state.cpp` | 64.50 | 53.10 | 11.1% | `312108f` | 2026-04-21 |
-
-### /sphere quest (oq)
-
-| Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
-|------|----------|----|-------|-------|--------|------|
-
-### /sphere trace (ot)
-
-**Aggregate (board-count weighted EV across all variants)**
-
-| Rank | Strategy | Agg EV | Commit | Date |
-|------|----------|--------|--------|------|
-
-**6-color variant**
-
-| Rank | Strategy | EV | Stdev | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Commit | Date |
-|------|----------|----|-------|----------|------------|-------------|------------|--------|------|
-
-**7-color variant**
-
-| Rank | Strategy | EV | Stdev | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Commit | Date |
-|------|----------|----|-------|----------|------------|-------------|------------|--------|------|
-
-**8-color variant**
-
-| Rank | Strategy | EV | Stdev | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Commit | Date |
-|------|----------|----|-------|----------|------------|-------------|------------|--------|------|
-
-**9-color variant**
-
-| Rank | Strategy | EV | Stdev | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Commit | Date |
-|------|----------|----|-------|----------|------------|-------------|------------|--------|------|
-
-<!-- LEADERBOARD_END -->
-
----
-
-## Game Rules
-
-### /sphere harvest (oh)
-
-- **Grid:** 5×5, 25 cells. **10 cells are revealed at the start of every game**; the other 15 start covered (`spU`). The 10 initial reveals are passed to your strategy before the first click decision.
-- **Click budget:** 5 clicks.
-- **Blue (`spB`):** reveals 3 random covered cells when clicked. Worth ~10 SP.
-- **Teal (`spT`):** reveals 1 random covered cell. Worth ~20 SP.
-- **Purple (`spP`):** click is **free** (does not consume a click). Worth ~5–12 SP.
-- **Dark (`spD`):** transforms into another color when clicked (~104 SP average). If it transforms into purple, the click is also **refunded**.
-- **Light (`spL`):** flat value ~76 SP average.
-- **Covered (`spU`):** clicking a covered cell resolves it stochastically to a random color.
-- **Chest boards (~50% of games):** one covered cell is a "chest" worth ~345 SP on average.
-- **Goal:** maximize total SP across your 5 clicks.
-
-**Evaluation:** 100,000 Monte Carlo games. Stats: `ev`, `stdev`, `oc_rate` (fraction of games with a chest cell).
-
-### /sphere chest (oc)
-
-- **Grid:** 5×5, all 25 cells start covered.
-- **Click budget:** 5 clicks.
-- **One red sphere (`spR`, 150 SP)** is hidden at a non-center position. Its location determines every other cell's color via fixed spatial zones:
-
-  | Zone | Relation to red | Color | SP | Count |
-  |------|----------------|-------|----|-------|
-  | orth | orthogonally adjacent (`|dr|+|dc|==1`) | orange `spO` | 90 | 2 |
-  | diag | diagonally adjacent (`|dr|==|dc|, dr≠0`) | yellow `spY` | 55 | 3 |
-  | rowcol | same row/col, not orth/diag | green `spG` | 35 | 4 |
-  | none | no geometric relation | blue `spB` | 10 | varies |
-  | residual | orth/rowcol remainder | teal `spT` | 20 | varies |
-
-- **Goal:** maximize SP across 5 clicks.
-
-> **Note on board distribution:** All 16,800 valid boards are weighted equally in evaluation. In practice, Mudae may not use a uniform distribution. Equal weighting is used here for standardized, reproducible comparison.
-
-**Evaluation:** exhaustive over all 16,800 boards. Stats: `ev`, `stdev`, `red_rate` (fraction of boards where red was clicked).
-
-### /sphere quest (oq)
-
-- **Grid:** 5×5, all 25 cells start covered.
-- **Non-purple click budget:** 7 clicks.
-- **4 purple spheres (`spP`)** are hidden. Clicking a purple is **free**.
-- **Non-purple cells** reveal the count of purple neighbors (0–4) as a color:
-  `spB`=0, `spT`=1, `spG`=2, `spY`=3, `spO`=4 purple neighbors.
-- **Goal:** click 3 purples → the 4th converts to red (`spR`, 150 SP, free click). Spend remaining budget greedily on highest-value derivable tiles.
-
-**Evaluation:** exhaustive over all C(25,4) = 12,650 boards. Stats: `ev`, `stdev`, `red_rate`.
-
-### /sphere trace (ot)
-
-- **Grid:** 5×5, all 25 cells start covered.
-- **Blue click budget:** 4. Clicking a **ship cell is free**.
-- Ships are contiguous horizontal or vertical segments, no overlap:
-
-  | Variant | Ships | Blue cells | Ship cells |
-  |---------|-------|------------|------------|
-  | 6-color | teal(4) green(3) yellow(3) orange(2) light(2) | 11 | 14 |
-  | 7-color | + dark(2) | 9 | 16 |
-  | 8-color | + red(2) | 7 | 18 |
-  | 9-color | + white(2) | 5 | 20 |
-
-- **Extra Chance:** if you click blue #4 before hitting 5 ship cells, the game continues. Each additional blue while `ships_hit < 5` extends the game. After the 5th ship hit, Extra Chance shuts off — the next blue ends the game.
-- **Perfect game:** find all blues via constraint inference, then collect all remaining ship cells for free.
-- **Ship values:** `spT`=20, `spG`=35, `spY`=55, `spO`=90, `spL`=76, `spD`=104, `spR`=150, `spW`=500.
-
-**Evaluation:** exhaustive over all boards per n_colors variant. Stats per variant and aggregated: `ev`, `stdev`, `avg_clicks`, `perfect_rate`, `all_ships_rate`, `loss_5050_rate` (fraction of games lost on a ~50/50 blue decision).
+The evaluator builds the harness binary automatically if it is not already built or is out of date. For C++ strategies, it also compiles your `.cpp` to a `.so` automatically.
 
 ---
 
@@ -243,26 +144,56 @@ register(new MyOCStrategy());
 
 ---
 
-## Submitting a Strategy
+## Leaderboards
 
-1. Create a file in `strategies/<game>/` (e.g. `strategies/oc/my_strategy.py`).
-2. Subclass the appropriate ABC from `interface/strategy.py` (Python), inherit from the base class in `interface/strategy.h` (C++), or extend the class in `interface/strategy.js` (JS).
-3. Implement `next_click`. Optionally implement `init_run` and `init_payload`.
-4. Iterate freely — run the evaluator as many times as you like. Results are printed only; no files are changed.
-   ```bash
-   python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py
-   ```
-5. When you're satisfied with your strategy, record it with `--commit`:
-   ```bash
-   python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py --commit
-   ```
-   This makes **two commits** automatically:
-   - **Commit 1** — `strategy: oc my_strategy.py` — commits the strategy file so it has a stable hash. Skipped if the file is already committed and unmodified.
-   - **Commit 2** — `scores: oc my_strategy.py ev=78.43` — runs evaluation, writes a scores artifact to `scores/oc/<timestamp>_<commit>_<basename>.json`, and commits it. If the result enters the top 5, `leaderboards/oc.json` and `README.md` are also updated and included in the same commit.
+The top 5 strategies per game, ranked by expected value (EV). Updated automatically by `scripts/evaluate.py --commit`.
 
-   The scores artifact records the timestamp, strategy commit hash, filename, all harness stats, and run parameters. It is always written on `--commit` regardless of leaderboard placement.
+<!-- LEADERBOARD_START -->
+### /sphere harvest (oh)
 
-The evaluator builds the harness binary automatically if it is not already built or is out of date. For C++ strategies, it also compiles your `.cpp` to a `.so` automatically.
+| Rank | Strategy | EV | Stdev | OC Rate | Commit | Date |
+|------|----------|----|-------|---------|--------|------|
+| 1 | `random_clicks.py` | 117.63 | 224.46 | 4.1% | `e5b8664` | 2026-04-21 |
+
+### /sphere chest (oc)
+
+| Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
+|------|----------|----|-------|-------|--------|------|
+| 1 | `global_state.cpp` | 64.50 | 53.10 | 11.1% | `312108f` | 2026-04-21 |
+
+### /sphere quest (oq)
+
+| Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
+|------|----------|----|-------|-------|--------|------|
+
+### /sphere trace (ot)
+
+**Aggregate (board-count weighted EV across all variants)**
+
+| Rank | Strategy | Agg EV | Commit | Date |
+|------|----------|--------|--------|------|
+
+**6-color variant**
+
+| Rank | Strategy | EV | Stdev | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Commit | Date |
+|------|----------|----|-------|----------|------------|-------------|------------|--------|------|
+
+**7-color variant**
+
+| Rank | Strategy | EV | Stdev | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Commit | Date |
+|------|----------|----|-------|----------|------------|-------------|------------|--------|------|
+
+**8-color variant**
+
+| Rank | Strategy | EV | Stdev | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Commit | Date |
+|------|----------|----|-------|----------|------------|-------------|------------|--------|------|
+
+**9-color variant**
+
+| Rank | Strategy | EV | Stdev | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Commit | Date |
+|------|----------|----|-------|----------|------------|-------------|------------|--------|------|
+
+<!-- LEADERBOARD_END -->
 
 ---
 
@@ -331,3 +262,72 @@ scripts/generate_boards --text
 ```
 
 oh does not have a board file — boards are generated stochastically during evaluation using the appearance distribution in `boards/oh_dark_stats.json`.
+
+---
+
+## Game Rules
+
+### /sphere harvest (oh)
+
+- **Grid:** 5×5, 25 cells. **10 cells are revealed at the start of every game**; the other 15 start covered (`spU`). The 10 initial reveals are passed to your strategy before the first click decision.
+- **Click budget:** 5 clicks.
+- **Blue (`spB`):** reveals 3 random covered cells when clicked. Worth ~10 SP.
+- **Teal (`spT`):** reveals 1 random covered cell. Worth ~20 SP.
+- **Purple (`spP`):** click is **free** (does not consume a click). Worth ~5–12 SP.
+- **Dark (`spD`):** transforms into another color when clicked (~104 SP average). If it transforms into purple, the click is also **refunded**.
+- **Light (`spL`):** flat value ~76 SP average.
+- **Covered (`spU`):** clicking a covered cell resolves it stochastically to a random color.
+- **Chest boards (~50% of games):** one covered cell is a "chest" worth ~345 SP on average.
+- **Goal:** maximize total SP across your 5 clicks.
+
+**Evaluation:** 100,000 Monte Carlo games. Stats: `ev`, `stdev`, `oc_rate` (fraction of games with a chest cell).
+
+### /sphere chest (oc)
+
+- **Grid:** 5×5, all 25 cells start covered.
+- **Click budget:** 5 clicks.
+- **One red sphere (`spR`, 150 SP)** is hidden at a non-center position. Its location determines every other cell's color via fixed spatial zones:
+
+  | Zone | Relation to red | Color | SP | Count |
+  |------|----------------|-------|----|-------|
+  | orth | orthogonally adjacent (`|dr|+|dc|==1`) | orange `spO` | 90 | 2 |
+  | diag | diagonally adjacent (`|dr|==|dc|, dr≠0`) | yellow `spY` | 55 | 3 |
+  | rowcol | same row/col, not orth/diag | green `spG` | 35 | 4 |
+  | none | no geometric relation | blue `spB` | 10 | varies |
+  | residual | orth/rowcol remainder | teal `spT` | 20 | varies |
+
+- **Goal:** maximize SP across 5 clicks.
+
+> **Note on board distribution:** All 16,800 valid boards are weighted equally in evaluation. In practice, Mudae may not use a uniform distribution. Equal weighting is used here for standardized, reproducible comparison.
+
+**Evaluation:** exhaustive over all 16,800 boards. Stats: `ev`, `stdev`, `red_rate` (fraction of boards where red was clicked).
+
+### /sphere quest (oq)
+
+- **Grid:** 5×5, all 25 cells start covered.
+- **Non-purple click budget:** 7 clicks.
+- **4 purple spheres (`spP`)** are hidden. Clicking a purple is **free**.
+- **Non-purple cells** reveal the count of purple neighbors (0–4) as a color:
+  `spB`=0, `spT`=1, `spG`=2, `spY`=3, `spO`=4 purple neighbors.
+- **Goal:** click 3 purples → the 4th converts to red (`spR`, 150 SP, free click). Spend remaining budget greedily on highest-value derivable tiles.
+
+**Evaluation:** exhaustive over all C(25,4) = 12,650 boards. Stats: `ev`, `stdev`, `red_rate`.
+
+### /sphere trace (ot)
+
+- **Grid:** 5×5, all 25 cells start covered.
+- **Blue click budget:** 4. Clicking a **ship cell is free**.
+- Ships are contiguous horizontal or vertical segments, no overlap:
+
+  | Variant | Ships | Blue cells | Ship cells |
+  |---------|-------|------------|------------|
+  | 6-color | teal(4) green(3) yellow(3) orange(2) light(2) | 11 | 14 |
+  | 7-color | + dark(2) | 9 | 16 |
+  | 8-color | + red(2) | 7 | 18 |
+  | 9-color | + white(2) | 5 | 20 |
+
+- **Extra Chance:** if you click blue #4 before hitting 5 ship cells, the game continues. Each additional blue while `ships_hit < 5` extends the game. After the 5th ship hit, Extra Chance shuts off — the next blue ends the game.
+- **Perfect game:** find all blues via constraint inference, then collect all remaining ship cells for free.
+- **Ship values:** `spT`=20, `spG`=35, `spY`=55, `spO`=90, `spL`=76, `spD`=104, `spR`=150, `spW`=500.
+
+**Evaluation:** exhaustive over all boards per n_colors variant. Stats per variant and aggregated: `ev`, `stdev`, `avg_clicks`, `perfect_rate`, `all_ships_rate`, `loss_5050_rate` (fraction of games lost on a ~50/50 blue decision).
