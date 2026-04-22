@@ -56,19 +56,19 @@ class StrategyBase {
    * Override to set up per-game state.
    *
    * @param {Object} meta  Game metadata (keys vary per game — see subclasses).
-   * @param {*}      state Value returned by initPayload().
+   * @param {*}      state Value returned by initEvaluationRun().
    * @returns {*}    Updated state for the first nextClick call.
    */
-  initRun(meta, state) {
+  initGamePayload(meta, state) {
     return state;
   }
 
   /**
-   * Return the initial state before initRun is called.
+   * Return the initial state before initGamePayload is called.
    * Default: null.
    * @returns {*}
    */
-  initPayload() {
+  initEvaluationRun() {
     return null;
   }
 
@@ -79,7 +79,7 @@ class StrategyBase {
    *   All cells revealed so far.
    * @param {Object} meta  Game-specific metadata (see subclass docs).
    * @param {*}      state Value returned by the previous nextClick (or
-   *                       initRun for the first call).
+   *                       initGamePayload for the first call).
    * @returns {{ row: number, col: number, state: * }}
    */
   nextClick(revealed, meta, state) {  // eslint-disable-line no-unused-vars
@@ -178,10 +178,10 @@ if (require.main === module) {
 
     try {
       let result;
-      if (msg.method === "init_payload") {
-        result = { value: _strategy.initPayload() };
-      } else if (msg.method === "init_run") {
-        result = { value: _strategy.initRun(msg.meta, msg.state) };
+      if (msg.method === "init_evaluation_run") {
+        result = { value: _strategy.initEvaluationRun() };
+      } else if (msg.method === "init_game_payload") {
+        result = { value: _strategy.initGamePayload(msg.meta, msg.state) };
       } else if (msg.method === "next_click") {
         const { row, col, state } = _strategy.nextClick(msg.revealed, msg.meta, msg.state);
         result = { row, col, state };

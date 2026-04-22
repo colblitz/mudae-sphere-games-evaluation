@@ -1,8 +1,12 @@
 /**
- * random_cpp.cpp — Random baseline strategy for /sphere harvest (oh).
+ * random_clicks.cpp — Random baseline strategy for /sphere harvest (oh).
  *
  * Picks a random unrevealed, unclicked cell on every turn.
  * Prefers purple cells (they are free) if any are visible.
+ *
+ * This is the simplest possible strategy — no state, no inference.
+ * See stateful.cpp (oq/) for per-game state usage, global_state.cpp (oc/)
+ * for cross-game global state usage.
  */
 
 #include <cstdlib>
@@ -61,8 +65,8 @@ private:
 extern "C" sphere::StrategyBase* create_strategy()               { return new RandomOHStrategy(); }
 extern "C" void                  destroy_strategy(sphere::StrategyBase* s) { delete s; }
 
-extern "C" const char* strategy_init_payload(void*) { return "{}"; }
-extern "C" const char* strategy_init_run(void*, const char*, const char* state) { return state; }
+extern "C" const char* strategy_init_evaluation_run(void*) { return "{}"; }
+extern "C" const char* strategy_init_game_payload(void*, const char*, const char* state) { return state; }
 
 extern "C" const char* strategy_next_click(void* inst,
                                             const char* revealed_json,

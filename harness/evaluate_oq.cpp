@@ -127,7 +127,7 @@ static std::pair<double, bool> run_oq_game(
     std::string meta = "{\"clicks_left\":" + std::to_string(clicks_left)
                      + ",\"max_clicks\":" + std::to_string(MAX_CLICKS)
                      + ",\"purples_found\":0}";
-    state_json = strategy.init_run(meta, state_json);
+    state_json = strategy.init_game_payload(meta, state_json);
 
     while (clicks_left > 0) {
         // If red is visible, click it immediately (free)
@@ -246,7 +246,7 @@ int main(int argc, char* argv[]) {
 
     std::vector<std::string> state_jsons(n_threads);
     for (int t = 0; t < n_threads; ++t)
-        state_jsons[t] = bridges[t]->init_payload();
+        state_jsons[t] = bridges[t]->init_evaluation_run();
 
     std::vector<Welford>  ev_acc(n_threads);
     std::vector<uint64_t> red_count(n_threads, 0);

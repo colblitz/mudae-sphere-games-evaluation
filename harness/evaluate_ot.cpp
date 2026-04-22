@@ -130,7 +130,7 @@ static OTGameResult run_ot_game(
     std::string meta = "{\"n_colors\":" + std::to_string(n_colors)
                      + ",\"ships_hit\":0,\"blues_used\":0"
                      + ",\"max_clicks\":" + std::to_string(OT_BASE_CLICKS) + "}";
-    state_json = strategy.init_run(meta, state_json);
+    state_json = strategy.init_game_payload(meta, state_json);
 
     auto ship_index_for_cell = [&](int idx) -> int {
         int32_t bit = 1 << idx;
@@ -250,7 +250,7 @@ static OTVariantResult evaluate_variant(
 
     std::vector<std::string> state_jsons(n_threads);
     for (int t = 0; t < n_threads; ++t)
-        state_jsons[t] = bridges[t]->init_payload();
+        state_jsons[t] = bridges[t]->init_evaluation_run();
 
 #ifdef _OPENMP
     omp_set_num_threads(n_threads);

@@ -1,6 +1,12 @@
 /**
- * random_js.js — Random baseline strategy for /sphere trace (ot).
+ * random_clicks.js — Random baseline strategy for /sphere trace (ot).
+ *
  * Picks a random unclicked cell on every turn.
+ * No constraint inference — does not use ship geometry.
+ *
+ * This is the simplest possible strategy — no state, no inference.
+ * See stateful.js (oq/) for per-game state usage, global_state.js (oc/)
+ * for cross-game global state usage.
  */
 
 "use strict";

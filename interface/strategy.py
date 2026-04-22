@@ -2,10 +2,10 @@
 
 Each game has its own ABC.  To submit a strategy, create a file in
 ``strategies/<game>/`` that subclasses the appropriate ABC and implements
-``next_click``.  ``init_run`` and ``init_payload`` are optional overrides.
+``next_click``.  ``init_game_payload`` and ``init_evaluation_run`` are optional overrides.
 
 The harness instantiates the strategy class once per evaluation run, calls
-``init_run`` once before each game, and then calls ``next_click`` on every
+``init_game_payload`` once before each game, and then calls ``next_click`` on every
 click decision, threading the returned state payload back in.
 
 Revealed cell format
@@ -100,25 +100,29 @@ class OHStrategy(ABC):
         clicks_left (int): remaining click budget (5 at start, decreases by 1
             per non-purple, non-dark→purple click).
         max_clicks (int): total click budget for this game (always 5).
+        game_seed (int): per-game deterministic seed derived from the harness
+            master seed and game index.  Passed in the ``meta`` given to
+            ``init_game_payload`` so strategies can seed their own RNG and produce
+            identical results across runs for the same master seed.
     """
 
-    def init_payload(self) -> Any:
+    def init_evaluation_run(self) -> Any:
         """Return the initial state payload before a game starts.
 
         Override to pre-allocate per-game data structures.  The return value
-        is passed as ``state`` to ``init_run`` (if overridden) or directly to
+        is passed as ``state`` to ``init_game_payload`` (if overridden) or directly to
         the first ``next_click`` call.
 
         Default: returns ``None``.
         """
         return None
 
-    def init_run(self, meta: dict[str, Any], state: Any) -> Any:
+    def init_game_payload(self, meta: dict[str, Any], state: Any) -> Any:
         """Called once before the first click of each game.
 
         Args:
             meta: game metadata (same keys as passed to ``next_click``).
-            state: value returned by ``init_payload``.
+            state: value returned by ``init_evaluation_run``.
 
         Returns:
             Updated state payload for the first ``next_click`` call.
@@ -141,7 +145,7 @@ class OHStrategy(ABC):
                 ``{"row": int, "col": int, "color": str}``.
             meta: ``{"clicks_left": int, "max_clicks": int}``.
             state: value returned by the previous ``next_click`` call
-                (or ``init_run`` for the first call).
+                (or ``init_game_payload`` for the first call).
 
         Returns:
             ``(row, col, next_state)`` — coordinates of the cell to click
@@ -180,11 +184,11 @@ class OCStrategy(ABC):
         max_clicks (int): total click budget (always 5).
     """
 
-    def init_payload(self) -> Any:
+    def init_evaluation_run(self) -> Any:
         """Return the initial state payload. Default: None."""
         return None
 
-    def init_run(self, meta: dict[str, Any], state: Any) -> Any:
+    def init_game_payload(self, meta: dict[str, Any], state: Any) -> Any:
         """Called once before each game. Default: returns state unchanged."""
         return state
 
@@ -233,11 +237,11 @@ class OQStrategy(ABC):
         purples_found (int): number of purple cells clicked so far.
     """
 
-    def init_payload(self) -> Any:
+    def init_evaluation_run(self) -> Any:
         """Return the initial state payload. Default: None."""
         return None
 
-    def init_run(self, meta: dict[str, Any], state: Any) -> Any:
+    def init_game_payload(self, meta: dict[str, Any], state: Any) -> Any:
         """Called once before each game. Default: returns state unchanged."""
         return state
 
@@ -295,11 +299,11 @@ class OTStrategy(ABC):
         max_clicks (int): base blue click budget (always 4; Extra Chance may extend).
     """
 
-    def init_payload(self) -> Any:
+    def init_evaluation_run(self) -> Any:
         """Return the initial state payload. Default: None."""
         return None
 
-    def init_run(self, meta: dict[str, Any], state: Any) -> Any:
+    def init_game_payload(self, meta: dict[str, Any], state: Any) -> Any:
         """Called once before each game. Default: returns state unchanged."""
         return state
 

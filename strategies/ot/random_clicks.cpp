@@ -1,6 +1,12 @@
 /**
- * random_cpp.cpp — Random baseline strategy for /sphere chest (oc).
+ * random_clicks.cpp — Random baseline strategy for /sphere trace (ot).
+ *
  * Picks a random unclicked cell on every turn.
+ * No constraint inference — does not use ship geometry.
+ *
+ * This is the simplest possible strategy — no state, no inference.
+ * See stateful.cpp (oq/) for per-game state usage, global_state.cpp (oc/)
+ * for cross-game global state usage.
  */
 
 #include <cstdlib>
@@ -14,9 +20,9 @@
 
 using namespace sphere;
 
-class RandomOCStrategy : public OCStrategy {
+class RandomOTStrategy : public OTStrategy {
 public:
-    RandomOCStrategy() : rng_(static_cast<uint64_t>(std::time(nullptr))) {}
+    RandomOTStrategy() : rng_(static_cast<uint64_t>(std::time(nullptr))) {}
 
     void next_click(const std::vector<Cell>& revealed,
                     const std::string& /*meta_json*/,
@@ -41,10 +47,10 @@ private:
     std::mt19937_64 rng_;
 };
 
-extern "C" sphere::StrategyBase* create_strategy()                        { return new RandomOCStrategy(); }
+extern "C" sphere::StrategyBase* create_strategy()                        { return new RandomOTStrategy(); }
 extern "C" void                  destroy_strategy(sphere::StrategyBase* s) { delete s; }
-extern "C" const char* strategy_init_payload(void*)                        { return "{}"; }
-extern "C" const char* strategy_init_run(void*, const char*, const char* s){ return s; }
+extern "C" const char* strategy_init_evaluation_run(void*)                        { return "{}"; }
+extern "C" const char* strategy_init_game_payload(void*, const char*, const char* s){ return s; }
 
 extern "C" const char* strategy_next_click(void* inst,
                                             const char* revealed_json,
@@ -52,7 +58,7 @@ extern "C" const char* strategy_next_click(void* inst,
                                             const char* state_json)
 {
     static char buf[64];
-    auto* st = static_cast<RandomOCStrategy*>(inst);
+    auto* st = static_cast<RandomOTStrategy*>(inst);
     std::vector<Cell> revealed;
     const char* p = revealed_json;
     while ((p = strstr(p, "\"row\":")) != nullptr) {

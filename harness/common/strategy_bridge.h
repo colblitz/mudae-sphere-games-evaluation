@@ -17,8 +17,8 @@
  *
  * Usage:
  *   auto bridge = StrategyBridge::load("strategies/oc/my_strategy.py", "oc");
- *   bridge->init_payload();
- *   bridge->init_run(meta_json);
+ *   bridge->init_evaluation_run();
+ *   bridge->init_game_payload(meta_json);
  *   Click c = bridge->next_click(revealed, meta_json);
  */
 
@@ -57,8 +57,8 @@ class StrategyBridge {
 public:
     virtual ~StrategyBridge() = default;
 
-    virtual std::string init_payload()                                         = 0;
-    virtual std::string init_run(const std::string& meta_json,
+    virtual std::string init_evaluation_run()                                         = 0;
+    virtual std::string init_game_payload(const std::string& meta_json,
                                  const std::string& state_json)                = 0;
     virtual Click       next_click(const std::vector<Cell>& revealed,
                                    const std::string&        meta_json,
@@ -171,9 +171,9 @@ public:
         Py_XDECREF(instance_);
     }
 
-    std::string init_payload() override {
+    std::string init_evaluation_run() override {
         PyGILState_STATE gstate = PyGILState_Ensure();
-        PyObject* ret = PyObject_CallMethod(instance_, "init_payload", nullptr);
+        PyObject* ret = PyObject_CallMethod(instance_, "init_evaluation_run", nullptr);
         if (!ret) { PyErr_Clear(); PyGILState_Release(gstate); return "null"; }
         std::string s = py_to_json(ret);
         Py_DECREF(ret);
@@ -181,12 +181,12 @@ public:
         return s;
     }
 
-    std::string init_run(const std::string& meta_json,
+    std::string init_game_payload(const std::string& meta_json,
                          const std::string& state_json) override {
         PyGILState_STATE gstate = PyGILState_Ensure();
         PyObject* meta  = json_to_py(meta_json);
         PyObject* state = json_to_py(state_json);
-        PyObject* ret   = PyObject_CallMethod(instance_, "init_run", "OO", meta, state);
+        PyObject* ret   = PyObject_CallMethod(instance_, "init_game_payload", "OO", meta, state);
         Py_DECREF(meta);
         Py_DECREF(state);
         if (!ret) { PyErr_Print(); PyGILState_Release(gstate); return state_json; }
@@ -298,8 +298,8 @@ using DestroyFn = void (*)(void*);
 // thin JSON adapter defined in the compiled .so itself.  The .so must export:
 //   extern "C" void*       create_strategy();
 //   extern "C" void        destroy_strategy(void*);
-//   extern "C" const char* strategy_init_payload(void*);
-//   extern "C" const char* strategy_init_run(void*, const char* meta, const char* state);
+//   extern "C" const char* strategy_init_evaluation_run(void*);
+//   extern "C" const char* strategy_init_game_payload(void*, const char* meta, const char* state);
 //   extern "C" const char* strategy_next_click(void*, const char* revealed_json,
 //                                               const char* meta, const char* state);
 // The last returned string must remain valid until the next call to the same function.
@@ -317,8 +317,8 @@ public:
         }
         create_fn_  = reinterpret_cast<CreateFn>(dlsym(handle_, "create_strategy"));
         destroy_fn_ = reinterpret_cast<DestroyFn>(dlsym(handle_, "destroy_strategy"));
-        ip_fn_      = reinterpret_cast<InitPayloadFn>(dlsym(handle_, "strategy_init_payload"));
-        ir_fn_      = reinterpret_cast<InitRunFn>(dlsym(handle_, "strategy_init_run"));
+        ip_fn_      = reinterpret_cast<InitPayloadFn>(dlsym(handle_, "strategy_init_evaluation_run"));
+        ir_fn_      = reinterpret_cast<InitRunFn>(dlsym(handle_, "strategy_init_game_payload"));
         nc_fn_      = reinterpret_cast<NextClickFn>(dlsym(handle_, "strategy_next_click"));
         if (!create_fn_ || !destroy_fn_ || !ip_fn_ || !ir_fn_ || !nc_fn_) {
             dlclose(handle_);
@@ -332,12 +332,12 @@ public:
         if (handle_) dlclose(handle_);
     }
 
-    std::string init_payload() override {
+    std::string init_evaluation_run() override {
         const char* r = ip_fn_(instance_);
         return r ? r : "null";
     }
 
-    std::string init_run(const std::string& meta_json,
+    std::string init_game_payload(const std::string& meta_json,
                          const std::string& state_json) override {
         const char* r = ir_fn_(instance_, meta_json.c_str(), state_json.c_str());
         return r ? r : state_json;
@@ -423,17 +423,17 @@ public:
         if (pid_ > 0)       waitpid(pid_, nullptr, 0);
     }
 
-    std::string init_payload() override {
-        std::string msg = "{\"method\":\"init_payload\"}\n";
+    std::string init_evaluation_run() override {
+        std::string msg = "{\"method\":\"init_evaluation_run\"}\n";
         write_line(msg);
         std::string resp = read_line();
         // Extract "value" field
         return extract_json_field(resp, "value");
     }
 
-    std::string init_run(const std::string& meta_json,
+    std::string init_game_payload(const std::string& meta_json,
                          const std::string& state_json) override {
-        std::string msg = "{\"method\":\"init_run\",\"meta\":" + meta_json
+        std::string msg = "{\"method\":\"init_game_payload\",\"meta\":" + meta_json
                         + ",\"state\":" + state_json + "}\n";
         write_line(msg);
         std::string resp = read_line();

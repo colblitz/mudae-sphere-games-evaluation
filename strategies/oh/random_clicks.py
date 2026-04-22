@@ -2,6 +2,10 @@
 
 Picks a random unrevealed, unclicked cell on every turn.
 Prefers purple cells (they are free) if any are visible.
+
+This is the simplest possible strategy — no state, no inference.
+See stateful.py (oq/) for per-game state usage, global_state.py (oc/)
+for cross-game global state usage.
 """
 
 import random
@@ -11,6 +15,19 @@ from interface.strategy import OHStrategy
 
 
 class RandomOHStrategy(OHStrategy):
+    def __init__(self) -> None:
+        self._rng = random.Random()
+
+    def init_game_payload(
+        self,
+        meta: dict[str, Any],
+        state: Any,
+    ) -> Any:
+        # Seed a fresh local RNG from the per-game seed supplied by the harness.
+        # This ensures identical click sequences across runs for the same seed.
+        self._rng = random.Random(meta.get("game_seed"))
+        return state
+
     def next_click(
         self,
         revealed: list[dict[str, Any]],
@@ -22,7 +39,7 @@ class RandomOHStrategy(OHStrategy):
         # Prefer any visible purple (free click)
         purples = [(c["row"], c["col"]) for c in revealed if c["color"] == "spP"]
         if purples:
-            row, col = random.choice(purples)
+            row, col = self._rng.choice(purples)
             return row, col, state
 
         # Pick a random unclicked cell
@@ -35,5 +52,5 @@ class RandomOHStrategy(OHStrategy):
         if not unclicked:
             return 0, 0, state
 
-        row, col = random.choice(unclicked)
+        row, col = self._rng.choice(unclicked)
         return row, col, state

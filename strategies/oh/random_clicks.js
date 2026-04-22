@@ -1,8 +1,12 @@
 /**
- * random_js.js — Random baseline strategy for /sphere harvest (oh).
+ * random_clicks.js — Random baseline strategy for /sphere harvest (oh).
  *
  * Picks a random unrevealed, unclicked cell on every turn.
  * Prefers purple cells (they are free) if any are visible.
+ *
+ * This is the simplest possible strategy — no state, no inference.
+ * See stateful.js (oq/) for per-game state usage, global_state.js (oc/)
+ * for cross-game global state usage.
  */
 
 "use strict";

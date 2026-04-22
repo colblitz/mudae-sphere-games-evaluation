@@ -1,0 +1,196 @@
+"""Template strategy for /sphere quest (oq) — Python.
+
+Copy this file to strategies/oq/<your_name>.py, rename the class, and fill
+in the TODO sections.  Delete any methods you don't need — only next_click()
+is required.
+
+GAME OVERVIEW
+-------------
+Grid   : 5×5, all 25 cells start covered
+Budget : 7 non-purple clicks
+Goal   : find 3 of the 4 hidden purple spheres → the 4th converts to red
+         (spR, 150 SP).  Collect red and spend remaining budget on high-value
+         tiles.
+
+Special click rules:
+  - Purple (spP) : click is FREE (does not consume a click)
+  - Red (spR)    : appears after 3 purples clicked; click is also FREE
+
+Non-purple cells reveal the count of purple neighbours (orthogonal +
+diagonal, capped at 4) as a color:
+
+  spB = 0 purple neighbours
+  spT = 1 purple neighbour
+  spG = 2 purple neighbours
+  spY = 3 purple neighbours
+  spO = 4 purple neighbours
+
+This neighbor-count information can be used to narrow down where purples are
+(similar to Minesweeper constraint inference).
+
+COLOR REFERENCE (oq)
+--------------------
+spP   purple  5 SP each; 4 hidden per board; click is FREE
+spR   red     150 SP; appears after 3 purples found; click is FREE
+spB   blue    0 purple neighbours
+spT   teal    1 purple neighbour
+spG   green   2 purple neighbours
+spY   yellow  3 purple neighbours
+spO   orange  4 purple neighbours
+
+REVEALED CELL FORMAT
+--------------------
+revealed is a list of dicts, one per cell revealed so far (monotonically
+growing — every call includes all cells revealed since game start):
+
+    [{"row": int, "col": int, "color": str}, ...]
+
+Row and col are 0-indexed (0..4).
+
+META KEYS (oq)
+--------------
+clicks_left    int   remaining non-purple click budget
+max_clicks     int   total non-purple click budget (always 7)
+purples_found  int   number of purple cells clicked so far
+
+STATE PAYLOAD
+-------------
+state is any Python object you choose.  The harness threads it through every
+call within a game:
+
+  init_evaluation_run()        → initial_state        (called once before all games)
+  init_game_payload(meta, s0)    → s1                   (called once per game)
+  next_click(..., s1)   → (row, col, s2)
+  next_click(..., s2)   → (row, col, s3)
+  ...
+
+Use init_evaluation_run() for data computed ONCE and shared across all games
+(lookup tables, precomputed weights, etc.).
+
+Use init_game_payload() to reset per-game bookkeeping at the start of each game.
+
+If your strategy is stateless, leave both optional methods out and return
+`state` unchanged from next_click().
+
+See also
+--------
+oh/random_clicks.py   — minimal stateless example
+oc/global_state.py    — init_evaluation_run() (global state) example
+oq/stateful.py        — init_game_payload() + state threading (per-game state) example
+"""
+
+import random
+from typing import Any
+
+from interface.strategy import OQStrategy
+
+
+class MyOQStrategy(OQStrategy):
+    # -----------------------------------------------------------------------
+    # Optional: global state (computed once, shared across ALL games)
+    # -----------------------------------------------------------------------
+
+    def init_evaluation_run(self) -> Any:
+        """Return the initial state payload — called ONCE before all games.
+
+        Compute anything that is board-independent and expensive to repeat.
+        The returned value is passed as ``state`` to init_game_payload() at the start
+        of every game.  Treat it as read-only during play.
+
+        Returns:
+            Any Python object.  Default: None.
+
+        Example: precompute for each of the 12,650 possible purple layouts
+        the optimal first-click order, then look it up at runtime.
+        """
+        # TODO: replace with your global precomputation, or delete this method
+        return None
+
+    # -----------------------------------------------------------------------
+    # Optional: per-game initialisation
+    # -----------------------------------------------------------------------
+
+    def init_game_payload(
+        self,
+        meta: dict[str, Any],
+        state: Any,
+    ) -> Any:
+        """Set up per-game state — called once before each game's first click.
+
+        Args:
+            meta:  game metadata (same keys as next_click).
+            state: value returned by init_evaluation_run().
+
+        Returns:
+            The initial state for this game's first next_click() call.
+
+        Example: initialise a constraint model — a set of all 12,650 possible
+        purple layouts, narrowed down each turn as colors are revealed.
+        """
+        # TODO: reset per-game fields here, or delete this method
+        return state
+
+    # -----------------------------------------------------------------------
+    # Required: click decision
+    # -----------------------------------------------------------------------
+
+    def next_click(
+        self,
+        revealed: list[dict[str, Any]],
+        meta: dict[str, Any],
+        state: Any,
+    ) -> tuple[int, int, Any]:
+        """Choose the next cell to click.
+
+        Args:
+            revealed: all cells revealed so far this game, each as
+                      {"row": int, "col": int, "color": str}.
+            meta: {
+                "clicks_left":   int,  # remaining non-purple budget
+                "max_clicks":    int,  # total non-purple budget (always 7)
+                "purples_found": int,  # purples clicked so far (0–3)
+            }
+            state: value returned by the previous next_click() call, or by
+                   init_game_payload() for the first call of the game.
+
+        Returns:
+            (row, col, next_state)
+            row, col    : 0-indexed coordinates of the cell to click next.
+            next_state  : updated state to pass into the next call.
+
+        Tips:
+            - Each non-purple reveal gives you a neighbor count.  Use it to
+              eliminate or confirm candidate purple positions (like Minesweeper).
+            - Purple cells are free — always click them immediately when found.
+            - Once red appears (purples_found == 3), click it; it's also free.
+            - After collecting red, spend remaining clicks on high-value tiles;
+              colors don't have an inherent SP value in this game beyond red,
+              so you'll want to infer remaining purple positions and avoid waste.
+            - Do not return a (row, col) that is already in revealed.
+        """
+        clicked = {(c["row"], c["col"]) for c in revealed}
+
+        # Always click purple immediately (free)
+        purples = [(c["row"], c["col"]) for c in revealed if c["color"] == "spP"]
+        if purples:
+            row, col = purples[0]
+            return row, col, state
+
+        # Always click red immediately when it appears (free)
+        reds = [(c["row"], c["col"]) for c in revealed if c["color"] == "spR"]
+        if reds:
+            row, col = reds[0]
+            return row, col, state
+
+        # TODO: replace the random fallback with your click logic
+
+        unclicked = [
+            (r, c)
+            for r in range(5)
+            for c in range(5)
+            if (r, c) not in clicked
+        ]
+        if not unclicked:
+            return 0, 0, state
+        row, col = random.choice(unclicked)
+        return row, col, state

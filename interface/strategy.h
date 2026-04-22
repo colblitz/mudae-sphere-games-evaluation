@@ -68,21 +68,21 @@ public:
      *
      * @param meta_json  JSON object string with game metadata (keys vary per
      *                   game — see subclass docs).
-     * @param state_json Value returned by init_payload() or the previous
+     * @param state_json Value returned by init_evaluation_run() or the previous
      *                   game's final next_click call.
      * @return           Updated state_json for the first next_click call.
      */
-    virtual std::string init_run(const std::string& meta_json,
+    virtual std::string init_game_payload(const std::string& meta_json,
                                  const std::string& state_json) {
         (void)meta_json;
         return state_json;
     }
 
     /**
-     * Return the initial state JSON before init_run is called.
+     * Return the initial state JSON before init_game_payload is called.
      * Default: "{}".
      */
-    virtual std::string init_payload() { return "{}"; }
+    virtual std::string init_evaluation_run() { return "{}"; }
 
     /**
      * Choose the next cell to click.
@@ -90,7 +90,7 @@ public:
      * @param revealed   All cells revealed so far.
      * @param meta_json  JSON object string with game-specific metadata.
      * @param state_json Value returned by the previous next_click (or
-     *                   init_run for the first call).
+     *                   init_game_payload for the first call).
      * @param out        Filled in with (row, col, next state_json).
      */
     virtual void next_click(const std::vector<Cell>& revealed,

@@ -1,16 +1,20 @@
-"""Random baseline strategy for /sphere quest (oq).
+"""Random baseline strategy for /sphere trace (ot).
 
 Picks a random unclicked cell on every turn.
-No constraint logic — does not use revealed neighbor counts.
+No constraint inference — does not use ship geometry.
+
+This is the simplest possible strategy — no state, no inference.
+See stateful.py (oq/) for per-game state usage, global_state.py (oc/)
+for cross-game global state usage.
 """
 
 import random
 from typing import Any
 
-from interface.strategy import OQStrategy
+from interface.strategy import OTStrategy
 
 
-class RandomOQStrategy(OQStrategy):
+class RandomOTStrategy(OTStrategy):
     def next_click(
         self,
         revealed: list[dict[str, Any]],

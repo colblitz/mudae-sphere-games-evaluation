@@ -5,7 +5,7 @@
  * and reports:
  *   ev       — mean score across all games
  *   stdev    — standard deviation of per-game scores
- *   oc_rate  — fraction of games that contained a chest covered cell
+ *   oc_rate  — fraction of games where the strategy actually clicked the chest cell
  *
  * Board model (corrected, matches cortana3 evaluate_harvest_strategies.cpp):
  *   25 cells: 10 are revealed at game start, 15 start covered (spU).
@@ -265,12 +265,18 @@ static OHBoard make_oh_board(const Dist& appearance_dist, std::mt19937_64& rng) 
 // Simulate one oh game
 // ---------------------------------------------------------------------------
 
-static double run_oh_game(
+struct OHGameResult {
+    double score;
+    bool   clicked_chest;
+};
+
+static OHGameResult run_oh_game(
     const OHBoard& board,
     const Dist&    dark_dist,
     StrategyBridge& strategy,
     std::string&   state_json,
-    std::mt19937_64& rng)
+    std::mt19937_64& rng,
+    uint64_t       game_seed)
 {
     OHColor slot_colors[N_SLOTS];
     bool    revealed[N_SLOTS];
@@ -280,8 +286,9 @@ static double run_oh_game(
     memcpy(revealed,    board.revealed,    sizeof(revealed));
 
     std::vector<Cell> revealed_cells;
-    double score      = 0.0;
-    int    clicks_left = MAX_CLICKS;
+    double score         = 0.0;
+    bool   clicked_chest = false;
+    int    clicks_left   = MAX_CLICKS;
 
     // Add initially revealed cells
     for (int i = 0; i < N_SLOTS; ++i) {
@@ -294,8 +301,9 @@ static double run_oh_game(
     }
 
     std::string meta = "{\"clicks_left\":" + std::to_string(clicks_left)
-                     + ",\"max_clicks\":" + std::to_string(MAX_CLICKS) + "}";
-    state_json = strategy.init_run(meta, state_json);
+                     + ",\"max_clicks\":" + std::to_string(MAX_CLICKS)
+                     + ",\"game_seed\":"  + std::to_string(game_seed) + "}";
+    state_json = strategy.init_game_payload(meta, state_json);
 
     auto do_reveal = [&](int idx) {
         if (idx < 0 || idx >= N_SLOTS || revealed[idx]) return;
@@ -374,6 +382,7 @@ static double run_oh_game(
             case OH_CHEST:
                 // Chest covered cell: high EV
                 score += CHEST_EV;
+                clicked_chest = true;
                 do_reveal(idx);
                 break;
 
@@ -395,7 +404,7 @@ static double run_oh_game(
         if (!is_free) --clicks_left;
     }
 
-    return score;
+    return {score, clicked_chest};
 }
 
 // ---------------------------------------------------------------------------
@@ -455,7 +464,7 @@ int main(int argc, char* argv[]) {
 
     // Per-thread accumulators
     std::vector<Welford>  ev_acc(n_threads);
-    std::vector<uint64_t> chest_count(n_threads, 0);
+    std::vector<uint64_t> chest_clicked_count(n_threads, 0);
 
     // Per-thread strategy bridges and state (each thread needs its own instance)
     std::vector<std::unique_ptr<StrategyBridge>> bridges(n_threads);
@@ -465,7 +474,7 @@ int main(int argc, char* argv[]) {
 
     std::vector<std::string> state_jsons(n_threads);
     for (int t = 0; t < n_threads; ++t)
-        state_jsons[t] = bridges[t]->init_payload();
+        state_jsons[t] = bridges[t]->init_evaluation_run();
 
     std::atomic<uint64_t> done_count(0);
     ProgressReporter prog(n_games, 10000);
@@ -486,11 +495,14 @@ int main(int argc, char* argv[]) {
         // Each game uses a unique seed derived from the master seed and game index,
         // ensuring deterministic results for the same (seed, n_games) regardless of
         // thread count or scheduling.
-        std::mt19937_64 rng(seed ^ (static_cast<uint64_t>(g) * 6364136223846793005ULL + 1442695040888963407ULL));
+        uint64_t game_seed = seed ^ (static_cast<uint64_t>(g) * 6364136223846793005ULL + 1442695040888963407ULL);
+        std::mt19937_64 rng(game_seed);
         OHBoard board = make_oh_board(appearance_dist, rng);
-        if (board.has_chest) ++chest_count[tid];
-        double score = run_oh_game(board, dark_dist, *bridges[tid], state_jsons[tid], rng);
-        ev_acc[tid].update(score);
+        // game_seed is forwarded into run_oh_game → init_game_payload meta so strategies can
+        // seed their own RNG deterministically, producing identical results across runs.
+        OHGameResult result = run_oh_game(board, dark_dist, *bridges[tid], state_jsons[tid], rng, game_seed);
+        if (result.clicked_chest) ++chest_clicked_count[tid];
+        ev_acc[tid].update(result.score);
 
         uint64_t d = done_count.fetch_add(1) + 1;
         if (d % prog.interval == 0)
@@ -504,7 +516,7 @@ int main(int argc, char* argv[]) {
     // Merge per-thread accumulators (Chan's parallel Welford)
     double   mean_total = 0.0, M2_total = 0.0;
     uint64_t count_total = 0;
-    uint64_t total_chests = 0;
+    uint64_t total_chest_clicks = 0;
     for (int t = 0; t < n_threads; ++t) {
         uint64_t nb = ev_acc[t].count;
         if (nb == 0) continue;
@@ -515,12 +527,12 @@ int main(int argc, char* argv[]) {
                        * static_cast<double>(count_total)
                        * static_cast<double>(nb) / static_cast<double>(nc);
         count_total  = nc;
-        total_chests += chest_count[t];
+        total_chest_clicks += chest_clicked_count[t];
     }
     double stdev_total = count_total > 1
         ? std::sqrt(M2_total / static_cast<double>(count_total - 1)) : 0.0;
 
-    double oc_rate = static_cast<double>(total_chests) / static_cast<double>(count_total);
+    double oc_rate = static_cast<double>(total_chest_clicks) / static_cast<double>(count_total);
     printf("\nRESULT_JSON: {\"game\":\"oh\","
            "\"strategy\":\"%s\","
            "\"n_games\":%llu,"
