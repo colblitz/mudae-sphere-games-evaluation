@@ -1,0 +1,12 @@
+{
+  "timestamp": "2026-04-21T23:03:33",
+  "commit": "e5b8664",
+  "filename": "random_clicks.py",
+  "game": "oh",
+  "strategy": "/home/colblitz/projects/mudae-sphere-games-evaluation/strategies/oh/random_clicks.py",
+  "n_games": 100000,
+  "seed": 42,
+  "ev": 117.6297,
+  "stdev": 224.4632,
+  "oc_rate": 0.0409
+}

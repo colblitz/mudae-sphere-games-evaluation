@@ -1,6 +1,17 @@
 {
   "game": "oh",
   "metric": "ev",
-  "updated": "",
-  "top5": []
+  "updated": "2026-04-21",
+  "top5": [
+    {
+      "filename": "random_clicks.py",
+      "commit": "e5b8664",
+      "date": "2026-04-21",
+      "ev": 117.6297,
+      "stdev": 224.4632,
+      "oc_rate": 0.0409,
+      "n_games": 100000,
+      "seed": 42
+    }
+  ]
 }

@@ -16,16 +16,17 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | EV | Stdev | OC Rate | Commit | Date |
 |------|----------|----|-------|---------|--------|------|
+| 1 | `random_clicks.py` | 117.63 | 224.46 | 4.1% | `e5b8664` | 2026-04-21 |
 
 ### /sphere chest (oc)
 
 | Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
-|------|----------|----|-------|----------|--------|------|
+|------|----------|----|-------|-------|--------|------|
 
 ### /sphere quest (oq)
 
 | Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
-|------|----------|----|-------|----------|--------|------|
+|------|----------|----|-------|-------|--------|------|
 
 ### /sphere trace (ot)
 
