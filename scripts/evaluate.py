@@ -386,8 +386,13 @@ def main() -> None:
 
     strategy_path = Path(args.strategy)
     if not strategy_path.exists():
-        print(f"ERROR: strategy file not found: {args.strategy}", file=sys.stderr)
-        sys.exit(1)
+        # Try resolving as a bare filename within strategies/<game>/
+        candidate = REPO_ROOT / "strategies" / args.game / strategy_path.name
+        if candidate.exists():
+            strategy_path = candidate
+        else:
+            print(f"ERROR: strategy file not found: {args.strategy}", file=sys.stderr)
+            sys.exit(1)
     strategy_abs = str(strategy_path.resolve())
 
     # Build harness extra args
