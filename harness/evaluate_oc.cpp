@@ -21,15 +21,22 @@
  *
  * Usage:
  *   evaluate_oc --strategy path/to/strategy.py [--boards path/to/oc_boards.bin.lzma]
+ *               [--threads N]
  */
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "common/board_io.h"
 #include "common/progress.h"
@@ -113,13 +120,18 @@ static std::pair<double, bool> run_oc_game(
 int main(int argc, char* argv[]) {
     std::string strategy_path;
     std::string boards_path = std::string(REPO_ROOT) + "/boards/oc_boards.bin.lzma";
+    int         n_threads   = 1;
+#ifdef _OPENMP
+    n_threads = omp_get_max_threads();
+#endif
 
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--strategy") && i + 1 < argc) strategy_path = argv[++i];
-        else if (!strcmp(argv[i], "--boards") && i + 1 < argc)  boards_path  = argv[++i];
+        else if (!strcmp(argv[i], "--boards")  && i + 1 < argc) boards_path = argv[++i];
+        else if (!strcmp(argv[i], "--threads") && i + 1 < argc) n_threads   = atoi(argv[++i]);
     }
     if (strategy_path.empty()) {
-        fprintf(stderr, "Usage: evaluate_oc --strategy <path> [--boards <path>]\n");
+        fprintf(stderr, "Usage: evaluate_oc --strategy <path> [--boards <path>] [--threads N]\n");
         return 1;
     }
 
@@ -144,30 +156,72 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "ERROR: %s\n", e.what());
         return 1;
     }
-    printf("Strategy loaded.\n");
+    printf("Strategy loaded. Running %zu boards (threads=%d) ...\n", boards.size(), n_threads);
     fflush(stdout);
 
-    // Initialise per-evaluation state
-    std::string state_json = bridge->init_payload();
+    // Per-thread bridges and accumulators
+    uint64_t total = boards.size();
+    std::vector<std::unique_ptr<StrategyBridge>> bridges(n_threads);
+    bridges[0] = std::move(bridge);
+    for (int t = 1; t < n_threads; ++t)
+        bridges[t] = StrategyBridge::load(strategy_path, "oc");
 
-    // Run evaluation
-    uint64_t total     = boards.size();
-    uint64_t red_count = 0;
-    Welford  ev_acc;
+    std::vector<std::string> state_jsons(n_threads);
+    for (int t = 0; t < n_threads; ++t)
+        state_jsons[t] = bridges[t]->init_payload();
+
+    std::vector<Welford>  ev_acc(n_threads);
+    std::vector<uint64_t> red_count(n_threads, 0);
+
+    std::atomic<uint64_t> done_count(0);
     ProgressReporter prog(total, 2000);
 
-    for (size_t i = 0; i < boards.size(); ++i) {
-        auto [score, red_found] = run_oc_game(boards[i], *bridge, state_json);
-        ev_acc.update(score);
-        if (red_found) ++red_count;
+    // Release the GIL so OpenMP threads can each re-acquire it via PyGILState_Ensure
+    PyThreadState* _tstate = PyEval_SaveThread();
 
-        if ((i + 1) % prog.interval == 0)
-            prog.report(i + 1, ev_acc.mean);
+#ifdef _OPENMP
+    omp_set_num_threads(n_threads);
+    #pragma omp parallel for schedule(dynamic, 256)
+#endif
+    for (int64_t i = 0; i < static_cast<int64_t>(total); ++i) {
+#ifdef _OPENMP
+        int tid = omp_get_thread_num();
+#else
+        int tid = 0;
+#endif
+        auto [score, red_found] = run_oc_game(boards[i], *bridges[tid], state_jsons[tid]);
+        ev_acc[tid].update(score);
+        if (red_found) ++red_count[tid];
+
+        uint64_t d = done_count.fetch_add(1) + 1;
+        if (d % prog.interval == 0)
+            prog.report(d, ev_acc[tid].mean);
     }
-    prog.done(ev_acc.mean);
+    prog.done(ev_acc[0].mean);
+
+    // Re-acquire the GIL on the main thread
+    PyEval_RestoreThread(_tstate);
+
+    // Merge per-thread accumulators (Chan's parallel Welford)
+    double   mean_total = 0.0, M2_total = 0.0;
+    uint64_t count_total = 0, total_red = 0;
+    for (int t = 0; t < n_threads; ++t) {
+        uint64_t nb = ev_acc[t].count;
+        if (nb == 0) continue;
+        double delta = ev_acc[t].mean - mean_total;
+        uint64_t nc  = count_total + nb;
+        mean_total  += delta * static_cast<double>(nb) / static_cast<double>(nc);
+        M2_total    += ev_acc[t].M2 + delta * delta
+                       * static_cast<double>(count_total)
+                       * static_cast<double>(nb) / static_cast<double>(nc);
+        count_total  = nc;
+        total_red   += red_count[t];
+    }
+    double stdev_total = count_total > 1
+        ? std::sqrt(M2_total / static_cast<double>(count_total - 1)) : 0.0;
 
     // Print JSON result
-    double red_rate = static_cast<double>(red_count) / static_cast<double>(total);
+    double red_rate = static_cast<double>(total_red) / static_cast<double>(count_total);
     printf("\nRESULT_JSON: {\"game\":\"oc\","
            "\"strategy\":\"%s\","
            "\"n_boards\":%llu,"
@@ -175,9 +229,9 @@ int main(int argc, char* argv[]) {
            "\"stdev\":%.4f,"
            "\"red_rate\":%.4f}\n",
            strategy_path.c_str(),
-           (unsigned long long)total,
-           ev_acc.mean,
-           ev_acc.stdev(),
+           (unsigned long long)count_total,
+           mean_total,
+           stdev_total,
            red_rate);
     fflush(stdout);
     return 0;

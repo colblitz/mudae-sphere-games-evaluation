@@ -26,7 +26,7 @@ Flags
   --games N         (oh) number of Monte Carlo games         default: 100000
   --seed S          (oh) RNG seed
   --n-colors X      (ot) 6|7|8|9|all                        default: all
-  --threads N       (ot) number of parallel threads          default: all cores
+  --threads N       number of parallel threads               default: all cores
   --boards-dir      override boards directory
   --no-leaderboard  (with --commit) skip leaderboard/README updates
 """
@@ -177,7 +177,7 @@ def make_entry(result: dict[str, Any], strategy_path: str) -> dict[str, Any]:
     # Copy all numeric stats
     for key in ("ev", "stdev", "red_rate", "oc_rate",
                 "avg_clicks", "perfect_rate", "all_ships_rate", "loss_5050_rate",
-                "n_games", "n_boards", "aggregate_ev"):
+                "n_games", "n_boards", "aggregate_ev", "seed"):
         if key in result:
             entry[key] = result[key]
     return entry
@@ -380,7 +380,7 @@ def main() -> None:
     parser.add_argument("--n-colors",        default="all",
                         help="(ot) 6|7|8|9|all  default: all")
     parser.add_argument("--threads",         type=int,
-                        help="(ot) number of parallel threads  default: all cores")
+                        help="number of parallel threads  default: all cores")
     parser.add_argument("--boards-dir",      help="override boards directory")
     args = parser.parse_args()
 
@@ -398,8 +398,8 @@ def main() -> None:
             extra += ["--seed", str(args.seed)]
     if args.game == "ot":
         extra += ["--n-colors", args.n_colors]
-        if args.threads is not None:
-            extra += ["--threads", str(args.threads)]
+    if args.threads is not None:
+        extra += ["--threads", str(args.threads)]
     if args.boards_dir:
         extra += ["--boards-dir", args.boards_dir]
 
@@ -456,7 +456,7 @@ def main() -> None:
         }
         for key in ("ev", "stdev", "red_rate", "oc_rate",
                     "avg_clicks", "perfect_rate", "all_ships_rate", "loss_5050_rate",
-                    "n_games", "n_boards", "aggregate_ev"):
+                    "n_games", "n_boards", "aggregate_ev", "seed"):
             if key in res:
                 entry[key] = res[key]
         return entry

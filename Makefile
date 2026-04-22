@@ -41,7 +41,7 @@ PY_LDFLAGS    = -L$(PY_LIBDIR) $(PY_LDLIB:%=-l%) -Wl,-rpath,$(PY_LIBDIR)
 # OpenMP (optional; used by evaluate_ot for parallel board evaluation)
 # ---------------------------------------------------------------------------
 
-OPENMP_FLAG := $(shell $(CXX) -fopenmp -x c++ -E - </dev/null 2>/dev/null && echo "-fopenmp")
+OPENMP_FLAG := $(shell $(CXX) -fopenmp -x c++ /dev/null -fsyntax-only 2>/dev/null && echo "-fopenmp")
 
 # ---------------------------------------------------------------------------
 # Common include path
@@ -67,27 +67,27 @@ build-oq: harness/evaluate_oq
 build-ot: harness/evaluate_ot
 
 harness/evaluate_oh: harness/evaluate_oh.cpp harness/common/*.h
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $(PY_CFLAGS) \
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(PY_CFLAGS) $(OPENMP_FLAG) \
 	    -o $@ $< \
-	    $(LDFLAGS) $(LIBS) $(PY_LDFLAGS)
+	    $(LDFLAGS) $(LIBS) $(PY_LDFLAGS) $(OPENMP_FLAG)
 	@echo "Built $@"
 
 harness/evaluate_oc: harness/evaluate_oc.cpp harness/common/*.h
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $(PY_CFLAGS) \
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(PY_CFLAGS) $(OPENMP_FLAG) \
 	    -o $@ $< \
-	    $(LDFLAGS) $(LIBS) $(PY_LDFLAGS)
+	    $(LDFLAGS) $(LIBS) $(PY_LDFLAGS) $(OPENMP_FLAG)
 	@echo "Built $@"
 
 harness/evaluate_oq: harness/evaluate_oq.cpp harness/common/*.h
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $(PY_CFLAGS) \
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(PY_CFLAGS) $(OPENMP_FLAG) \
 	    -o $@ $< \
-	    $(LDFLAGS) $(LIBS) $(PY_LDFLAGS)
+	    $(LDFLAGS) $(LIBS) $(PY_LDFLAGS) $(OPENMP_FLAG)
 	@echo "Built $@"
 
 harness/evaluate_ot: harness/evaluate_ot.cpp harness/common/*.h
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(PY_CFLAGS) $(OPENMP_FLAG) \
 	    -o $@ $< \
-	    $(LDFLAGS) $(LIBS) $(PY_LDFLAGS) $(OPENMP_FLAG:%=-%)
+	    $(LDFLAGS) $(LIBS) $(PY_LDFLAGS) $(OPENMP_FLAG)
 	@echo "Built $@"
 
 # ---------------------------------------------------------------------------

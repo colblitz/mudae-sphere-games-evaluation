@@ -292,7 +292,7 @@ make clean             # Remove compiled binaries and strategy .so files
 --games N         (oh) number of Monte Carlo games        default: 100000
 --seed S          (oh) RNG seed
 --n-colors X      (ot) 6|7|8|9|all                       default: all
---threads N       (ot) parallel threads                   default: all cores
+--threads N       parallel threads                        default: all cores
 --boards-dir      override boards directory
 --no-leaderboard  (with --commit) skip leaderboard/README updates
 ```

@@ -28,12 +28,14 @@
  * Output: JSON to stdout on completion.
  *
  * Usage:
- *   evaluate_oh --strategy <path> [--games N] [--seed S]
+ *   evaluate_oh --strategy <path> [--games N] [--seed S] [--threads N]
  *               [--dark-stats path/to/oh_dark_stats.json]
  */
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -42,6 +44,10 @@
 #include <random>
 #include <string>
 #include <vector>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "common/board_io.h"
 #include "common/progress.h"
@@ -401,15 +407,20 @@ int main(int argc, char* argv[]) {
     std::string dark_stats_path = std::string(REPO_ROOT) + "/boards/oh_dark_stats.json";
     uint64_t    n_games         = 100000;
     uint64_t    seed            = static_cast<uint64_t>(time(nullptr));
+    int         n_threads       = 1;
+#ifdef _OPENMP
+    n_threads = omp_get_max_threads();
+#endif
 
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--strategy") && i + 1 < argc)  strategy_path  = argv[++i];
         else if (!strcmp(argv[i], "--games")    && i + 1 < argc)  n_games    = strtoull(argv[++i], nullptr, 10);
         else if (!strcmp(argv[i], "--seed")     && i + 1 < argc)  seed       = strtoull(argv[++i], nullptr, 10);
+        else if (!strcmp(argv[i], "--threads")  && i + 1 < argc)  n_threads  = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--dark-stats") && i + 1 < argc) dark_stats_path = argv[++i];
     }
     if (strategy_path.empty()) {
-        fprintf(stderr, "Usage: evaluate_oh --strategy <path> [--games N] [--seed S]\n");
+        fprintf(stderr, "Usage: evaluate_oh --strategy <path> [--games N] [--seed S] [--threads N]\n");
         return 1;
     }
 
@@ -437,39 +448,90 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "ERROR: %s\n", e.what());
         return 1;
     }
-    printf("Strategy loaded. Running %llu games (seed=%llu) ...\n",
-           (unsigned long long)n_games, (unsigned long long)seed);
+    printf("Strategy loaded. Running %llu games (seed=%llu, threads=%d) ...\n",
+           (unsigned long long)n_games, (unsigned long long)seed, n_threads);
     fflush(stdout);
 
-    std::mt19937_64 rng(seed);
-    std::string     state_json = bridge->init_payload();
+    // Per-thread accumulators
+    std::vector<Welford>  ev_acc(n_threads);
+    std::vector<uint64_t> chest_count(n_threads, 0);
 
-    Welford  ev_acc;
-    uint64_t chest_count = 0;
+    // Per-thread strategy bridges and state (each thread needs its own instance)
+    std::vector<std::unique_ptr<StrategyBridge>> bridges(n_threads);
+    bridges[0] = std::move(bridge);
+    for (int t = 1; t < n_threads; ++t)
+        bridges[t] = StrategyBridge::load(strategy_path, "oh");
+
+    std::vector<std::string> state_jsons(n_threads);
+    for (int t = 0; t < n_threads; ++t)
+        state_jsons[t] = bridges[t]->init_payload();
+
+    std::atomic<uint64_t> done_count(0);
     ProgressReporter prog(n_games, 10000);
 
-    for (uint64_t g = 0; g < n_games; ++g) {
+    // Release the GIL so OpenMP threads can each re-acquire it via PyGILState_Ensure
+    PyThreadState* _tstate = PyEval_SaveThread();
+
+#ifdef _OPENMP
+    omp_set_num_threads(n_threads);
+    #pragma omp parallel for schedule(dynamic, 1024)
+#endif
+    for (int64_t g = 0; g < static_cast<int64_t>(n_games); ++g) {
+#ifdef _OPENMP
+        int tid = omp_get_thread_num();
+#else
+        int tid = 0;
+#endif
+        // Each game uses a unique seed derived from the master seed and game index,
+        // ensuring deterministic results for the same (seed, n_games) regardless of
+        // thread count or scheduling.
+        std::mt19937_64 rng(seed ^ (static_cast<uint64_t>(g) * 6364136223846793005ULL + 1442695040888963407ULL));
         OHBoard board = make_oh_board(appearance_dist, rng);
-        if (board.has_chest) ++chest_count;
-        double score = run_oh_game(board, dark_dist, *bridge, state_json, rng);
-        ev_acc.update(score);
+        if (board.has_chest) ++chest_count[tid];
+        double score = run_oh_game(board, dark_dist, *bridges[tid], state_jsons[tid], rng);
+        ev_acc[tid].update(score);
 
-        if ((g + 1) % prog.interval == 0)
-            prog.report(g + 1, ev_acc.mean);
+        uint64_t d = done_count.fetch_add(1) + 1;
+        if (d % prog.interval == 0)
+            prog.report(d, ev_acc[tid].mean);
     }
-    prog.done(ev_acc.mean);
+    prog.done(ev_acc[0].mean);
 
-    double oc_rate = static_cast<double>(chest_count) / static_cast<double>(n_games);
+    // Re-acquire the GIL on the main thread
+    PyEval_RestoreThread(_tstate);
+
+    // Merge per-thread accumulators (Chan's parallel Welford)
+    double   mean_total = 0.0, M2_total = 0.0;
+    uint64_t count_total = 0;
+    uint64_t total_chests = 0;
+    for (int t = 0; t < n_threads; ++t) {
+        uint64_t nb = ev_acc[t].count;
+        if (nb == 0) continue;
+        double delta = ev_acc[t].mean - mean_total;
+        uint64_t nc  = count_total + nb;
+        mean_total  += delta * static_cast<double>(nb) / static_cast<double>(nc);
+        M2_total    += ev_acc[t].M2 + delta * delta
+                       * static_cast<double>(count_total)
+                       * static_cast<double>(nb) / static_cast<double>(nc);
+        count_total  = nc;
+        total_chests += chest_count[t];
+    }
+    double stdev_total = count_total > 1
+        ? std::sqrt(M2_total / static_cast<double>(count_total - 1)) : 0.0;
+
+    double oc_rate = static_cast<double>(total_chests) / static_cast<double>(count_total);
     printf("\nRESULT_JSON: {\"game\":\"oh\","
            "\"strategy\":\"%s\","
            "\"n_games\":%llu,"
+           "\"seed\":%llu,"
            "\"ev\":%.4f,"
            "\"stdev\":%.4f,"
            "\"oc_rate\":%.4f}\n",
            strategy_path.c_str(),
-           (unsigned long long)n_games,
-           ev_acc.mean,
-           ev_acc.stdev(),
+           (unsigned long long)count_total,
+           (unsigned long long)seed,
+           mean_total,
+           stdev_total,
            oc_rate);
     fflush(stdout);
     return 0;
