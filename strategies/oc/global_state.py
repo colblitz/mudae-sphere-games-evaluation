@@ -10,8 +10,8 @@ that hasn't been revealed yet.
 Why global state?
 -----------------
 init_evaluation_run() is called exactly once per evaluation run (before any games
-start).  The returned value is passed as ``state`` to init_game_payload() at the
-start of every game, and from there flows through every next_click() call.
+start).  The returned value is passed as ``evaluation_run_state`` to init_game_payload()
+at the start of every game, and from there flows through every next_click() call.
 
 Use init_evaluation_run() for anything that is:
   - Expensive to compute (search, optimization, loading a table from disk).
@@ -85,30 +85,31 @@ class GlobalStateOCStrategy(OCStrategy):
     def init_evaluation_run(self) -> Any:
         """Compute the visit order ONCE before all games begin.
 
-        Returns a dict that will be passed as ``state`` to every subsequent
-        init_game_payload() and next_click() call for the entire evaluation run.
-        Treat it as read-only during play.
+        Returns a dict that will be passed as ``evaluation_run_state`` to every
+        init_game_payload() call for the entire run.  Treat it as read-only;
+        do not store game-specific information here — each game must be played
+        independently; sharing board history between games produces unfair results.
         """
         order = _spiral_order()
         return {"order": order}
 
     # init_game_payload() is intentionally omitted: the default implementation just
-    # returns state unchanged, which is exactly what we want — the global
-    # lookup table requires no per-game reset.
+    # returns evaluation_run_state unchanged, which is exactly what we want — the
+    # global lookup table requires no per-game reset.
 
     def next_click(
         self,
         revealed: list[dict[str, Any]],
         meta: dict[str, Any],
-        state: Any,
+        game_state: Any,
     ) -> tuple[int, int, Any]:
         """Pick the first cell in the precomputed order that isn't revealed yet."""
         clicked = {(c["row"], c["col"]) for c in revealed}
-        order: list[tuple[int, int]] = state["order"]
+        order: list[tuple[int, int]] = game_state["order"]
 
         for row, col in order:
             if (row, col) not in clicked:
-                return row, col, state  # state is unchanged — it's a shared table
+                return row, col, game_state  # game_state is unchanged — read-only table
 
         # Fallback: should never be reached on a valid board
-        return 0, 0, state
+        return 0, 0, game_state

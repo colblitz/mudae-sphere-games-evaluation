@@ -25,9 +25,10 @@
  * Return value of next_click
  * --------------------------
  * Fill in the `out` ClickResult:
- *   out.row, out.col  — 0-indexed coordinates of the cell to click.
- *   out.state_json    — arbitrary JSON string; passed back as state_json on
- *                       the next call.  Use "{}" if stateless.
+ *   out.row, out.col        — 0-indexed coordinates of the cell to click.
+ *   out.game_state_json     — arbitrary JSON string; passed back as
+ *                             game_state_json on the next call.
+ *                             Use "{}" if stateless.
  *
  * For the full color reference and game rules see interface/strategy.py.
  */
@@ -50,9 +51,9 @@ struct Cell {
 };
 
 struct ClickResult {
-    int         row        = 0;
-    int         col        = 0;
-    std::string state_json = "{}";  // Arbitrary JSON; threaded back each call
+    int         row             = 0;
+    int         col             = 0;
+    std::string game_state_json = "{}";  // Per-game state; threaded back each call
 };
 
 // ---------------------------------------------------------------------------
@@ -64,38 +65,48 @@ public:
     virtual ~StrategyBase() = default;
 
     /**
-     * Called once before the first click of each game.
+     * Called once before the evaluation run begins.
      *
-     * @param meta_json  JSON object string with game metadata (keys vary per
-     *                   game — see subclass docs).
-     * @param state_json Value returned by init_evaluation_run() or the previous
-     *                   game's final next_click call.
-     * @return           Updated state_json for the first next_click call.
-     */
-    virtual std::string init_game_payload(const std::string& meta_json,
-                                 const std::string& state_json) {
-        (void)meta_json;
-        return state_json;
-    }
-
-    /**
-     * Return the initial state JSON before init_game_payload is called.
+     * Override to compute data shared across all games — lookup tables,
+     * precomputed weights, etc.  The returned JSON is passed as
+     * evaluation_run_state_json to every init_game_payload call.
+     *
+     * Do not store game-specific information here.  Each game must be played
+     * independently; sharing board history between games produces unfair results.
+     *
      * Default: "{}".
      */
     virtual std::string init_evaluation_run() { return "{}"; }
 
     /**
+     * Called once before the first click of each game.
+     *
+     * Override to set up fresh per-game state.  The returned JSON becomes
+     * game_state_json for that game's first next_click call.
+     *
+     * @param meta_json                JSON object with game metadata.
+     * @param evaluation_run_state_json Read-only value from init_evaluation_run().
+     *                                  Do not mutate — shared across all games.
+     * @return                         Initial game_state_json for this game.
+     */
+    virtual std::string init_game_payload(const std::string& meta_json,
+                                          const std::string& evaluation_run_state_json) {
+        (void)meta_json;
+        return evaluation_run_state_json;
+    }
+
+    /**
      * Choose the next cell to click.
      *
-     * @param revealed   All cells revealed so far.
-     * @param meta_json  JSON object string with game-specific metadata.
-     * @param state_json Value returned by the previous next_click (or
-     *                   init_game_payload for the first call).
-     * @param out        Filled in with (row, col, next state_json).
+     * @param revealed        All cells revealed so far.
+     * @param meta_json       JSON object with game-specific metadata.
+     * @param game_state_json Value returned by the previous next_click (or
+     *                        init_game_payload for the first call of the game).
+     * @param out             Filled in with (row, col, game_state_json).
      */
     virtual void next_click(const std::vector<Cell>& revealed,
                             const std::string&        meta_json,
-                            const std::string&        state_json,
+                            const std::string&        game_state_json,
                             ClickResult&              out) = 0;
 };
 

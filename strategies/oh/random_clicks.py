@@ -21,18 +21,18 @@ class RandomOHStrategy(OHStrategy):
     def init_game_payload(
         self,
         meta: dict[str, Any],
-        state: Any,
+        evaluation_run_state: Any,
     ) -> Any:
         # Seed a fresh local RNG from the per-game seed supplied by the harness.
         # This ensures identical click sequences across runs for the same seed.
         self._rng = random.Random(meta.get("game_seed"))
-        return state
+        return evaluation_run_state
 
     def next_click(
         self,
         revealed: list[dict[str, Any]],
         meta: dict[str, Any],
-        state: Any,
+        game_state: Any,
     ) -> tuple[int, int, Any]:
         clicked = {(c["row"], c["col"]) for c in revealed}
 
@@ -40,7 +40,7 @@ class RandomOHStrategy(OHStrategy):
         purples = [(c["row"], c["col"]) for c in revealed if c["color"] == "spP"]
         if purples:
             row, col = self._rng.choice(purples)
-            return row, col, state
+            return row, col, game_state
 
         # Pick a random unclicked cell
         unclicked = [
@@ -50,7 +50,7 @@ class RandomOHStrategy(OHStrategy):
             if (r, c) not in clicked
         ]
         if not unclicked:
-            return 0, 0, state
+            return 0, 0, game_state
 
         row, col = self._rng.choice(unclicked)
-        return row, col, state
+        return row, col, game_state  # game_state is None — stateless strategy

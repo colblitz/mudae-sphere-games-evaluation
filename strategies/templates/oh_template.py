@@ -51,7 +51,7 @@ game_seed    int   per-game deterministic seed; use to seed your own RNG
 
 STATE PAYLOAD
 -------------
-state is any Python object you choose.  The harness threads it through every
+game_state is any Python object you choose.  The harness threads it through every
 call within a game:
 
   init_evaluation_run()        → initial_state        (called once before all games)
@@ -64,11 +64,11 @@ Use init_evaluation_run() for data computed ONCE and shared across all games
 (lookup tables, precomputed weights, etc.).
 
 Use init_game_payload() to reset per-game bookkeeping at the start of each game.
-The state returned by init_game_payload() is passed as `state` to the first
+The game_state returned by init_game_payload() is passed as `game_state` to the first
 next_click() call of that game.
 
 If your strategy is stateless, leave init_evaluation_run() and init_game_payload() out and
-return `state` unchanged from next_click().
+return `game_state` unchanged from next_click().
 
 See also
 --------
@@ -89,12 +89,12 @@ class MyOHStrategy(OHStrategy):
     # -----------------------------------------------------------------------
 
     def init_evaluation_run(self) -> Any:
-        """Return the initial state payload — called ONCE before all games.
+        """Called once before the evaluation run begins.
 
         Compute anything that is board-independent and expensive to repeat:
         lookup tables, precomputed orderings, loaded model weights, etc.
 
-        The returned value is passed as ``state`` to init_game_payload() at the start
+        The returned value is passed as ``evaluation_run_state`` to init_game_payload() at the start
         of every game.  Treat it as read-only during play.
 
         Returns:
@@ -110,24 +110,24 @@ class MyOHStrategy(OHStrategy):
     def init_game_payload(
         self,
         meta: dict[str, Any],
-        state: Any,
+        evaluation_run_state: Any,
     ) -> Any:
-        """Set up per-game state — called once before each game's first click.
+        """Called once before each game's first click. Set up fresh per-game state.
 
         Args:
             meta:  game metadata (same keys as next_click).
-            state: value returned by init_evaluation_run() (or the previous game's
-                   final state if you mutate it — don't do that).
+            evaluation_run_state: read-only value from init_evaluation_run().
+                         Do not mutate — sharing state between games is unfair.
 
         Returns:
-            The initial state for this game's first next_click() call.
+            The initial game_state for this game's first next_click() call.
             Typically a fresh dict with per-game bookkeeping fields.
 
         Example:
-            return {**state, "clicks_made": 0, "seen_colors": []}
+            return {**evaluation_run_state, "clicks_made": 0, "seen_colors": []}
         """
         # TODO: reset per-game fields here, or delete this method
-        return state
+        return evaluation_run_state
 
     # -----------------------------------------------------------------------
     # Required: click decision
@@ -137,7 +137,7 @@ class MyOHStrategy(OHStrategy):
         self,
         revealed: list[dict[str, Any]],
         meta: dict[str, Any],
-        state: Any,
+        game_state: Any,
     ) -> tuple[int, int, Any]:
         """Choose the next cell to click.
 
@@ -152,14 +152,14 @@ class MyOHStrategy(OHStrategy):
                 "max_clicks":  int,   # total budget (always 5)
                 "game_seed":   int,   # per-game seed for reproducibility
             }
-            state: value returned by the previous next_click() call, or by
+            game_state: value returned by the previous next_click() call, or by
                    init_game_payload() for the first call of the game.
 
         Returns:
-            (row, col, next_state)
+            (row, col, game_state)
             row, col    : 0-indexed coordinates of the cell to click next.
-            next_state  : updated state to pass into the next call.
-                          Return `state` unchanged if nothing needs updating.
+            game_state  : updated state to pass into the next call.
+                          Return `game_state` unchanged if nothing needs updating.
 
         Tips:
             - Purple cells (spP) are free; click them first if visible.
@@ -182,6 +182,6 @@ class MyOHStrategy(OHStrategy):
             if (r, c) not in clicked
         ]
         if not unclicked:
-            return 0, 0, state
+            return 0, 0, game_state
         row, col = random.choice(unclicked)
-        return row, col, state
+        return row, col, game_state

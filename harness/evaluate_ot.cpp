@@ -107,7 +107,7 @@ static OTGameResult run_ot_game(
     const std::vector<std::string>& colors,  // pre-derived cell colors
     int                         n_colors,
     StrategyBridge&             strategy,
-    std::string&                state_json)
+    std::string&                game_state_json)
 {
     bool clicked[N_CELLS] = {};
     std::vector<Cell> revealed;
@@ -130,7 +130,7 @@ static OTGameResult run_ot_game(
     std::string meta = "{\"n_colors\":" + std::to_string(n_colors)
                      + ",\"ships_hit\":0,\"blues_used\":0"
                      + ",\"max_clicks\":" + std::to_string(OT_BASE_CLICKS) + "}";
-    state_json = strategy.init_game_payload(meta, state_json);
+    game_state_json = strategy.init_game_payload(meta, game_state_json);
 
     auto ship_index_for_cell = [&](int idx) -> int {
         int32_t bit = 1 << idx;
@@ -157,9 +157,9 @@ static OTGameResult run_ot_game(
              + ",\"blues_used\":" + std::to_string(blues_used)
              + ",\"max_clicks\":" + std::to_string(OT_BASE_CLICKS) + "}";
 
-        Click c = strategy.next_click(revealed, meta, state_json);
+        Click c = strategy.next_click(revealed, meta, game_state_json);
         if (auto* pb = dynamic_cast<PythonBridge*>(&strategy))
-            state_json = pb->last_state();
+            game_state_json = pb->last_game_state();
 
         int idx = rc_to_idx(c.row, c.col);
         if (idx < 0 || idx >= N_CELLS || clicked[idx]) {
@@ -248,9 +248,9 @@ static OTVariantResult evaluate_variant(
         bridges[t] = StrategyBridge::load(strategy_path, "ot");
     }
 
-    std::vector<std::string> state_jsons(n_threads);
+    std::vector<std::string> evaluation_run_states(n_threads);
     for (int t = 0; t < n_threads; ++t)
-        state_jsons[t] = bridges[t]->init_evaluation_run();
+        evaluation_run_states[t] = bridges[t]->init_evaluation_run();
 
 #ifdef _OPENMP
     omp_set_num_threads(n_threads);
@@ -264,7 +264,7 @@ static OTVariantResult evaluate_variant(
 #endif
         auto colors = ot_board_colors(boards[i]);
         auto res    = run_ot_game(boards[i], colors, n_colors,
-                                  *bridges[tid], state_jsons[tid]);
+                                  *bridges[tid], evaluation_run_states[tid]);
         ev_acc[tid].update(res.score);
         clicks_acc[tid].update(res.total_clicks);
         if (res.perfect)   ++perfect_count[tid];

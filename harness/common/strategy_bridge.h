@@ -57,12 +57,12 @@ class StrategyBridge {
 public:
     virtual ~StrategyBridge() = default;
 
-    virtual std::string init_evaluation_run()                                         = 0;
+    virtual std::string init_evaluation_run()                                                   = 0;
     virtual std::string init_game_payload(const std::string& meta_json,
-                                 const std::string& state_json)                = 0;
+                                          const std::string& evaluation_run_state_json)        = 0;
     virtual Click       next_click(const std::vector<Cell>& revealed,
                                    const std::string&        meta_json,
-                                   const std::string&        state_json)       = 0;
+                                   const std::string&        game_state_json)                  = 0;
 
     // Factory: detects language from extension and constructs the right bridge.
     // game_name is one of "oh", "oc", "oq", "ot" (used to find the ABC class).
@@ -182,14 +182,14 @@ public:
     }
 
     std::string init_game_payload(const std::string& meta_json,
-                         const std::string& state_json) override {
+                                  const std::string& evaluation_run_state_json) override {
         PyGILState_STATE gstate = PyGILState_Ensure();
         PyObject* meta  = json_to_py(meta_json);
-        PyObject* state = json_to_py(state_json);
-        PyObject* ret   = PyObject_CallMethod(instance_, "init_game_payload", "OO", meta, state);
+        PyObject* ers   = json_to_py(evaluation_run_state_json);
+        PyObject* ret   = PyObject_CallMethod(instance_, "init_game_payload", "OO", meta, ers);
         Py_DECREF(meta);
-        Py_DECREF(state);
-        if (!ret) { PyErr_Print(); PyGILState_Release(gstate); return state_json; }
+        Py_DECREF(ers);
+        if (!ret) { PyErr_Print(); PyGILState_Release(gstate); return evaluation_run_state_json; }
         std::string s = py_to_json(ret);
         Py_DECREF(ret);
         PyGILState_Release(gstate);
@@ -198,38 +198,38 @@ public:
 
     Click next_click(const std::vector<Cell>& revealed,
                      const std::string&        meta_json,
-                     const std::string&        state_json) override {
+                     const std::string&        game_state_json) override {
         PyGILState_STATE gstate = PyGILState_Ensure();
-        PyObject* rev   = cells_to_py(revealed);
-        PyObject* meta  = json_to_py(meta_json);
-        PyObject* state = json_to_py(state_json);
-        PyObject* ret   = PyObject_CallMethod(instance_, "next_click", "OOO", rev, meta, state);
+        PyObject* rev        = cells_to_py(revealed);
+        PyObject* meta       = json_to_py(meta_json);
+        PyObject* game_state = json_to_py(game_state_json);
+        PyObject* ret        = PyObject_CallMethod(instance_, "next_click", "OOO", rev, meta, game_state);
         Py_DECREF(rev);
         Py_DECREF(meta);
-        Py_DECREF(state);
+        Py_DECREF(game_state);
         if (!ret) {
             PyErr_Print();
             PyGILState_Release(gstate);
             return {0, 0};
         }
         Click c = py_to_click(ret);
-        // Update state_json_ from ret[2]
+        // Extract updated game_state_json from ret[2]
         PyObject* ns = PyTuple_GetItem(ret, 2);
         if (ns) {
-            last_state_ = py_to_json(ns);
+            last_game_state_ = py_to_json(ns);
         }
         Py_DECREF(ret);
         PyGILState_Release(gstate);
         return c;
     }
 
-    // The last state_json returned by next_click (callers should retrieve
+    // The last game_state_json returned by next_click (callers should retrieve
     // this after each call to thread it back in).
-    const std::string& last_state() const { return last_state_; }
+    const std::string& last_game_state() const { return last_game_state_; }
 
 private:
-    PyObject*   instance_   = nullptr;
-    std::string last_state_ = "null";
+    PyObject*   instance_        = nullptr;
+    std::string last_game_state_ = "null";
 
     // Convert std::vector<Cell> → Python list of dicts
     static PyObject* cells_to_py(const std::vector<Cell>& cells) {
@@ -338,18 +338,17 @@ public:
     }
 
     std::string init_game_payload(const std::string& meta_json,
-                         const std::string& state_json) override {
-        const char* r = ir_fn_(instance_, meta_json.c_str(), state_json.c_str());
-        return r ? r : state_json;
+                                  const std::string& evaluation_run_state_json) override {
+        const char* r = ir_fn_(instance_, meta_json.c_str(), evaluation_run_state_json.c_str());
+        return r ? r : evaluation_run_state_json;
     }
 
     Click next_click(const std::vector<Cell>& revealed,
                      const std::string&        meta_json,
-                     const std::string&        state_json) override {
+                     const std::string&        game_state_json) override {
         std::string rev_json = cells_to_json(revealed);
-        const char* r = nc_fn_(instance_, rev_json.c_str(), meta_json.c_str(), state_json.c_str());
+        const char* r = nc_fn_(instance_, rev_json.c_str(), meta_json.c_str(), game_state_json.c_str());
         if (!r) return {0, 0};
-        // Parse JSON: {"row":r,"col":c,"state":"..."}
         return json_parse_click(r);
     }
 
@@ -432,9 +431,9 @@ public:
     }
 
     std::string init_game_payload(const std::string& meta_json,
-                         const std::string& state_json) override {
+                         const std::string& evaluation_run_state_json) override {
         std::string msg = "{\"method\":\"init_game_payload\",\"meta\":" + meta_json
-                        + ",\"state\":" + state_json + "}\n";
+                        + ",\"evaluationRunState\":" + evaluation_run_state_json + "}\n";
         write_line(msg);
         std::string resp = read_line();
         return extract_json_field(resp, "value");
@@ -442,11 +441,11 @@ public:
 
     Click next_click(const std::vector<Cell>& revealed,
                      const std::string&        meta_json,
-                     const std::string&        state_json) override {
+                     const std::string&        game_state_json) override {
         std::string rev_json = cells_to_json(revealed);
         std::string msg = "{\"method\":\"next_click\",\"revealed\":" + rev_json
                         + ",\"meta\":" + meta_json
-                        + ",\"state\":" + state_json + "}\n";
+                        + ",\"gameState\":" + game_state_json + "}\n";
         write_line(msg);
         std::string resp = read_line();
         Click c{0, 0};

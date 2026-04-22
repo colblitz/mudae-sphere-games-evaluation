@@ -43,22 +43,22 @@
  *
  * STATE PAYLOAD
  * -------------
- * The state value is threaded through every call within a game:
+ * The game_state value is threaded through every call within a game:
  *
  *   initEvaluationRun()             → initialState   (called once before all games)
  *   initGamePayload(meta, s0)         → s1             (called once per game)
- *   nextClick(revealed,meta,s1) → {row,col,state:s2}
- *   nextClick(revealed,meta,s2) → {row,col,state:s3}
+ *   nextClick(revealed,meta,s1) → {row,col,gameState:s2}
+ *   nextClick(revealed,meta,s2) → {row,col,gameState:s3}
  *   ...
  *
  * Use initEvaluationRun() for data computed ONCE and shared across all games
  * (lookup tables, precomputed weights, etc.).
  *
  * Use initGamePayload() to reset per-game bookkeeping at the start of each game.
- * The state it returns is passed to the first nextClick() call.
+ * The gameState it returns is passed to the first nextClick() call.
  *
  * If your strategy is stateless, omit both optional methods and return
- * `state` unchanged in nextClick().
+ * `gameState` unchanged in nextClick().
  *
  * meta keys (oh):
  *   clicks_left  number  remaining budget (starts at 5)
@@ -85,7 +85,7 @@ class MyOHStrategy extends OHStrategy {
    * Called ONCE before all games begin.
    *
    * Return anything that is board-independent and expensive to repeat.
-   * The returned value is passed as `state` to every subsequent initGamePayload()
+   * The returned value is passed as `evaluationRunState` to every subsequent initGamePayload()
    * and nextClick() call.  Treat it as a read-only global table.
    *
    * @returns {*}  Any JSON-serialisable value.  Default: null.
@@ -103,14 +103,14 @@ class MyOHStrategy extends OHStrategy {
    * Called once before each game's first click.
    *
    * @param {Object} meta   { clicks_left, max_clicks, game_seed }
-   * @param {*}      state  Value from initEvaluationRun()
-   * @returns {*}   Initial state for this game's first nextClick() call.
+   * @param {*}      evaluationRunState  Read-only value from initEvaluationRun()
+   * @returns {*}   Initial gameState for this game's first nextClick() call.
    *
-   * Example: return { ...state, clicksMade: 0, seenColors: [] }
+   * Example: return { ...evaluationRunState, clicksMade: 0, seenColors: [] }
    */
-  initGamePayload(meta, state) {
+  initGamePayload(meta, evaluationRunState) {
     // TODO: reset per-game fields here, or delete this method
-    return state;
+    return evaluationRunState;
   }
 
   // -------------------------------------------------------------------------
@@ -124,12 +124,12 @@ class MyOHStrategy extends OHStrategy {
    *   All cells revealed so far this game (grows monotonically).
    * @param {Object} meta
    *   { clicks_left: number, max_clicks: number, game_seed: number }
-   * @param {*} state
+   * @param {*} gameState
    *   Value returned by the previous nextClick() (or initGamePayload() for the first
    *   call of the game).
-   * @returns {{ row: number, col: number, state: * }}
+   * @returns {{ row: number, col: number, gameState: * }}
    *   row, col    : 0-indexed coordinates of the cell to click.
-   *   state       : updated state for the next call.  Return `state`
+   *   gameState   : updated gameState for the next call.  Return `gameState`
    *                 unchanged if nothing needs updating.
    *
    * Tips:
@@ -139,14 +139,14 @@ class MyOHStrategy extends OHStrategy {
    *   - Dark ("spD") transforms on click; average value ~104 SP.
    *   - Do not return a (row, col) already present in revealed.
    */
-  nextClick(revealed, meta, state) {
+  nextClick(revealed, meta, gameState) {
     const clicked = new Set(revealed.map(c => c.row * 5 + c.col));
 
     // Prefer any visible purple (free click)
     const purples = revealed.filter(c => c.color === "spP");
     if (purples.length > 0) {
       const pick = purples[0];
-      return { row: pick.row, col: pick.col, state };
+      return { row: pick.row, col: pick.col, gameState };
     }
 
     // TODO: replace the random fallback with your click logic
@@ -155,9 +155,9 @@ class MyOHStrategy extends OHStrategy {
       for (let c = 0; c < 5; c++)
         if (!clicked.has(r * 5 + c)) unclicked.push([r, c]);
 
-    if (unclicked.length === 0) return { row: 0, col: 0, state };
+    if (unclicked.length === 0) return { row: 0, col: 0, gameState };
     const [row, col] = unclicked[Math.floor(Math.random() * unclicked.length)];
-    return { row, col, state };
+    return { row, col, gameState };
   }
 }
 

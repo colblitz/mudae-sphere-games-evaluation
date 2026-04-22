@@ -19,7 +19,7 @@ class RandomOTStrategy(OTStrategy):
         self,
         revealed: list[dict[str, Any]],
         meta: dict[str, Any],
-        state: Any,
+        game_state: Any,
     ) -> tuple[int, int, Any]:
         clicked = {(c["row"], c["col"]) for c in revealed}
         unclicked = [
@@ -29,6 +29,6 @@ class RandomOTStrategy(OTStrategy):
             if (r, c) not in clicked
         ]
         if not unclicked:
-            return 0, 0, state
+            return 0, 0, game_state
         row, col = random.choice(unclicked)
-        return row, col, state
+        return row, col, game_state  # game_state is None — stateless strategy

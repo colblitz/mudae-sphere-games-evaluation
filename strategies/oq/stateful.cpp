@@ -1,21 +1,21 @@
 /**
  * stateful.cpp — Stateful example strategy for /sphere quest (oq).
  *
- * Demonstrates how to use init_game_payload() and the threaded state_json payload to
+ * Demonstrates how to use init_game_payload() and the threaded game_state_json payload to
  * maintain information across clicks within a single game.
  *
  * WHY PER-GAME STATE?
  * -------------------
- * The state_json string is threaded through every call within a game:
+ * The game_state_json string is threaded through every call within a game:
  *
- *   init_game_payload(meta_json, state_json)           → new state_json for this game
+ *   init_game_payload(meta_json, game_state_json)           → new game_state_json for this game
  *   next_click(revealed, meta_json, state0)   → ClickResult{row, col, state1}
  *   next_click(revealed, meta_json, state1)   → ClickResult{row, col, state2}
  *   ...
  *
  * init_game_payload() is called once at the start of EACH game, making it the right
  * place to reset anything that should be fresh for every game.  Whatever JSON
- * string it returns becomes state_json for that game's first next_click() call.
+ * string it returns becomes game_state_json for that game's first next_click() call.
  *
  * Contrast with init_evaluation_run(), which is called only ONCE before all games
  * begin — use that for cross-game global tables (see oc/global_state.cpp).
@@ -27,7 +27,7 @@
  * new (maximising board coverage).  If no such cell exists we fall back to
  * cells with at least one new axis, then to any unclicked cell.
  *
- * The click history is serialised into state_json as two compact bit-masks
+ * The click history is serialised into game_state_json as two compact bit-masks
  * (one for rows, one for cols) and a click count, accumulated across calls
  * within a game and reset by init_game_payload() at the start of each new game.
  */
@@ -74,31 +74,31 @@ public:
      * Reset per-game tracking at the start of every game.
      *
      * Called once before the first next_click() of each game.  Returns a
-     * fresh state_json string — click history starts empty.
+     * fresh game_state_json string — click history starts empty.
      *
-     * The incoming state_json here is whatever init_evaluation_run() returned ("{}"),
+     * The incoming evaluation_run_state_json here is whatever init_evaluation_run() returned ("{}"),
      * but we discard it and return a fresh state instead.
      */
     std::string init_game_payload(const std::string& /*meta_json*/,
-                         const std::string& /*state_json*/) override {
+                         const std::string& /*evaluation_run_state_json*/) override {
         return make_state(0, 0, 0);  // row_mask=0, col_mask=0, click_count=0
     }
 
     /**
      * Choose the next cell, preferring unexplored rows and columns.
      *
-     * state_json carries the click history from previous calls this game.
-     * We update it and write the new version into out.state_json.
+     * game_state_json carries the click history from previous calls this game.
+     * We update it and write the new version into out.game_state_json.
      */
     void next_click(const std::vector<Cell>& revealed,
                     const std::string& /*meta_json*/,
-                    const std::string& state_json,
+                    const std::string& game_state_json,
                     ClickResult& out) override
     {
         // Unpack state
-        int row_mask   = json_get_int(state_json, "row_mask");
-        int col_mask   = json_get_int(state_json, "col_mask");
-        int click_count = json_get_int(state_json, "click_count");
+        int row_mask   = json_get_int(game_state_json, "row_mask");
+        int col_mask   = json_get_int(game_state_json, "col_mask");
+        int click_count = json_get_int(game_state_json, "click_count");
 
         // Build clicked set
         bool clicked[25] = {};
@@ -123,7 +123,7 @@ public:
                                              : fallback;
         if (candidates.empty()) {
             out.row = 0; out.col = 0;
-            out.state_json = state_json;
+            out.game_state_json = game_state_json;
             return;
         }
 
@@ -133,8 +133,8 @@ public:
         out.row = chosen / 5;
         out.col = chosen % 5;
 
-        // Update state — this becomes state_json on the next call
-        out.state_json = make_state(
+        // Update state — this becomes game_state_json on the next call
+        out.game_state_json = make_state(
             row_mask   | (1 << out.row),
             col_mask   | (1 << out.col),
             click_count + 1
@@ -156,12 +156,12 @@ extern "C" const char* strategy_init_evaluation_run(void*) { return "{}"; }
 
 extern "C" const char* strategy_init_game_payload(void* inst,
                                           const char* meta_json,
-                                          const char* state_json)
+                                          const char* game_state_json)
 {
     static std::string buf;
     buf = static_cast<StatefulOQStrategy*>(inst)->init_game_payload(
         meta_json   ? meta_json   : "{}",
-        state_json  ? state_json  : "{}"
+        game_state_json  ? game_state_json  : "{}"
     );
     return buf.c_str();
 }
@@ -169,7 +169,7 @@ extern "C" const char* strategy_init_game_payload(void* inst,
 extern "C" const char* strategy_next_click(void* inst,
                                             const char* revealed_json,
                                             const char* meta_json,
-                                            const char* state_json)
+                                            const char* game_state_json)
 {
     static std::string buf;
     auto* s = static_cast<StatefulOQStrategy*>(inst);
@@ -186,9 +186,9 @@ extern "C" const char* strategy_next_click(void* inst,
     }
 
     ClickResult out;
-    s->next_click(revealed, meta_json ? meta_json : "{}", state_json ? state_json : "{}", out);
+    s->next_click(revealed, meta_json ? meta_json : "{}", game_state_json ? game_state_json : "{}", out);
     buf = "{\"row\":" + std::to_string(out.row) +
           ",\"col\":" + std::to_string(out.col) +
-          ",\"state\":" + out.state_json + "}";
+          ",\"state\":" + out.game_state_json + "}";
     return buf.c_str();
 }

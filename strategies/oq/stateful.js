@@ -6,16 +6,16 @@
  *
  * WHY PER-GAME STATE?
  * -------------------
- * The state value is threaded through every call within a game:
+ * The game_state value is threaded through every call within a game:
  *
- *   initGamePayload(meta, state)             → initial state for this game
- *   nextClick(revealed, meta, s0)    → { row, col, state: s1 }
- *   nextClick(revealed, meta, s1)    → { row, col, state: s2 }
+ *   initGamePayload(meta, evaluationRunState)             → initial state for this game
+ *   nextClick(revealed, meta, s0)    → { row, col, gameState: s1 }
+ *   nextClick(revealed, meta, s1)    → { row, col, gameState: s2 }
  *   ...
  *
  * initGamePayload() is called once at the start of EACH game, making it the right
  * place to reset anything that should be fresh for every game.  Whatever it
- * returns becomes the state for that game's first nextClick() call.
+ * returns becomes the gameState for that game's first nextClick() call.
  *
  * Contrast with initEvaluationRun(), which is called only ONCE before all games
  * begin — use that for cross-game global tables (see oc/global_state.js).
@@ -27,7 +27,7 @@
  * new (maximising board coverage).  If no such cell exists we fall back to
  * cells with at least one new axis, then to any unclicked cell.
  *
- * The click history is accumulated in the state object across calls within a
+ * The click history is accumulated in the gameState object across calls within a
  * game and is reset to empty by initGamePayload() at the start of each new game.
  */
 
@@ -39,15 +39,15 @@ class StatefulOQStrategy extends OQStrategy {
   /**
    * Reset per-game tracking at the start of every game.
    *
-   * Called once before the first nextClick() of each game.  The `state`
+   * Called once before the first nextClick() of each game.  The `evaluationRunState`
    * argument here is whatever initEvaluationRun() returned (null by default);
    * we ignore it and return a fresh object instead.
    *
    * @param {Object} meta   { clicks_left, max_clicks, purples_found }
-   * @param {*}      state  Value from initEvaluationRun() — ignored here
+   * @param {*}      evaluationRunState  Read-only value from initEvaluationRun() — ignored here
    * @returns {{ clickedRows: number[], clickedCols: number[], clickCount: number }}
    */
-  initGamePayload(meta, state) {
+  initGamePayload(meta, evaluationRunState) {
     return {
       clickedRows: [],   // rows clicked so far this game
       clickedCols: [],   // cols clicked so far this game
@@ -58,18 +58,18 @@ class StatefulOQStrategy extends OQStrategy {
   /**
    * Choose the next cell, preferring unexplored rows and columns.
    *
-   * The state object carries click history accumulated across all previous
+   * The gameState object carries click history accumulated across all previous
    * calls this game.  We update it and return the new version.
    *
    * @param {Array<{row: number, col: number, color: string}>} revealed
    * @param {Object} meta   { clicks_left, max_clicks, purples_found }
-   * @param {{ clickedRows: number[], clickedCols: number[], clickCount: number }} state
-   * @returns {{ row: number, col: number, state: object }}
+   * @param {{ clickedRows: number[], clickedCols: number[], clickCount: number }} gameState
+   * @returns {{ row: number, col: number, gameState: object }}
    */
-  nextClick(revealed, meta, state) {
+  nextClick(revealed, meta, gameState) {
     const clickedSet = new Set(revealed.map(c => c.row * 5 + c.col));
-    const rowSet = new Set(state.clickedRows);
-    const colSet = new Set(state.clickedCols);
+    const rowSet = new Set(gameState.clickedRows);
+    const colSet = new Set(gameState.clickedCols);
 
     const newBoth = [];   // row AND col are new
     const newOne  = [];   // either row or col is new
@@ -87,17 +87,17 @@ class StatefulOQStrategy extends OQStrategy {
     }
 
     const candidates = newBoth.length ? newBoth : newOne.length ? newOne : fallback;
-    if (!candidates.length) return { row: 0, col: 0, state };
+    if (!candidates.length) return { row: 0, col: 0, gameState };
 
     const [row, col] = candidates[Math.floor(Math.random() * candidates.length)];
 
     // Update and return the new state — becomes state on the next call
     const newState = {
-      clickedRows: [...state.clickedRows, row],
-      clickedCols: [...state.clickedCols, col],
-      clickCount: state.clickCount + 1,
+      clickedRows: [...gameState.clickedRows, row],
+      clickedCols: [...gameState.clickedCols, col],
+      clickCount: gameState.clickCount + 1,
     };
-    return { row, col, state: newState };
+    return { row, col, gameState: newState };
   }
 }
 

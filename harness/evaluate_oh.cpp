@@ -274,7 +274,7 @@ static OHGameResult run_oh_game(
     const OHBoard& board,
     const Dist&    dark_dist,
     StrategyBridge& strategy,
-    std::string&   state_json,
+    std::string&   game_state_json,
     std::mt19937_64& rng,
     uint64_t       game_seed)
 {
@@ -303,7 +303,7 @@ static OHGameResult run_oh_game(
     std::string meta = "{\"clicks_left\":" + std::to_string(clicks_left)
                      + ",\"max_clicks\":" + std::to_string(MAX_CLICKS)
                      + ",\"game_seed\":"  + std::to_string(game_seed) + "}";
-    state_json = strategy.init_game_payload(meta, state_json);
+    game_state_json = strategy.init_game_payload(meta, game_state_json);
 
     auto do_reveal = [&](int idx) {
         if (idx < 0 || idx >= N_SLOTS || revealed[idx]) return;
@@ -328,9 +328,9 @@ static OHGameResult run_oh_game(
         meta = "{\"clicks_left\":" + std::to_string(clicks_left)
              + ",\"max_clicks\":" + std::to_string(MAX_CLICKS) + "}";
 
-        Click c = strategy.next_click(revealed_cells, meta, state_json);
+        Click c = strategy.next_click(revealed_cells, meta, game_state_json);
         if (auto* pb = dynamic_cast<PythonBridge*>(&strategy))
-            state_json = pb->last_state();
+            game_state_json = pb->last_game_state();
 
         int idx = rc_to_idx(c.row, c.col);
         if (idx < 0 || idx >= N_SLOTS || clicked[idx]) {
@@ -472,9 +472,9 @@ int main(int argc, char* argv[]) {
     for (int t = 1; t < n_threads; ++t)
         bridges[t] = StrategyBridge::load(strategy_path, "oh");
 
-    std::vector<std::string> state_jsons(n_threads);
+    std::vector<std::string> evaluation_run_states(n_threads);
     for (int t = 0; t < n_threads; ++t)
-        state_jsons[t] = bridges[t]->init_evaluation_run();
+        evaluation_run_states[t] = bridges[t]->init_evaluation_run();
 
     std::atomic<uint64_t> done_count(0);
     ProgressReporter prog(n_games, 10000);
@@ -500,7 +500,7 @@ int main(int argc, char* argv[]) {
         OHBoard board = make_oh_board(appearance_dist, rng);
         // game_seed is forwarded into run_oh_game → init_game_payload meta so strategies can
         // seed their own RNG deterministically, producing identical results across runs.
-        OHGameResult result = run_oh_game(board, dark_dist, *bridges[tid], state_jsons[tid], rng, game_seed);
+        OHGameResult result = run_oh_game(board, dark_dist, *bridges[tid], evaluation_run_states[tid], rng, game_seed);
         if (result.clicked_chest) ++chest_clicked_count[tid];
         ev_acc[tid].update(result.score);
 

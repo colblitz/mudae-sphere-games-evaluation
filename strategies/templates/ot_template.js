@@ -46,11 +46,11 @@
  *
  * STATE PAYLOAD
  * -------------
- * The state value is threaded through every call within a game:
+ * The game_state value is threaded through every call within a game:
  *
  *   initEvaluationRun()               → initialState (called once before all games)
  *   initGamePayload(meta, s0)           → s1           (called once per game)
- *   nextClick(revealed,meta,s1) → {row,col,state:s2}
+ *   nextClick(revealed,meta,s1) → {row,col,gameState:s2}
  *   ...
  *
  * Use initEvaluationRun() for data computed ONCE and shared across all games.
@@ -82,7 +82,7 @@ class MyOTStrategy extends OTStrategy {
    * Called ONCE before all games begin.
    *
    * Return anything that is board-independent and expensive to repeat.
-   * The returned value is passed as `state` to every subsequent initGamePayload()
+   * The returned value is passed as `evaluationRunState` to every subsequent initGamePayload()
    * and nextClick() call.  Treat it as a read-only global table.
    *
    * @returns {*}  Any JSON-serialisable value.  Default: null.
@@ -103,15 +103,15 @@ class MyOTStrategy extends OTStrategy {
    * Called once before each game's first click.
    *
    * @param {Object} meta   { n_colors, ships_hit, blues_used, max_clicks }
-   * @param {*}      state  Value from initEvaluationRun()
-   * @returns {*}   Initial state for this game's first nextClick() call.
+   * @param {*}      evaluationRunState  Read-only value from initEvaluationRun()
+   * @returns {*}   Initial gameState for this game's first nextClick() call.
    *
    * Tip: use meta.n_colors to select the right precomputed prior from the
    * global table returned by initEvaluationRun().
    */
-  initGamePayload(meta, state) {
+  initGamePayload(meta, evaluationRunState) {
     // TODO: reset per-game fields here, or delete this method
-    return state;
+    return evaluationRunState;
   }
 
   // -------------------------------------------------------------------------
@@ -125,9 +125,9 @@ class MyOTStrategy extends OTStrategy {
    *   All cells revealed so far this game (grows monotonically).
    * @param {Object} meta
    *   { n_colors: number, ships_hit: number, blues_used: number, max_clicks: number }
-   * @param {*} state
+   * @param {*} gameState
    *   Value returned by the previous nextClick() (or initGamePayload() for first call).
-   * @returns {{ row: number, col: number, state: * }}
+   * @returns {{ row: number, col: number, gameState: * }}
    *
    * Tips:
    *   - Revealed ship cells constrain remaining ship placements (ships are
@@ -141,7 +141,7 @@ class MyOTStrategy extends OTStrategy {
    *       spT=4, spG=3, spY=3, spO/spL/spD/spR/spW=2
    *   - Do not return a (row, col) already in revealed.
    */
-  nextClick(revealed, meta, state) {
+  nextClick(revealed, meta, gameState) {
     const clicked = new Set(revealed.map(c => c.row * 5 + c.col));
 
     // TODO: replace the random fallback with your click logic
@@ -150,9 +150,9 @@ class MyOTStrategy extends OTStrategy {
       for (let c = 0; c < 5; c++)
         if (!clicked.has(r * 5 + c)) unclicked.push([r, c]);
 
-    if (unclicked.length === 0) return { row: 0, col: 0, state };
+    if (unclicked.length === 0) return { row: 0, col: 0, gameState };
     const [row, col] = unclicked[Math.floor(Math.random() * unclicked.length)];
-    return { row, col, state };
+    return { row, col, gameState };
   }
 }
 

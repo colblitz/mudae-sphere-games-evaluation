@@ -11,7 +11,7 @@
  * WHY GLOBAL STATE?
  * -----------------
  * initEvaluationRun() is called exactly once per evaluation run (before any games
- * start).  The returned value is passed as `state` to initGamePayload() at the start
+ * start).  The returned value is passed as `evaluationRunState` to initGamePayload() at the start
  * of every game, and from there flows through every nextClick() call.
  *
  * Use initEvaluationRun() for anything that is:
@@ -27,7 +27,7 @@
  * The center cell (2,2) can never be red, so it is visited last.
  * All other cells are visited in a deterministic clockwise spiral from the
  * outermost ring inward.  The order is built once in initEvaluationRun() and stored
- * in the state object; nextClick() does a simple linear scan.
+ * in the gameState object; nextClick() does a simple linear scan.
  */
 
 "use strict";
@@ -84,7 +84,7 @@ class GlobalStateOCStrategy extends OCStrategy {
    * Called ONCE before all games.  Build the visit order here so we pay
    * the construction cost only once across the entire evaluation run.
    *
-   * The returned value is passed as `state` to every subsequent initGamePayload()
+   * The returned value is passed as `evaluationRunState` to every subsequent initGamePayload()
    * and nextClick() call — treat it as a read-only global table.
    *
    * @returns {{ order: Array<[number, number]> }}
@@ -101,20 +101,20 @@ class GlobalStateOCStrategy extends OCStrategy {
    *
    * @param {Array<{row: number, col: number, color: string}>} revealed
    * @param {Object} meta  { clicks_left, max_clicks }
-   * @param {{ order: Array<[number, number]> }} state  Global visit order
-   * @returns {{ row: number, col: number, state: object }}
+   * @param {{ order: Array<[number, number]> }} gameState  Global visit order (read-only)
+   * @returns {{ row: number, col: number, gameState: object }}
    */
-  nextClick(revealed, meta, state) {
+  nextClick(revealed, meta, gameState) {
     const clicked = new Set(revealed.map(c => c.row * 5 + c.col));
 
-    for (const [row, col] of state.order) {
+    for (const [row, col] of gameState.order) {
       if (!clicked.has(row * 5 + col)) {
-        return { row, col, state };  // state is unchanged — shared read-only table
+        return { row, col, gameState };  // gameState is unchanged — shared read-only table
       }
     }
 
     // Fallback: should never be reached on a valid board
-    return { row: 0, col: 0, state };
+    return { row: 0, col: 0, gameState };
   }
 }
 

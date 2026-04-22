@@ -26,7 +26,7 @@ public:
 
     void next_click(const std::vector<Cell>& revealed,
                     const std::string& /*meta_json*/,
-                    const std::string& /*state_json*/,
+                    const std::string& /*game_state_json*/,
                     ClickResult& out) override
     {
         bool clicked[25] = {};
@@ -51,7 +51,7 @@ public:
 
         out.row = (chosen >= 0) ? chosen / 5 : 0;
         out.col = (chosen >= 0) ? chosen % 5 : 0;
-        out.state_json = "{}";
+        out.game_state_json = "{}";
     }
 
 private:
@@ -66,12 +66,12 @@ extern "C" sphere::StrategyBase* create_strategy()               { return new Ra
 extern "C" void                  destroy_strategy(sphere::StrategyBase* s) { delete s; }
 
 extern "C" const char* strategy_init_evaluation_run(void*) { return "{}"; }
-extern "C" const char* strategy_init_game_payload(void*, const char*, const char* state) { return state; }
+extern "C" const char* strategy_init_game_payload(void*, const char*, const char* evaluation_run_state) { return evaluation_run_state; }
 
 extern "C" const char* strategy_next_click(void* inst,
                                             const char* revealed_json,
                                             const char* meta_json,
-                                            const char* state_json)
+                                            const char* game_state_json)
 {
     // Minimal JSON parsing: extract "row" and "col" fields
     static char buf[64];
@@ -97,7 +97,7 @@ extern "C" const char* strategy_next_click(void* inst,
     }
 
     ClickResult out;
-    s->next_click(revealed, meta_json ? meta_json : "{}", state_json ? state_json : "{}", out);
+    s->next_click(revealed, meta_json ? meta_json : "{}", game_state_json ? game_state_json : "{}", out);
     snprintf(buf, sizeof(buf), "{\"row\":%d,\"col\":%d,\"state\":{}}", out.row, out.col);
     return buf;
 }

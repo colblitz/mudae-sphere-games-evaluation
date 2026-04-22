@@ -11,7 +11,7 @@
  * WHY GLOBAL STATE?
  * -----------------
  * init_evaluation_run() is called exactly once per evaluation run (before any games
- * start).  Its return value (a JSON string) is passed as state_json to
+ * start).  Its return value (a JSON string) is passed as game_state_json to
  * init_game_payload() at the start of every game, and from there flows through every
  * next_click() call unchanged.
  *
@@ -125,35 +125,35 @@ public:
      * Called ONCE before all games.  Build the visit order here so we pay
      * the construction cost only once across the entire evaluation run.
      *
-     * Returns a JSON string that the harness will pass as state_json to every
+     * Returns a JSON string that the harness will pass as game_state_json to every
      * subsequent init_game_payload() and next_click() call.
      */
     std::string init_evaluation_run() override {
         auto order = build_spiral_order();
-        // Wrap in an object so state_json is always a JSON object (not a bare array)
+        // Wrap in an object so game_state_json is always a JSON object (not a bare array)
         return "{\"order\":" + order_to_json(order) + "}";
     }
 
-    // init_game_payload() is intentionally omitted: the default returns state_json
+    // init_game_payload() is intentionally omitted: the default returns game_state_json
     // unchanged, which is exactly what we want — no per-game reset needed.
 
     void next_click(const std::vector<Cell>& revealed,
                     const std::string& /*meta_json*/,
-                    const std::string& state_json,
+                    const std::string& game_state_json,
                     ClickResult& out) override
     {
         // Reconstruct the visit order from the global state.
         // In a real high-performance strategy you'd cache this in a member
         // variable parsed once from init_evaluation_run's return; kept simple here
-        // to illustrate state_json usage clearly.
+        // to illustrate game_state_json usage clearly.
         bool clicked[25] = {};
         for (const Cell& c : revealed)
             clicked[c.row * 5 + c.col] = true;
 
         // Extract the "order" array from the state JSON
-        auto pos = state_json.find("\"order\":");
+        auto pos = game_state_json.find("\"order\":");
         std::string order_json = (pos != std::string::npos)
-            ? state_json.substr(pos + 8)
+            ? game_state_json.substr(pos + 8)
             : "[]";
         auto order = order_from_json(order_json);
 
@@ -161,14 +161,14 @@ public:
             if (!clicked[rc.r * 5 + rc.c]) {
                 out.row = rc.r;
                 out.col = rc.c;
-                out.state_json = state_json;  // unchanged — shared read-only table
+                out.game_state_json = game_state_json;  // unchanged — shared read-only table
                 return;
             }
         }
 
         // Fallback: should never be reached on a valid board
         out.row = 0; out.col = 0;
-        out.state_json = state_json;
+        out.game_state_json = game_state_json;
     }
 };
 
@@ -185,15 +185,15 @@ extern "C" const char* strategy_init_evaluation_run(void* inst) {
     return buf.c_str();
 }
 
-extern "C" const char* strategy_init_game_payload(void*, const char*, const char* state) {
-    // No per-game reset needed — pass the global state through unchanged.
-    return state;
+extern "C" const char* strategy_init_game_payload(void*, const char*, const char* evaluation_run_state) {
+    // No per-game reset needed — pass evaluation_run_state through unchanged.
+    return evaluation_run_state;
 }
 
 extern "C" const char* strategy_next_click(void* inst,
                                             const char* revealed_json,
                                             const char* meta_json,
-                                            const char* state_json)
+                                            const char* game_state_json)
 {
     static std::string buf;
     auto* s = static_cast<GlobalStateOCStrategy*>(inst);
@@ -210,9 +210,9 @@ extern "C" const char* strategy_next_click(void* inst,
     }
 
     ClickResult out;
-    s->next_click(revealed, meta_json ? meta_json : "{}", state_json ? state_json : "{}", out);
+    s->next_click(revealed, meta_json ? meta_json : "{}", game_state_json ? game_state_json : "{}", out);
     buf = "{\"row\":" + std::to_string(out.row) +
           ",\"col\":" + std::to_string(out.col) +
-          ",\"state\":" + out.state_json + "}";
+          ",\"state\":" + out.game_state_json + "}";
     return buf.c_str();
 }

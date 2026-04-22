@@ -52,19 +52,15 @@
 
 class StrategyBase {
   /**
-   * Called once before the first click of each game.
-   * Override to set up per-game state.
+   * Called once before the evaluation run begins.
    *
-   * @param {Object} meta  Game metadata (keys vary per game — see subclasses).
-   * @param {*}      state Value returned by initEvaluationRun().
-   * @returns {*}    Updated state for the first nextClick call.
-   */
-  initGamePayload(meta, state) {
-    return state;
-  }
-
-  /**
-   * Return the initial state before initGamePayload is called.
+   * Override to compute data shared across all games — lookup tables,
+   * precomputed weights, etc.  The returned value is passed as
+   * `evaluationRunState` to every initGamePayload call.
+   *
+   * Do not store game-specific information here.  Each game must be played
+   * independently; sharing board history between games produces unfair results.
+   *
    * Default: null.
    * @returns {*}
    */
@@ -73,16 +69,31 @@ class StrategyBase {
   }
 
   /**
+   * Called once before the first click of each game.
+   *
+   * Override to set up fresh per-game state.  The returned value becomes
+   * `gameState` for that game's first nextClick call.
+   *
+   * @param {Object} meta               Game metadata (keys vary per game).
+   * @param {*}      evaluationRunState Read-only value from initEvaluationRun().
+   *                                    Do not mutate — shared across all games.
+   * @returns {*}    Initial gameState for this game's first nextClick call.
+   */
+  initGamePayload(meta, evaluationRunState) {
+    return evaluationRunState;
+  }
+
+  /**
    * Choose the next cell to click.
    *
    * @param {Array<{row: number, col: number, color: string}>} revealed
    *   All cells revealed so far.
-   * @param {Object} meta  Game-specific metadata (see subclass docs).
-   * @param {*}      state Value returned by the previous nextClick (or
-   *                       initGamePayload for the first call).
-   * @returns {{ row: number, col: number, state: * }}
+   * @param {Object} meta       Game-specific metadata (see subclass docs).
+   * @param {*}      gameState  Value returned by the previous nextClick (or
+   *                            initGamePayload for the first call of the game).
+   * @returns {{ row: number, col: number, gameState: * }}
    */
-  nextClick(revealed, meta, state) {  // eslint-disable-line no-unused-vars
+  nextClick(revealed, meta, gameState) {  // eslint-disable-line no-unused-vars
     throw new Error("nextClick() must be implemented");
   }
 }
@@ -181,10 +192,10 @@ if (require.main === module) {
       if (msg.method === "init_evaluation_run") {
         result = { value: _strategy.initEvaluationRun() };
       } else if (msg.method === "init_game_payload") {
-        result = { value: _strategy.initGamePayload(msg.meta, msg.state) };
+        result = { value: _strategy.initGamePayload(msg.meta, msg.evaluationRunState) };
       } else if (msg.method === "next_click") {
-        const { row, col, state } = _strategy.nextClick(msg.revealed, msg.meta, msg.state);
-        result = { row, col, state };
+        const { row, col, gameState } = _strategy.nextClick(msg.revealed, msg.meta, msg.gameState);
+        result = { row, col, gameState };
       } else {
         result = { error: "unknown_method" };
       }

@@ -59,7 +59,7 @@ using namespace sphere;
 static std::pair<double, bool> run_oc_game(
     const OCBoard&  board,
     StrategyBridge& strategy,
-    std::string&    state_json)
+    std::string&    game_state_json)
 {
     std::vector<Cell> revealed;
     double score      = 0.0;
@@ -68,7 +68,7 @@ static std::pair<double, bool> run_oc_game(
 
     // init_game_payload at the start of each game
     std::string meta = "{\"clicks_left\":5,\"max_clicks\":5}";
-    state_json = strategy.init_game_payload(meta, state_json);
+    game_state_json = strategy.init_game_payload(meta, game_state_json);
 
     bool clicked[N_CELLS] = {};
 
@@ -76,18 +76,18 @@ static std::pair<double, bool> run_oc_game(
         // Build current meta
         meta = "{\"clicks_left\":" + std::to_string(clicks_left) + ",\"max_clicks\":5}";
 
-        Click c = strategy.next_click(revealed, meta, state_json);
+        Click c = strategy.next_click(revealed, meta, game_state_json);
         // Thread state from bridge (Python bridge stores it internally)
         // For C++/JS bridges the state is embedded in the return; we use a
         // workaround: each bridge returns updated state as a side-channel.
-        // For simplicity all bridges expose last_state_json() via a cast.
-        // Actually: for now we pass state_json to next_click and expect it back.
+        // For Python strategies the game_state_json is extracted from the return tuple
+        // and stored in last_game_state() on the bridge.
         // The Python bridge stores last_state_ internally; we read it back.
         // For C++ and JS bridges, state is returned inline in the JSON response.
         // This is handled by each bridge's next_click updating last_state_.
         // We pull it via dynamic_cast.
         if (auto* pb = dynamic_cast<PythonBridge*>(&strategy)) {
-            state_json = pb->last_state();
+            game_state_json = pb->last_game_state();
         }
 
         int idx = rc_to_idx(c.row, c.col);
@@ -167,9 +167,9 @@ int main(int argc, char* argv[]) {
     for (int t = 1; t < n_threads; ++t)
         bridges[t] = StrategyBridge::load(strategy_path, "oc");
 
-    std::vector<std::string> state_jsons(n_threads);
+    std::vector<std::string> evaluation_run_states(n_threads);
     for (int t = 0; t < n_threads; ++t)
-        state_jsons[t] = bridges[t]->init_evaluation_run();
+        evaluation_run_states[t] = bridges[t]->init_evaluation_run();
 
     std::vector<Welford>  ev_acc(n_threads);
     std::vector<uint64_t> red_count(n_threads, 0);
@@ -190,7 +190,7 @@ int main(int argc, char* argv[]) {
 #else
         int tid = 0;
 #endif
-        auto [score, red_found] = run_oc_game(boards[i], *bridges[tid], state_jsons[tid]);
+        auto [score, red_found] = run_oc_game(boards[i], *bridges[tid], evaluation_run_states[tid]);
         ev_acc[tid].update(score);
         if (red_found) ++red_count[tid];
 

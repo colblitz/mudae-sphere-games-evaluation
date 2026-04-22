@@ -55,7 +55,7 @@ purples_found  int   number of purple cells clicked so far
 
 STATE PAYLOAD
 -------------
-state is any Python object you choose.  The harness threads it through every
+game_state is any Python object you choose.  The harness threads it through every
 call within a game:
 
   init_evaluation_run()        → initial_state        (called once before all games)
@@ -70,7 +70,7 @@ Use init_evaluation_run() for data computed ONCE and shared across all games
 Use init_game_payload() to reset per-game bookkeeping at the start of each game.
 
 If your strategy is stateless, leave both optional methods out and return
-`state` unchanged from next_click().
+`game_state` unchanged from next_click().
 
 See also
 --------
@@ -91,10 +91,10 @@ class MyOQStrategy(OQStrategy):
     # -----------------------------------------------------------------------
 
     def init_evaluation_run(self) -> Any:
-        """Return the initial state payload — called ONCE before all games.
+        """Called once before the evaluation run begins.
 
         Compute anything that is board-independent and expensive to repeat.
-        The returned value is passed as ``state`` to init_game_payload() at the start
+        The returned value is passed as ``evaluation_run_state`` to init_game_payload() at the start
         of every game.  Treat it as read-only during play.
 
         Returns:
@@ -113,22 +113,22 @@ class MyOQStrategy(OQStrategy):
     def init_game_payload(
         self,
         meta: dict[str, Any],
-        state: Any,
+        evaluation_run_state: Any,
     ) -> Any:
-        """Set up per-game state — called once before each game's first click.
+        """Called once before each game's first click. Set up fresh per-game state.
 
         Args:
             meta:  game metadata (same keys as next_click).
-            state: value returned by init_evaluation_run().
+            evaluation_run_state: read-only value from init_evaluation_run().
 
         Returns:
-            The initial state for this game's first next_click() call.
+            The initial game_state for this game's first next_click() call.
 
         Example: initialise a constraint model — a set of all 12,650 possible
         purple layouts, narrowed down each turn as colors are revealed.
         """
         # TODO: reset per-game fields here, or delete this method
-        return state
+        return evaluation_run_state
 
     # -----------------------------------------------------------------------
     # Required: click decision
@@ -138,7 +138,7 @@ class MyOQStrategy(OQStrategy):
         self,
         revealed: list[dict[str, Any]],
         meta: dict[str, Any],
-        state: Any,
+        game_state: Any,
     ) -> tuple[int, int, Any]:
         """Choose the next cell to click.
 
@@ -150,13 +150,13 @@ class MyOQStrategy(OQStrategy):
                 "max_clicks":    int,  # total non-purple budget (always 7)
                 "purples_found": int,  # purples clicked so far (0–3)
             }
-            state: value returned by the previous next_click() call, or by
+            game_state: value returned by the previous next_click() call, or by
                    init_game_payload() for the first call of the game.
 
         Returns:
-            (row, col, next_state)
+            (row, col, game_state)
             row, col    : 0-indexed coordinates of the cell to click next.
-            next_state  : updated state to pass into the next call.
+            game_state  : updated state to pass into the next call.
 
         Tips:
             - Each non-purple reveal gives you a neighbor count.  Use it to
@@ -174,13 +174,13 @@ class MyOQStrategy(OQStrategy):
         purples = [(c["row"], c["col"]) for c in revealed if c["color"] == "spP"]
         if purples:
             row, col = purples[0]
-            return row, col, state
+            return row, col, game_state
 
         # Always click red immediately when it appears (free)
         reds = [(c["row"], c["col"]) for c in revealed if c["color"] == "spR"]
         if reds:
             row, col = reds[0]
-            return row, col, state
+            return row, col, game_state
 
         # TODO: replace the random fallback with your click logic
 
@@ -191,6 +191,6 @@ class MyOQStrategy(OQStrategy):
             if (r, c) not in clicked
         ]
         if not unclicked:
-            return 0, 0, state
+            return 0, 0, game_state
         row, col = random.choice(unclicked)
-        return row, col, state
+        return row, col, game_state

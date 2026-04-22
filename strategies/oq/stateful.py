@@ -7,9 +7,9 @@ WHY PER-GAME STATE?
 -------------------
 The state payload is threaded through every call within a game:
 
-  init_game_payload(meta, state)          → initial state for this game
-  next_click(revealed, meta, s0) → (row, col, s1)
-  next_click(revealed, meta, s1) → (row, col, s2)
+  init_game_payload(meta, evaluation_run_state) → initial game_state for this game
+  next_click(revealed, meta, s0)               → (row, col, s1)
+  next_click(revealed, meta, s1)               → (row, col, s2)
   ...
 
 init_game_payload() is called once at the start of EACH game, making it the right
@@ -41,16 +41,16 @@ class StatefulOQStrategy(OQStrategy):
     def init_game_payload(
         self,
         meta: dict[str, Any],
-        state: Any,
+        evaluation_run_state: Any,
     ) -> Any:
         """Reset per-game tracking at the start of every game.
 
-        Called once before the first next_click() of each game.  The ``state``
-        argument here is whatever init_evaluation_run() returned (None by default);
-        we ignore it and return a fresh dict instead.
+        Called once before the first next_click() of each game.
+        evaluation_run_state is whatever init_evaluation_run() returned (None
+        by default); we ignore it and return a fresh dict instead.
 
         Returns:
-            A new state dict for this game — click history starts empty.
+            A new game_state dict for this game — click history starts empty.
         """
         return {
             "clicked_rows": [],   # rows clicked so far this game
@@ -62,16 +62,16 @@ class StatefulOQStrategy(OQStrategy):
         self,
         revealed: list[dict[str, Any]],
         meta: dict[str, Any],
-        state: Any,
+        game_state: Any,
     ) -> tuple[int, int, Any]:
         """Choose the next cell, preferring unexplored rows and columns.
 
-        The state dict carries click history accumulated across all previous
+        game_state carries the click history accumulated across all previous
         calls this game.  We update it and return the new version.
         """
         clicked_set = {(c["row"], c["col"]) for c in revealed}
-        clicked_rows: set[int] = set(state["clicked_rows"])
-        clicked_cols: set[int] = set(state["clicked_cols"])
+        clicked_rows: set[int] = set(game_state["clicked_rows"])
+        clicked_cols: set[int] = set(game_state["clicked_cols"])
 
         # Collect all unclicked cells, scored by how many new axes they cover
         new_both = []    # row AND col are new
@@ -93,14 +93,14 @@ class StatefulOQStrategy(OQStrategy):
 
         candidates = new_both or new_one or fallback
         if not candidates:
-            return 0, 0, state
+            return 0, 0, game_state
 
         row, col = random.choice(candidates)
 
-        # Update and return the new state — this becomes state on the next call
+        # Update and return new game_state — this becomes game_state on the next call
         new_state = {
-            "clicked_rows": state["clicked_rows"] + [row],
-            "clicked_cols": state["clicked_cols"] + [col],
-            "click_count": state["click_count"] + 1,
+            "clicked_rows": game_state["clicked_rows"] + [row],
+            "clicked_cols": game_state["clicked_cols"] + [col],
+            "click_count": game_state["click_count"] + 1,
         }
         return row, col, new_state

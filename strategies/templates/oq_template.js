@@ -42,11 +42,11 @@
  *
  * STATE PAYLOAD
  * -------------
- * The state value is threaded through every call within a game:
+ * The game_state value is threaded through every call within a game:
  *
  *   initEvaluationRun()               → initialState (called once before all games)
  *   initGamePayload(meta, s0)           → s1           (called once per game)
- *   nextClick(revealed,meta,s1) → {row,col,state:s2}
+ *   nextClick(revealed,meta,s1) → {row,col,gameState:s2}
  *   ...
  *
  * Use initEvaluationRun() for data computed ONCE and shared across all games.
@@ -77,7 +77,7 @@ class MyOQStrategy extends OQStrategy {
    * Called ONCE before all games begin.
    *
    * Return anything that is board-independent and expensive to repeat.
-   * The returned value is passed as `state` to every subsequent initGamePayload()
+   * The returned value is passed as `evaluationRunState` to every subsequent initGamePayload()
    * and nextClick() call.  Treat it as a read-only global table.
    *
    * @returns {*}  Any JSON-serialisable value.  Default: null.
@@ -95,15 +95,15 @@ class MyOQStrategy extends OQStrategy {
    * Called once before each game's first click.
    *
    * @param {Object} meta   { clicks_left, max_clicks, purples_found }
-   * @param {*}      state  Value from initEvaluationRun()
-   * @returns {*}   Initial state for this game's first nextClick() call.
+   * @param {*}      evaluationRunState  Read-only value from initEvaluationRun()
+   * @returns {*}   Initial gameState for this game's first nextClick() call.
    *
    * Example: initialise a constraint model — the set of all 12,650 possible
    * purple layouts, to be pruned as neighbor-count colors are revealed.
    */
-  initGamePayload(meta, state) {
+  initGamePayload(meta, evaluationRunState) {
     // TODO: reset per-game fields here, or delete this method
-    return state;
+    return evaluationRunState;
   }
 
   // -------------------------------------------------------------------------
@@ -117,9 +117,9 @@ class MyOQStrategy extends OQStrategy {
    *   All cells revealed so far this game (grows monotonically).
    * @param {Object} meta
    *   { clicks_left: number, max_clicks: number, purples_found: number }
-   * @param {*} state
+   * @param {*} gameState
    *   Value returned by the previous nextClick() (or initGamePayload() for first call).
-   * @returns {{ row: number, col: number, state: * }}
+   * @returns {{ row: number, col: number, gameState: * }}
    *
    * Tips:
    *   - Always click purple ("spP") cells immediately — they are free.
@@ -130,15 +130,15 @@ class MyOQStrategy extends OQStrategy {
    *     are purple — very strong constraint.
    *   - Do not return a (row, col) already in revealed.
    */
-  nextClick(revealed, meta, state) {
+  nextClick(revealed, meta, gameState) {
     const clicked = new Set(revealed.map(c => c.row * 5 + c.col));
 
     // Always collect free clicks first
     const purples = revealed.filter(c => c.color === "spP");
-    if (purples.length > 0) return { row: purples[0].row, col: purples[0].col, state };
+    if (purples.length > 0) return { row: purples[0].row, col: purples[0].col, gameState };
 
     const reds = revealed.filter(c => c.color === "spR");
-    if (reds.length > 0) return { row: reds[0].row, col: reds[0].col, state };
+    if (reds.length > 0) return { row: reds[0].row, col: reds[0].col, gameState };
 
     // TODO: replace the random fallback with your click logic
     const unclicked = [];
@@ -146,9 +146,9 @@ class MyOQStrategy extends OQStrategy {
       for (let c = 0; c < 5; c++)
         if (!clicked.has(r * 5 + c)) unclicked.push([r, c]);
 
-    if (unclicked.length === 0) return { row: 0, col: 0, state };
+    if (unclicked.length === 0) return { row: 0, col: 0, gameState };
     const [row, col] = unclicked[Math.floor(Math.random() * unclicked.length)];
-    return { row, col, state };
+    return { row, col, gameState };
   }
 }
 

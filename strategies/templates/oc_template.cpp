@@ -37,7 +37,7 @@
  * ---------------------
  * The harness serialises state as a JSON string threaded through every call:
  *
- *   init_evaluation_run()                 → state_json (once before all games)
+ *   init_evaluation_run()                 → game_state_json (once before all games)
  *   init_game_payload(meta_json, state0)    → state1     (once per game)
  *   next_click(revealed, meta, s1) → ClickResult{row, col, state2}
  *   ...
@@ -76,7 +76,7 @@ public:
      * Return the initial state JSON — called ONCE before all games.
      *
      * Compute anything that is board-independent and expensive to repeat.
-     * The returned string is passed as state_json to init_game_payload() at the start
+     * The returned string is passed as evaluation_run_state_json to init_game_payload() at the start
      * of every game.  Treat it as a read-only global lookup.
      *
      * Default: "{}" (empty object — no global state).
@@ -94,14 +94,14 @@ public:
      * Set up per-game state — called once before each game's first click.
      *
      * @param meta_json   JSON: {"clicks_left":N,"max_clicks":5}
-     * @param state_json  Value returned by init_evaluation_run().
-     * @return            Initial state_json for this game's first next_click.
+     * @param evaluation_run_state_json  Read-only value from init_evaluation_run().
+     * @return            Initial game_state_json for this game's first next_click.
      */
     std::string init_game_payload(const std::string& meta_json,
-                         const std::string& state_json) override {
+                         const std::string& evaluation_run_state_json) override {
         // TODO: reset per-game fields here, or delete this method
         (void)meta_json;
-        return state_json;
+        return game_state_json;
     }
 
     // -----------------------------------------------------------------------
@@ -113,8 +113,8 @@ public:
      *
      * @param revealed    All cells revealed so far (.row, .col, .color).
      * @param meta_json   JSON: {"clicks_left":N,"max_clicks":5}
-     * @param state_json  Value from the previous next_click (or init_game_payload).
-     * @param out         Fill in out.row, out.col, out.state_json.
+     * @param game_state_json  Value from the previous next_click (or init_game_payload).
+     * @param out         Fill in out.row, out.col, out.game_state_json.
      *
      * Tips:
      *   - Each color reveal constrains where red can be.  Eliminate candidate
@@ -127,7 +127,7 @@ public:
      */
     void next_click(const std::vector<Cell>& revealed,
                     const std::string& meta_json,
-                    const std::string& state_json,
+                    const std::string& game_state_json,
                     ClickResult& out) override
     {
         (void)meta_json;
@@ -145,7 +145,7 @@ public:
 
         out.row = chosen / 5;
         out.col = chosen % 5;
-        out.state_json = state_json;  // TODO: update state if needed
+        out.game_state_json = game_state_json;  // TODO: update state if needed
     }
 
 private:
@@ -167,11 +167,11 @@ extern "C" const char* strategy_init_evaluation_run(void* inst) {
 
 extern "C" const char* strategy_init_game_payload(void* inst,
                                           const char* meta_json,
-                                          const char* state_json) {
+                                          const char* game_state_json) {
     static std::string buf;
     buf = static_cast<MyOCStrategy*>(inst)->init_game_payload(
         meta_json  ? meta_json  : "{}",
-        state_json ? state_json : "{}"
+        game_state_json ? game_state_json : "{}"
     );
     return buf.c_str();
 }
@@ -179,7 +179,7 @@ extern "C" const char* strategy_init_game_payload(void* inst,
 extern "C" const char* strategy_next_click(void* inst,
                                             const char* revealed_json,
                                             const char* meta_json,
-                                            const char* state_json)
+                                            const char* game_state_json)
 {
     static std::string buf;
     auto* s = static_cast<MyOCStrategy*>(inst);
@@ -196,9 +196,9 @@ extern "C" const char* strategy_next_click(void* inst,
     }
 
     ClickResult out;
-    s->next_click(revealed, meta_json ? meta_json : "{}", state_json ? state_json : "{}", out);
+    s->next_click(revealed, meta_json ? meta_json : "{}", game_state_json ? game_state_json : "{}", out);
     buf = "{\"row\":" + std::to_string(out.row) +
           ",\"col\":" + std::to_string(out.col) +
-          ",\"state\":" + out.state_json + "}";
+          ",\"state\":" + out.game_state_json + "}";
     return buf.c_str();
 }

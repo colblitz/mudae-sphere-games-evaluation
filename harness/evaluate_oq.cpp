@@ -114,7 +114,7 @@ static int oq_cell_value(const char* color) {
 static std::pair<double, bool> run_oq_game(
     uint32_t        purple_mask,
     StrategyBridge& strategy,
-    std::string&    state_json)
+    std::string&    game_state_json)
 {
     std::vector<Cell> revealed;
     double score      = 0.0;
@@ -127,7 +127,7 @@ static std::pair<double, bool> run_oq_game(
     std::string meta = "{\"clicks_left\":" + std::to_string(clicks_left)
                      + ",\"max_clicks\":" + std::to_string(MAX_CLICKS)
                      + ",\"purples_found\":0}";
-    state_json = strategy.init_game_payload(meta, state_json);
+    game_state_json = strategy.init_game_payload(meta, game_state_json);
 
     while (clicks_left > 0) {
         // If red is visible, click it immediately (free)
@@ -160,9 +160,9 @@ static std::pair<double, bool> run_oq_game(
              + ",\"max_clicks\":" + std::to_string(MAX_CLICKS)
              + ",\"purples_found\":" + std::to_string(purples) + "}";
 
-        Click c = strategy.next_click(revealed, meta, state_json);
+        Click c = strategy.next_click(revealed, meta, game_state_json);
         if (auto* pb = dynamic_cast<PythonBridge*>(&strategy))
-            state_json = pb->last_state();
+            game_state_json = pb->last_game_state();
 
         int idx = rc_to_idx(c.row, c.col);
         if (idx < 0 || idx >= N_CELLS || clicked[idx]) {
@@ -244,9 +244,9 @@ int main(int argc, char* argv[]) {
     for (int t = 1; t < n_threads; ++t)
         bridges[t] = StrategyBridge::load(strategy_path, "oq");
 
-    std::vector<std::string> state_jsons(n_threads);
+    std::vector<std::string> evaluation_run_states(n_threads);
     for (int t = 0; t < n_threads; ++t)
-        state_jsons[t] = bridges[t]->init_evaluation_run();
+        evaluation_run_states[t] = bridges[t]->init_evaluation_run();
 
     std::vector<Welford>  ev_acc(n_threads);
     std::vector<uint64_t> red_count(n_threads, 0);
@@ -267,7 +267,7 @@ int main(int argc, char* argv[]) {
 #else
         int tid = 0;
 #endif
-        auto [score, red_found] = run_oq_game(boards[i], *bridges[tid], state_jsons[tid]);
+        auto [score, red_found] = run_oq_game(boards[i], *bridges[tid], evaluation_run_states[tid]);
         ev_acc[tid].update(score);
         if (red_found) ++red_count[tid];
 

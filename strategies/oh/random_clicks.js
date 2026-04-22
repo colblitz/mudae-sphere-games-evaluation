@@ -14,14 +14,14 @@
 const { OHStrategy, register } = require("../../interface/strategy.js");
 
 class RandomOHStrategy extends OHStrategy {
-  nextClick(revealed, meta, state) {
+  nextClick(revealed, meta, gameState) {
     const clicked = new Set(revealed.map(c => c.row * 5 + c.col));
 
     // Prefer any visible purple (free click)
     const purples = revealed.filter(c => c.color === "spP");
     if (purples.length > 0) {
       const pick = purples[Math.floor(Math.random() * purples.length)];
-      return { row: pick.row, col: pick.col, state };
+      return { row: pick.row, col: pick.col, gameState };
     }
 
     // Pick a random unclicked cell
@@ -30,10 +30,10 @@ class RandomOHStrategy extends OHStrategy {
       for (let c = 0; c < 5; c++)
         if (!clicked.has(r * 5 + c)) unclicked.push([r, c]);
 
-    if (unclicked.length === 0) return { row: 0, col: 0, state };
+    if (unclicked.length === 0) return { row: 0, col: 0, gameState };
 
     const [row, col] = unclicked[Math.floor(Math.random() * unclicked.length)];
-    return { row, col, state };
+    return { row, col, gameState };
   }
 }
 

@@ -2,11 +2,11 @@
 
 Each game has its own ABC.  To submit a strategy, create a file in
 ``strategies/<game>/`` that subclasses the appropriate ABC and implements
-``next_click``.  ``init_game_payload`` and ``init_evaluation_run`` are optional overrides.
+``next_click``.  ``init_evaluation_run`` and ``init_game_payload`` are optional overrides.
 
-The harness instantiates the strategy class once per evaluation run, calls
-``init_game_payload`` once before each game, and then calls ``next_click`` on every
-click decision, threading the returned state payload back in.
+The harness calls ``init_evaluation_run`` once before all games begin, then
+``init_game_payload`` once before each game, and then ``next_click`` on every
+click decision, threading the returned game state payload back in.
 
 Revealed cell format
 --------------------
@@ -20,11 +20,11 @@ includes all cells revealed since the start of the game, not just new ones.
 
 Return value of next_click
 --------------------------
-A 3-tuple ``(row, col, next_state)``:
+A 3-tuple ``(row, col, game_state)``:
 
 - ``row``, ``col``: 0-indexed coordinates of the cell to click next.
-- ``next_state``: any Python object; passed back in as ``state`` on the next
-  call.  Use ``None`` if your strategy is stateless.
+- ``game_state``: any Python object; passed back in as ``game_state`` on the
+  next call.  Use ``None`` if your strategy is stateless.
 
 Color reference
 ---------------
@@ -107,36 +107,43 @@ class OHStrategy(ABC):
     """
 
     def init_evaluation_run(self) -> Any:
-        """Return the initial state payload before a game starts.
+        """Called once before the evaluation run begins.
 
-        Override to pre-allocate per-game data structures.  The return value
-        is passed as ``state`` to ``init_game_payload`` (if overridden) or directly to
-        the first ``next_click`` call.
+        Override to compute data shared across all games — lookup tables,
+        precomputed weights, loaded models, etc.  The returned value is passed
+        as ``evaluation_run_state`` to every ``init_game_payload`` call.
+
+        Do not store game-specific information here.  Each game must be played
+        independently; sharing board history between games produces unfair results.
 
         Default: returns ``None``.
         """
         return None
 
-    def init_game_payload(self, meta: dict[str, Any], state: Any) -> Any:
+    def init_game_payload(self, meta: dict[str, Any], evaluation_run_state: Any) -> Any:
         """Called once before the first click of each game.
+
+        Override to set up fresh per-game state.  The returned value becomes
+        the ``game_state`` for that game's first ``next_click`` call.
 
         Args:
             meta: game metadata (same keys as passed to ``next_click``).
-            state: value returned by ``init_evaluation_run``.
+            evaluation_run_state: read-only value returned by ``init_evaluation_run``.
+                Do not mutate this — it is shared across all games.
 
         Returns:
-            Updated state payload for the first ``next_click`` call.
+            Initial ``game_state`` for this game's first ``next_click`` call.
 
-        Default: returns ``state`` unchanged.
+        Default: returns ``evaluation_run_state`` unchanged.
         """
-        return state
+        return evaluation_run_state
 
     @abstractmethod
     def next_click(
         self,
         revealed: list[dict[str, Any]],
         meta: dict[str, Any],
-        state: Any,
+        game_state: Any,
     ) -> tuple[int, int, Any]:
         """Choose the next cell to click.
 
@@ -144,12 +151,12 @@ class OHStrategy(ABC):
             revealed: all cells revealed so far, each as
                 ``{"row": int, "col": int, "color": str}``.
             meta: ``{"clicks_left": int, "max_clicks": int}``.
-            state: value returned by the previous ``next_click`` call
-                (or ``init_game_payload`` for the first call).
+            game_state: value returned by the previous ``next_click`` call
+                (or ``init_game_payload`` for the first call of the game).
 
         Returns:
-            ``(row, col, next_state)`` — coordinates of the cell to click
-            (0-indexed) and the updated state to pass into the next call.
+            ``(row, col, game_state)`` — coordinates of the cell to click
+            (0-indexed) and the updated game state to pass into the next call.
         """
         ...
 
@@ -185,29 +192,33 @@ class OCStrategy(ABC):
     """
 
     def init_evaluation_run(self) -> Any:
-        """Return the initial state payload. Default: None."""
+        """Called once before the evaluation run begins. Default: None.
+
+        Do not store game-specific information here — each game must be played
+        independently; sharing board history between games produces unfair results.
+        """
         return None
 
-    def init_game_payload(self, meta: dict[str, Any], state: Any) -> Any:
-        """Called once before each game. Default: returns state unchanged."""
-        return state
+    def init_game_payload(self, meta: dict[str, Any], evaluation_run_state: Any) -> Any:
+        """Called once before each game. Returns initial game_state. Default: evaluation_run_state."""
+        return evaluation_run_state
 
     @abstractmethod
     def next_click(
         self,
         revealed: list[dict[str, Any]],
         meta: dict[str, Any],
-        state: Any,
+        game_state: Any,
     ) -> tuple[int, int, Any]:
         """Choose the next cell to click.
 
         Args:
             revealed: all cells revealed so far.
             meta: ``{"clicks_left": int, "max_clicks": int}``.
-            state: state from the previous call.
+            game_state: value from the previous call (or init_game_payload).
 
         Returns:
-            ``(row, col, next_state)``.
+            ``(row, col, game_state)``.
         """
         ...
 
@@ -238,19 +249,23 @@ class OQStrategy(ABC):
     """
 
     def init_evaluation_run(self) -> Any:
-        """Return the initial state payload. Default: None."""
+        """Called once before the evaluation run begins. Default: None.
+
+        Do not store game-specific information here — each game must be played
+        independently; sharing board history between games produces unfair results.
+        """
         return None
 
-    def init_game_payload(self, meta: dict[str, Any], state: Any) -> Any:
-        """Called once before each game. Default: returns state unchanged."""
-        return state
+    def init_game_payload(self, meta: dict[str, Any], evaluation_run_state: Any) -> Any:
+        """Called once before each game. Returns initial game_state. Default: evaluation_run_state."""
+        return evaluation_run_state
 
     @abstractmethod
     def next_click(
         self,
         revealed: list[dict[str, Any]],
         meta: dict[str, Any],
-        state: Any,
+        game_state: Any,
     ) -> tuple[int, int, Any]:
         """Choose the next cell to click.
 
@@ -258,10 +273,10 @@ class OQStrategy(ABC):
             revealed: all cells revealed so far.
             meta: ``{"clicks_left": int, "max_clicks": int,
                       "purples_found": int}``.
-            state: state from the previous call.
+            game_state: value from the previous call (or init_game_payload).
 
         Returns:
-            ``(row, col, next_state)``.
+            ``(row, col, game_state)``.
         """
         ...
 
@@ -300,19 +315,23 @@ class OTStrategy(ABC):
     """
 
     def init_evaluation_run(self) -> Any:
-        """Return the initial state payload. Default: None."""
+        """Called once before the evaluation run begins. Default: None.
+
+        Do not store game-specific information here — each game must be played
+        independently; sharing board history between games produces unfair results.
+        """
         return None
 
-    def init_game_payload(self, meta: dict[str, Any], state: Any) -> Any:
-        """Called once before each game. Default: returns state unchanged."""
-        return state
+    def init_game_payload(self, meta: dict[str, Any], evaluation_run_state: Any) -> Any:
+        """Called once before each game. Returns initial game_state. Default: evaluation_run_state."""
+        return evaluation_run_state
 
     @abstractmethod
     def next_click(
         self,
         revealed: list[dict[str, Any]],
         meta: dict[str, Any],
-        state: Any,
+        game_state: Any,
     ) -> tuple[int, int, Any]:
         """Choose the next cell to click.
 
@@ -320,9 +339,9 @@ class OTStrategy(ABC):
             revealed: all cells revealed so far.
             meta: ``{"n_colors": int, "ships_hit": int,
                       "blues_used": int, "max_clicks": int}``.
-            state: state from the previous call.
+            game_state: value from the previous call (or init_game_payload).
 
         Returns:
-            ``(row, col, next_state)``.
+            ``(row, col, game_state)``.
         """
         ...

@@ -26,7 +26,7 @@ public:
 
     void next_click(const std::vector<Cell>& revealed,
                     const std::string& /*meta_json*/,
-                    const std::string& /*state_json*/,
+                    const std::string& /*game_state_json*/,
                     ClickResult& out) override
     {
         bool clicked[25] = {};
@@ -40,7 +40,7 @@ public:
             : unclicked[std::uniform_int_distribution<int>(0, (int)unclicked.size() - 1)(rng_)];
         out.row = chosen / 5;
         out.col = chosen % 5;
-        out.state_json = "{}";
+        out.game_state_json = "{}";
     }
 
 private:
@@ -50,12 +50,12 @@ private:
 extern "C" sphere::StrategyBase* create_strategy()                        { return new RandomOTStrategy(); }
 extern "C" void                  destroy_strategy(sphere::StrategyBase* s) { delete s; }
 extern "C" const char* strategy_init_evaluation_run(void*)                        { return "{}"; }
-extern "C" const char* strategy_init_game_payload(void*, const char*, const char* s){ return s; }
+extern "C" const char* strategy_init_game_payload(void*, const char*, const char* evaluation_run_state){ return evaluation_run_state; }
 
 extern "C" const char* strategy_next_click(void* inst,
                                             const char* revealed_json,
                                             const char* meta_json,
-                                            const char* state_json)
+                                            const char* game_state_json)
 {
     static char buf[64];
     auto* st = static_cast<RandomOTStrategy*>(inst);
@@ -70,7 +70,7 @@ extern "C" const char* strategy_next_click(void* inst,
         revealed.push_back(c); p += 6;
     }
     ClickResult out;
-    st->next_click(revealed, meta_json ? meta_json : "{}", state_json ? state_json : "{}", out);
+    st->next_click(revealed, meta_json ? meta_json : "{}", game_state_json ? game_state_json : "{}", out);
     snprintf(buf, sizeof(buf), "{\"row\":%d,\"col\":%d,\"state\":{}}", out.row, out.col);
     return buf;
 }
