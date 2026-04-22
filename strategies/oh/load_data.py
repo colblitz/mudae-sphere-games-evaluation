@@ -71,9 +71,15 @@ class LoadDataOHStrategy(OHStrategy):
         meta: dict[str, Any],
         evaluation_run_state: Any,
     ) -> Any:
-        """Seed a fresh per-game RNG and carry the run state through."""
-        rng = random.Random(meta.get("game_seed"))
-        return {**evaluation_run_state, "rng": rng}
+        """Seed a fresh per-game RNG on self and carry the run state through.
+
+        The RNG is stored as an instance variable rather than in the state
+        dict because random.Random is not JSON-serializable — the harness
+        serializes state to JSON between calls.  The run state (color_values)
+        is JSON-safe and passes through unchanged.
+        """
+        self._rng = random.Random(meta.get("game_seed"))
+        return evaluation_run_state
 
     # -----------------------------------------------------------------------
     # Click decision: highest-value visible cell, or random covered cell
@@ -86,7 +92,7 @@ class LoadDataOHStrategy(OHStrategy):
         game_state: Any,
     ) -> tuple[int, int, Any]:
         color_values: dict[str, int] = game_state["color_values"]
-        rng: random.Random = game_state["rng"]
+        rng: random.Random = self._rng
 
         clicked = {(c["row"], c["col"]) for c in revealed}
 
