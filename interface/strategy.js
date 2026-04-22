@@ -167,8 +167,14 @@ function register(instance) {
   _strategy = instance;
 }
 
-// JSON protocol loop (driven by the harness)
-if (require.main === module) {
+// JSON protocol loop (driven by the harness).
+// Starts unconditionally so the loop is active when strategy files are run as
+// the Node entry point (e.g. `node strategies/oq/stateful.js`).  The old
+// `require.main === module` guard caused the loop to never start in that case
+// because `module` inside strategy.js refers to strategy.js's own module
+// object, which is never `require.main` when strategy.js is require()'d from
+// a user strategy file.
+{
   const readline = require("readline");
   const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 
