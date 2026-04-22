@@ -178,6 +178,8 @@ function register(instance) {
   const readline = require("readline");
   const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 
+  rl.on("close", () => process.exit(0));
+
   rl.on("line", (line) => {
     if (!line.trim()) return;
     let msg;
