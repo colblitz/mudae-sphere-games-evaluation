@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-04-21T23:07:09",
+  "commit": "312108f",
+  "filename": "global_state.cpp",
+  "game": "oc",
+  "strategy": "/home/colblitz/projects/mudae-sphere-games-evaluation/strategies/oc/global_state.cpp",
+  "n_boards": 16800,
+  "ev": 64.5045,
+  "stdev": 53.1006,
+  "red_rate": 0.1107
+}

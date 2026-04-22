@@ -1,6 +1,16 @@
 {
   "game": "oc",
   "metric": "ev",
-  "updated": "",
-  "top5": []
+  "updated": "2026-04-21",
+  "top5": [
+    {
+      "filename": "global_state.cpp",
+      "commit": "312108f",
+      "date": "2026-04-21",
+      "ev": 64.5045,
+      "stdev": 53.1006,
+      "red_rate": 0.1107,
+      "n_boards": 16800
+    }
+  ]
 }

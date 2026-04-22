@@ -7,6 +7,17 @@ Submit a strategy, run the evaluator, and see how it compares against others on 
 
 ---
 
+## Table of Contents
+
+- [Submitting a Strategy](#submitting-a-strategy)
+- [Strategy Interface](#strategy-interface)
+- [Leaderboards](#leaderboards)
+- [Building](#building)
+- [Board Data](#board-data)
+- [Game Rules](#game-rules)
+
+---
+
 ## Leaderboards
 
 The top 5 strategies per game, ranked by expected value (EV). Updated automatically by `scripts/evaluate.py --commit`.
@@ -22,6 +33,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
 |------|----------|----|-------|-------|--------|------|
+| 1 | `global_state.cpp` | 64.50 | 53.10 | 11.1% | `312108f` | 2026-04-21 |
 
 ### /sphere quest (oq)
 
