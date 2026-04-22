@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-04-21T23:45:30",
+  "commit": "575db95",
+  "filename": "stateful.js",
+  "game": "oq",
+  "strategy": "/home/colblitz/projects/mudae-sphere-games-evaluation/strategies/oq/stateful.js",
+  "n_boards": 12650,
+  "ev": 13.6739,
+  "stdev": 7.5191,
+  "red_rate": 0.0
+}

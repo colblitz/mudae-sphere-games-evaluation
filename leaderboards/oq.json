@@ -1,6 +1,16 @@
 {
   "game": "oq",
   "metric": "ev",
-  "updated": "",
-  "top5": []
+  "updated": "2026-04-21",
+  "top5": [
+    {
+      "filename": "stateful.js",
+      "commit": "575db95",
+      "date": "2026-04-21",
+      "ev": 13.6739,
+      "stdev": 7.5191,
+      "red_rate": 0.0,
+      "n_boards": 12650
+    }
+  ]
 }

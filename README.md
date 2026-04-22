@@ -165,6 +165,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
 |------|----------|----|-------|-------|--------|------|
+| 1 | `stateful.js` | 13.67 | 7.52 | 0.0% | `575db95` | 2026-04-21 |
 
 ### /sphere trace (ot)
 
