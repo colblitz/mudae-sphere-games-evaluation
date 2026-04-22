@@ -1,0 +1,51 @@
+{
+  "timestamp": "2026-04-21T23:48:02",
+  "commit": "9cf69e2",
+  "filename": "random_clicks.cpp",
+  "game": "ot",
+  "strategy": "/home/colblitz/projects/mudae-sphere-games-evaluation/strategies/ot/random_clicks.cpp",
+  "aggregate_ev": 688.3733,
+  "variants": [
+    {
+      "n_colors": 6,
+      "n_boards": 1194816,
+      "ev": 270.3945,
+      "stdev": 72.4643,
+      "avg_clicks": 10.6899,
+      "perfect_rate": 0.0,
+      "all_ships_rate": 0.1596,
+      "loss_5050_rate": 0.9566
+    },
+    {
+      "n_colors": 7,
+      "n_boards": 5672880,
+      "ev": 349.7047,
+      "stdev": 115.191,
+      "avg_clicks": 10.7532,
+      "perfect_rate": 0.0,
+      "all_ships_rate": 0.1175,
+      "loss_5050_rate": 0.8477
+    },
+    {
+      "n_colors": 8,
+      "n_boards": 12328128,
+      "ev": 500.8768,
+      "stdev": 186.6947,
+      "avg_clicks": 11.7395,
+      "perfect_rate": 0.0001,
+      "all_ships_rate": 0.14,
+      "loss_5050_rate": 0.4433
+    },
+    {
+      "n_colors": 9,
+      "n_boards": 12428080,
+      "ev": 1069.1333,
+      "stdev": 463.7787,
+      "avg_clicks": 13.8616,
+      "perfect_rate": 0.0007,
+      "all_ships_rate": 0.2095,
+      "loss_5050_rate": 0.0994
+    }
+  ],
+  "n_colors": "all"
+}
