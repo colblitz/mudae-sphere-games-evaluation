@@ -175,6 +175,76 @@ function register(instance) {
 // object, which is never `require.main` when strategy.js is require()'d from
 // a user strategy file.
 {
+  // Exit cleanly on SIGPIPE (Node ignores it by default).
+  process.on("SIGPIPE", () => process.exit(0));
+  process.stdout.on("error", (err) => { if (err.code === "EPIPE") process.exit(0); });
+
+  // Close phantom pipe fds inherited from the harness parent.
+  //
+  // The harness forks N Node children sequentially without O_CLOEXEC on the
+  // pipe fds.  Because std::vector<unique_ptr> destructs in forward order
+  // (bridges[0] first), bridge[0]'s waitpid blocks while bridges[1..N-1]'s
+  // children hold phantom write-ends of bridge[0]'s stdin pipe — so Node[0]
+  // never sees EOF.
+  //
+  // We detect phantom write-ends by scanning sibling processes: if our fd X
+  // is the write-end of a pipe whose read-end is fd 0 of another process that
+  // is also running this same strategy, then fd X is a phantom cross-bridge
+  // fd that must be closed.
+  //
+  // Similarly, phantom read-ends (of other bridges' stdout pipes) are
+  // harmless for correctness but can be closed too.
+  {
+    const fs = require("fs");
+    try {
+      // Collect all pipe inodes referenced by fd 0 (stdin) of processes
+      // that share our parent PID — these are the other Node bridge children.
+      const myPid = process.pid;
+      const myPpid = (() => {
+        try {
+          const status = fs.readFileSync("/proc/self/status", "utf8");
+          const m = status.match(/PPid:\s*(\d+)/);
+          return m ? Number(m[1]) : -1;
+        } catch (_) { return -1; }
+      })();
+
+      // Collect stdin pipe inodes of all sibling processes (same parent)
+      const siblingStdinInodes = new Set();
+      try {
+        for (const entry of fs.readdirSync("/proc")) {
+          const pid = Number(entry);
+          if (!pid || pid === myPid) continue;
+          try {
+            const status = fs.readFileSync(`/proc/${pid}/status`, "utf8");
+            const ppidM = status.match(/PPid:\s*(\d+)/);
+            if (!ppidM || Number(ppidM[1]) !== myPpid) continue;
+            // Same parent — this is a sibling bridge child
+            const stdin = fs.readlinkSync(`/proc/${pid}/fd/0`);
+            const inodeM = stdin.match(/^pipe:\[(\d+)\]$/);
+            if (inodeM) siblingStdinInodes.add(inodeM[1]);
+          } catch (_) { /* process gone or not readable */ }
+        }
+      } catch (_) { /* /proc unavailable */ }
+
+      // Close any fd > 2 that is the write-end of a pipe whose inode is a
+      // sibling's stdin — those are the phantom cross-bridge write-ends.
+      if (siblingStdinInodes.size > 0) {
+        for (const entry of fs.readdirSync("/proc/self/fd")) {
+          const fd = Number(entry);
+          if (fd <= 2) continue;
+          try {
+            const target = fs.readlinkSync(`/proc/self/fd/${fd}`);
+            const inodeM = target.match(/^pipe:\[(\d+)\]$/);
+            if (!inodeM) continue;
+            if (siblingStdinInodes.has(inodeM[1])) {
+              fs.closeSync(fd);
+            }
+          } catch (_) { /* fd gone */ }
+        }
+      }
+    } catch (_) { /* /proc unavailable — skip cleanup */ }
+  }
+
   const readline = require("readline");
   const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 
