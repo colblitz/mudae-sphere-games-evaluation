@@ -118,6 +118,7 @@ static std::pair<double, bool> run_oc_game(
 // ---------------------------------------------------------------------------
 
 int main(int argc, char* argv[]) {
+    setvbuf(stdout, nullptr, _IOLBF, 0);  // line-buffer stdout so progress streams through pipes
     std::string strategy_path;
     std::string boards_path = std::string(REPO_ROOT) + "/boards/oc_boards.bin.lzma";
     int         n_threads   = 1;

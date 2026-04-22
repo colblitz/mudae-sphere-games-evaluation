@@ -319,6 +319,7 @@ static OTVariantResult evaluate_variant(
 // ---------------------------------------------------------------------------
 
 int main(int argc, char* argv[]) {
+    setvbuf(stdout, nullptr, _IOLBF, 0);  // line-buffer stdout so progress streams through pipes
     std::string strategy_path;
     std::string boards_dir = std::string(REPO_ROOT) + "/boards";
     std::string n_colors_arg = "all";

@@ -92,13 +92,15 @@ def run_harness(game: str, strategy: str, extra_args: list[str]) -> dict[str, An
         cmd += ["--boards-dir", str(REPO_ROOT / "boards")]
 
     print(f"[run] {' '.join(cmd)}")
-    proc = subprocess.run(cmd, capture_output=False, text=True,
-                          stdout=subprocess.PIPE, stderr=None)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=None, text=True,
+                            bufsize=1)
 
-    # Find RESULT_JSON line
+    # Stream output line-by-line as it arrives
     result_json: dict[str, Any] | None = None
-    for line in proc.stdout.splitlines():
-        print(line)  # stream progress to terminal
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        line = line.rstrip("\n")
+        print(line, flush=True)
         if line.startswith("RESULT_JSON:"):
             try:
                 result_json = json.loads(line[len("RESULT_JSON:"):].strip())
@@ -106,6 +108,7 @@ def run_harness(game: str, strategy: str, extra_args: list[str]) -> dict[str, An
                 print(f"ERROR: could not parse RESULT_JSON: {e}", file=sys.stderr)
                 sys.exit(1)
 
+    proc.wait()
     if proc.returncode != 0:
         print(f"ERROR: harness exited with code {proc.returncode}", file=sys.stderr)
         sys.exit(1)
