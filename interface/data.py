@@ -118,16 +118,25 @@ def fetch(url: str, sha256: str, filename: str) -> Path:
         )
 
     print(f"[data] Downloading {filename} ...", file=sys.stderr, flush=True)
-    _download(url, dest)
+    try:
+        _download(url, dest)
+    except Exception as exc:
+        _fatal(
+            f"Could not download {filename}.\n"
+            f"  URL    : {url}\n"
+            f"  Error  : {exc}\n"
+            f"  If the file should be committed to this repo, restore it with:\n"
+            f"    git checkout data/{filename}"
+        )
 
     actual = _sha256(dest)
     if actual != sha256.lower():
         dest.unlink(missing_ok=True)
-        raise ValueError(
-            f"[data] SHA-256 mismatch for {filename}.\n"
-            f"  expected: {sha256.lower()}\n"
-            f"  got:      {actual}\n"
-            "The file has been removed.  Check that the url and sha256 are correct."
+        _fatal(
+            f"SHA-256 mismatch for {filename} — file removed.\n"
+            f"  expected : {sha256.lower()}\n"
+            f"  got      : {actual}\n"
+            f"  Check that the url and sha256 are correct."
         )
 
     print(f"[data] {filename}: OK ({dest.stat().st_size:,} bytes)", file=sys.stderr)
@@ -137,6 +146,19 @@ def fetch(url: str, sha256: str, filename: str) -> Path:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _fatal(msg: str) -> None:
+    """Print a clear error to stderr and hard-exit the process.
+
+    A plain ``raise`` is not enough here: the harness Python bridge calls
+    ``PyErr_Clear()`` on exceptions from ``init_evaluation_run``, silently
+    substituting ``null`` state and letting the strategy crash later with a
+    confusing error.  ``os._exit`` bypasses that and terminates the process
+    immediately with a visible message.
+    """
+    import os
+    print(f"\n[data] FATAL: {msg}\n", file=sys.stderr, flush=True)
+    os._exit(1)
 
 def _sha256(path: Path) -> str:
     """Return the lowercase hex SHA-256 digest of *path*."""

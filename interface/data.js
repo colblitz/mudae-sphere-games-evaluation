@@ -98,22 +98,37 @@ async function fetch({ url, sha256, filename }) {
   }
 
   process.stderr.write(`[data] Downloading ${filename} ...\n`);
-  await download(url, dest);
+  try {
+    await download(url, dest);
+  } catch (err) {
+    fatal(
+      `Could not download ${filename}.\n` +
+      `  URL    : ${url}\n` +
+      `  Error  : ${err.message}\n` +
+      `  If the file should be committed to this repo, restore it with:\n` +
+      `    git checkout data/${filename}`
+    );
+  }
 
   const actual = await fileSha256(dest);
   if (actual !== sha256.toLowerCase()) {
     fs.unlinkSync(dest);
-    throw new Error(
-      `[data] SHA-256 mismatch for ${filename}\n` +
-      `  expected: ${sha256.toLowerCase()}\n` +
-      `  got:      ${actual}\n` +
-      "The file has been removed.  Check that the url and sha256 are correct."
+    fatal(
+      `SHA-256 mismatch for ${filename} — file removed.\n` +
+      `  expected : ${sha256.toLowerCase()}\n` +
+      `  got      : ${actual}\n` +
+      `  Check that the url and sha256 are correct.`
     );
   }
 
   const size = fs.statSync(dest).size;
   process.stderr.write(`[data] ${filename}: OK (${size.toLocaleString()} bytes)\n`);
   return dest;
+}
+
+function fatal(msg) {
+  process.stderr.write(`\n[data] FATAL: ${msg}\n\n`);
+  process.exit(1);
 }
 
 // ---------------------------------------------------------------------------

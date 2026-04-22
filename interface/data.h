@@ -153,6 +153,22 @@ inline void download(const std::string& url, const std::filesystem::path& dest) 
 // Public API
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Fatal error: print message and terminate immediately.
+//
+// A plain throw is not sufficient for the Python bridge — the harness calls
+// PyErr_Clear() on exceptions from init_evaluation_run, silently substituting
+// null state and letting the strategy crash later with a confusing error.
+// std::exit(1) terminates the whole process before that can happen, and the
+// message is visible on stderr.  C++ and JS strategies throw/reject normally
+// since their bridges do not swallow errors.
+// ---------------------------------------------------------------------------
+
+[[noreturn]] inline void fatal(const std::string& msg) {
+    fprintf(stderr, "\n[data] FATAL: %s\n\n", msg.c_str());
+    std::exit(1);
+}
+
 /**
  * Return the local path to filename, downloading from url if needed.
  *
@@ -160,7 +176,7 @@ inline void download(const std::string& url, const std::filesystem::path& dest) 
  * @param sha256   Expected lowercase hex SHA-256 of the file.
  * @param filename Basename for the cached file in data/.
  * @return         Absolute path to the verified local copy.
- * @throws std::runtime_error on download failure or hash mismatch.
+ * Terminates the process on download failure or hash mismatch.
  */
 inline std::string fetch(const std::string& url,
                          const std::string& sha256,
@@ -177,16 +193,26 @@ inline std::string fetch(const std::string& url,
     }
 
     fprintf(stderr, "[data] Downloading %s ...\n", filename.c_str());
-    detail::download(url, dest);
+    try {
+        detail::download(url, dest);
+    } catch (const std::exception& e) {
+        fatal(
+            "Could not download " + filename + ".\n"
+            "  URL    : " + url + "\n"
+            "  Error  : " + e.what() + "\n"
+            "  If the file should be committed to this repo, restore it with:\n"
+            "    git checkout data/" + filename
+        );
+    }
 
     std::string actual = detail::file_sha256(dest);
     if (actual != sha256) {
         std::filesystem::remove(dest);
-        throw std::runtime_error(
-            "[data] SHA-256 mismatch for " + filename + "\n"
-            "  expected: " + sha256 + "\n"
-            "  got:      " + actual + "\n"
-            "The file has been removed.  Check that the url and sha256 are correct."
+        fatal(
+            "SHA-256 mismatch for " + filename + " — file removed.\n"
+            "  expected : " + sha256 + "\n"
+            "  got      : " + actual + "\n"
+            "  Check that the url and sha256 are correct."
         );
     }
 
