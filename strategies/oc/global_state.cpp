@@ -180,7 +180,7 @@ extern "C" sphere::StrategyBase* create_strategy()                         { ret
 extern "C" void                  destroy_strategy(sphere::StrategyBase* s) { delete s; }
 
 extern "C" const char* strategy_init_evaluation_run(void* inst) {
-    static std::string buf;
+    thread_local static std::string buf;
     buf = static_cast<GlobalStateOCStrategy*>(inst)->init_evaluation_run();
     return buf.c_str();
 }
@@ -195,7 +195,7 @@ extern "C" const char* strategy_next_click(void* inst,
                                             const char* meta_json,
                                             const char* game_state_json)
 {
-    static std::string buf;
+    thread_local static std::string buf;
     auto* s = static_cast<GlobalStateOCStrategy*>(inst);
 
     std::vector<Cell> revealed;

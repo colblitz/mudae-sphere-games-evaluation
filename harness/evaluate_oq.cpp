@@ -255,7 +255,7 @@ int main(int argc, char* argv[]) {
     ProgressReporter prog(total, 2000);
 
     // Release the GIL so OpenMP threads can each re-acquire it via PyGILState_Ensure
-    PyThreadState* _tstate = PyEval_SaveThread();
+    PyThreadState* _tstate = Py_IsInitialized() ? PyEval_SaveThread() : nullptr;
 
 #ifdef _OPENMP
     omp_set_num_threads(n_threads);
@@ -278,7 +278,7 @@ int main(int argc, char* argv[]) {
     prog.done(ev_acc[0].mean);
 
     // Re-acquire the GIL on the main thread
-    PyEval_RestoreThread(_tstate);
+    if (_tstate) PyEval_RestoreThread(_tstate);
 
     // Merge per-thread accumulators (Chan's parallel Welford)
     double   mean_total = 0.0, M2_total = 0.0;

@@ -169,7 +169,7 @@ extern "C" sphere::StrategyBase* create_strategy()                         { ret
 extern "C" void                  destroy_strategy(sphere::StrategyBase* s) { delete s; }
 
 extern "C" const char* strategy_init_evaluation_run(void* inst) {
-    static std::string buf;
+    thread_local static std::string buf;
     buf = static_cast<MyOQStrategy*>(inst)->init_evaluation_run();
     return buf.c_str();
 }
@@ -177,7 +177,7 @@ extern "C" const char* strategy_init_evaluation_run(void* inst) {
 extern "C" const char* strategy_init_game_payload(void* inst,
                                           const char* meta_json,
                                           const char* game_state_json) {
-    static std::string buf;
+    thread_local static std::string buf;
     buf = static_cast<MyOQStrategy*>(inst)->init_game_payload(
         meta_json  ? meta_json  : "{}",
         game_state_json ? game_state_json : "{}"
@@ -190,7 +190,7 @@ extern "C" const char* strategy_next_click(void* inst,
                                             const char* meta_json,
                                             const char* game_state_json)
 {
-    static std::string buf;
+    thread_local static std::string buf;
     auto* s = static_cast<MyOQStrategy*>(inst);
 
     std::vector<Cell> revealed;
