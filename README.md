@@ -290,7 +290,7 @@ make clean             # Remove compiled binaries and strategy .so files
 --strategy        path to strategy file                  (required)
 --commit          two commits: strategy file + scoring artifacts
 --games N         (oh) number of Monte Carlo games        default: 100000
---seed S          (oh) RNG seed
+--seed S          (oh) RNG seed                          default: 42
 --n-colors X      (ot) 6|7|8|9|all                       default: all
 --threads N       parallel threads                        default: all cores
 --boards-dir      override boards directory

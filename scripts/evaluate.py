@@ -379,7 +379,7 @@ def main() -> None:
                         help="Skip leaderboard/README update (just print results)")
     parser.add_argument("--games",           type=int, default=100000,
                         help="(oh) number of Monte Carlo games  default: 100000")
-    parser.add_argument("--seed",            type=int, help="(oh) RNG seed")
+    parser.add_argument("--seed",            type=int, default=42, help="(oh) RNG seed  default: 42")
     parser.add_argument("--n-colors",        default="all",
                         help="(ot) 6|7|8|9|all  default: all")
     parser.add_argument("--threads",         type=int,
@@ -402,8 +402,7 @@ def main() -> None:
     extra: list[str] = []
     if args.game == "oh":
         extra += ["--games", str(args.games)]
-        if args.seed is not None:
-            extra += ["--seed", str(args.seed)]
+        extra += ["--seed", str(args.seed)]
     if args.game == "ot":
         extra += ["--n-colors", args.n_colors]
     if args.threads is not None:

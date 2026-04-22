@@ -407,7 +407,7 @@ int main(int argc, char* argv[]) {
     std::string strategy_path;
     std::string dark_stats_path = std::string(REPO_ROOT) + "/boards/oh_dark_stats.json";
     uint64_t    n_games         = 100000;
-    uint64_t    seed            = static_cast<uint64_t>(time(nullptr));
+    uint64_t    seed            = 42;
     int         n_threads       = 1;
 #ifdef _OPENMP
     n_threads = omp_get_max_threads();
