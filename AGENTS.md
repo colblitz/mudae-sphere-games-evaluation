@@ -12,7 +12,7 @@ This repo is a competitive evaluation framework for four Mudae `/sphere` mini-ga
 | `strategies/<game>/<your_strategy>.<ext>` | Where your strategy file lives |
 | `interface/strategy.{py,h,js}` | Read-only — defines the ABCs/base classes |
 
-Do **not** modify anything in `harness/`, `boards/`, `scripts/`, or `leaderboards/`. Do not modify `README.md` directly — `scripts/evaluate.py --commit` owns it.
+Do **not** modify anything in `harness/`, `boards/`, `scripts/`, `leaderboards/`, or `scores/`. Do not modify `README.md` directly — `scripts/evaluate.py --commit` owns it.
 
 ---
 
@@ -115,7 +115,11 @@ Prints EV, stdev, and game-specific rates. No files are written or committed.
 ```bash
 python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py --commit
 ```
-Makes two automatic git commits: one for the strategy source file, one for the leaderboard and README update. The leaderboard entry records the exact commit hash of the strategy that produced the score.
+Makes two automatic git commits:
+1. `strategy: oc my_strategy.py` — commits the strategy file (skipped if already committed and unmodified).
+2. `scores: oc my_strategy.py ev=78.43` — writes a scores artifact to `scores/<game>/<timestamp>_<commit>_<basename>.json` and commits it. If the result enters the top 5, the leaderboard and README are updated and included in the same commit.
+
+The scores artifact records the timestamp, strategy commit hash, filename, all harness stats, and run parameters. It is always written on `--commit` regardless of leaderboard placement.
 
 See the README for the full list of `evaluate.py` flags (`--games`, `--seed`, `--n-colors`, `--threads`, etc.).
 

@@ -245,9 +245,9 @@ register(new MyOCStrategy());
    ```
    This makes **two commits** automatically:
    - **Commit 1** — `strategy: oc my_strategy.py` — commits the strategy file so it has a stable hash. Skipped if the file is already committed and unmodified.
-   - **Commit 2** — `scores: oc my_strategy.py ev=78.43` — runs evaluation, always updates `README.md`, updates `leaderboards/oc.json` with the commit hash from step 1 if the score enters the top 5, and commits those artifacts.
+   - **Commit 2** — `scores: oc my_strategy.py ev=78.43` — runs evaluation, writes a scores artifact to `scores/oc/<timestamp>_<commit>_<basename>.json`, and commits it. If the result enters the top 5, `leaderboards/oc.json` and `README.md` are also updated and included in the same commit.
 
-   The score artifact always references the exact committed version of the strategy that produced it.
+   The scores artifact records the timestamp, strategy commit hash, filename, all harness stats, and run parameters. It is always written on `--commit` regardless of leaderboard placement.
 
 The evaluator builds the harness binary automatically if it is not already built or is out of date. For C++ strategies, it also compiles your `.cpp` to a `.so` automatically.
 
@@ -294,7 +294,6 @@ make clean             # Remove compiled binaries and strategy .so files
 --n-colors X      (ot) 6|7|8|9|all                       default: all
 --threads N       parallel threads                        default: all cores
 --boards-dir      override boards directory
---no-leaderboard  (with --commit) skip leaderboard/README updates
 ```
 
 ---

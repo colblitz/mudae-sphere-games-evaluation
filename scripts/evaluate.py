@@ -15,8 +15,9 @@ The --commit flow makes two commits:
   1. "strategy: oc my_strategy.py" — commits the strategy file so it has a
      stable hash.  Skipped if the file is already committed and unmodified.
   2. "scores: oc my_strategy.py ev=78.43" — runs evaluation using that hash,
-     updates leaderboards/<game>.json and README.md (if top-5), and commits
-     those artifacts.
+     writes a scores artifact to scores/<game>/<timestamp>_<commit>_<basename>.json,
+     and updates leaderboards/<game>.json and README.md if the result enters
+     the top 5.  All changed files are bundled into this single commit.
 
 Flags
 -----
@@ -28,7 +29,6 @@ Flags
   --n-colors X      (ot) 6|7|8|9|all                        default: all
   --threads N       number of parallel threads               default: all cores
   --boards-dir      override boards directory
-  --no-leaderboard  (with --commit) skip leaderboard/README updates
 """
 
 from __future__ import annotations
@@ -39,12 +39,13 @@ import os
 import re
 import subprocess
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).parent.parent.resolve()
 LEADERBOARD_DIR = REPO_ROOT / "leaderboards"
+SCORES_DIR = REPO_ROOT / "scores"
 HARNESS_DIR = REPO_ROOT / "harness"
 README_PATH = REPO_ROOT / "README.md"
 
@@ -168,6 +169,48 @@ def load_leaderboard(game: str) -> dict[str, Any]:
 def save_leaderboard(game: str, lb: dict[str, Any]) -> None:
     path = LEADERBOARD_DIR / f"{game}.json"
     path.write_text(json.dumps(lb, indent=2) + "\n")
+
+
+def write_scores_artifact(
+    game: str,
+    result: dict[str, Any],
+    strategy_path: str,
+    commit_hash: str,
+    extra_params: dict[str, Any],
+) -> Path:
+    """Write a scores artifact JSON to scores/<game>/<timestamp>_<commit>_<basename>.json.
+
+    The artifact records everything needed to reproduce and audit the run:
+    timestamp, commit hash, filename, all harness stats, and run parameters.
+    Returns the path of the written file.
+    """
+    now = datetime.now()
+    timestamp = now.strftime("%Y%m%d_%H%M%S")
+    basename = Path(strategy_path).stem  # filename without extension
+    artifact_name = f"{timestamp}_{commit_hash}_{basename}.json"
+
+    out_dir = SCORES_DIR / game
+    out_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = out_dir / artifact_name
+
+    artifact: dict[str, Any] = {
+        "timestamp": now.isoformat(timespec="seconds"),
+        "commit": commit_hash,
+        "filename": strategy_path,
+        "game": game,
+    }
+    # Merge all harness result fields (ev, stdev, red_rate, variants, etc.)
+    artifact.update(result)
+    # Merge run parameters (seed, n_games, n_colors, etc.) — these override
+    # nothing in result since they use different keys, but we keep result fields
+    # authoritative by updating params last only for keys not already present.
+    for k, v in extra_params.items():
+        if k not in artifact:
+            artifact[k] = v
+
+    artifact_path.write_text(json.dumps(artifact, indent=2) + "\n")
+    print(f"[scores] Written {artifact_path.relative_to(REPO_ROOT)}")
+    return artifact_path
 
 
 def make_entry(result: dict[str, Any], strategy_path: str) -> dict[str, Any]:
@@ -375,8 +418,6 @@ def main() -> None:
     parser.add_argument("--strategy",        required=True)
     parser.add_argument("--commit",          action="store_true",
                         help="Make two commits: one for the strategy file, one for scores")
-    parser.add_argument("--no-leaderboard",  action="store_true",
-                        help="Skip leaderboard/README update (just print results)")
     parser.add_argument("--games",           type=int, default=100000,
                         help="(oh) number of Monte Carlo games  default: 100000")
     parser.add_argument("--seed",            type=int, default=42, help="(oh) RNG seed  default: 42")
@@ -438,23 +479,24 @@ def main() -> None:
         # Normal run: print only, no file changes.
         return
 
-    if args.no_leaderboard:
-        # --commit --no-leaderboard: commit strategy + scores artifact only,
-        # skip leaderboard/README updates.
-        ev = result.get("ev") or result.get("aggregate_ev", 0.0)
-        strat_short = strategy_path.name
-        msg2 = f"scores: {args.game} {strat_short} ev={ev:.2f}"
-        artifact_files: list[Path] = []
-        scores_hash = git_commit(msg2, artifact_files) if artifact_files else git_short_hash()
-        print(f"[commit 2/2] {msg2}  ({scores_hash})")
-        return
-
     # ------------------------------------------------------------------
-    # --commit: update leaderboard + README, then commit 2
+    # --commit: write scores artifact, update leaderboard + README, commit 2
     # ------------------------------------------------------------------
-    # Use the hash of the strategy commit (step 1) in the leaderboard entry.
     commit_for_entry = strategy_commit_hash or git_short_hash()
 
+    # Collect run parameters to embed in the artifact alongside harness stats.
+    run_params: dict[str, Any] = {}
+    if args.game == "oh":
+        run_params["n_games"] = args.games
+        run_params["seed"] = args.seed
+    if args.game == "ot":
+        run_params["n_colors"] = args.n_colors
+
+    artifact_path = write_scores_artifact(
+        args.game, result, args.strategy, commit_for_entry, run_params
+    )
+
+    # Use the strategy commit hash in the leaderboard entry (not the scores commit).
     def _make_entry_with_hash(res: dict[str, Any], spath: str) -> dict[str, Any]:
         entry: dict[str, Any] = {
             "filename": spath,
@@ -478,16 +520,20 @@ def main() -> None:
 
     if lb_changed:
         print(f"[leaderboard] Updated leaderboards/{args.game}.json (entered top 5)")
+        update_readme()
     else:
         print("[leaderboard] Result did not enter top 5 — leaderboard unchanged.")
-
-    update_readme()
 
     ev = result.get("ev") or result.get("aggregate_ev", 0.0)
     strat_short = strategy_path.name
     lb_note = " (leaderboard updated)" if lb_changed else ""
     msg2 = f"scores: {args.game} {strat_short} ev={ev:.2f}{lb_note}"
-    scores_hash = git_commit(msg2, [LEADERBOARD_DIR / f"{args.game}.json", README_PATH])
+
+    # Always commit the scores artifact; also commit leaderboard+README if changed.
+    commit2_files: list[Path] = [artifact_path]
+    if lb_changed:
+        commit2_files += [LEADERBOARD_DIR / f"{args.game}.json", README_PATH]
+    scores_hash = git_commit(msg2, commit2_files)
     print(f"[commit 2/2] {msg2}  ({scores_hash})")
 
 
