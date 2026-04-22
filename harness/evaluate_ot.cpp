@@ -22,6 +22,19 @@
  * Ship SP values: spT=20 spG=35 spY=55 spO=90 spL=76 spD=104 spR=150 spW=500
  * Blue (spB) = 0 SP (just an empty cell).
  *
+ * Rare-ship color weighting:
+ *   Each board stores only the spatial placements of var_rare ships; their
+ *   identities (spL/spD/spR/spW) are not fixed in the board file.  Each
+ *   possible assignment of identities to slots is weighted by the product of
+ *   per-color Mudae drop probabilities (without replacement across slots):
+ *     spL: 0.7143   spD: 0.4052   spR: 0.1332   spW: 0.0508
+ *   Per-board EV = Σ_assignment  weight(assignment) × score(assignment).
+ *   The weight of an assignment is:
+ *     w(c0) / W  ×  w(c1) / (W - w(c0))  ×  ...
+ *   where W = Σ w(c) over all four var colors.
+ *   The Welford accumulator receives one per-board weighted EV observation,
+ *   so stdev reflects across-board spatial variance (not color-identity variance).
+ *
  * Evaluation is run with OpenMP parallelism (--threads N, default: all cores).
  *
  * Output: JSON to stdout on completion, progress to stdout during run.
@@ -37,6 +50,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -77,6 +91,79 @@ static int ot_ship_value(const std::string& color) {
 
 static bool ot_is_ship(const std::string& color) {
     return color != "spB";
+}
+
+// ---------------------------------------------------------------------------
+// Rare-ship color identity: weights and names
+//
+// The board files store only spatial placements of var_rare ships; their
+// color identities are drawn from {spL, spD, spR, spW} according to Mudae
+// drop probabilities (without replacement across slots within a board).
+// ---------------------------------------------------------------------------
+
+static constexpr int    N_VAR_COLORS = 4;
+static constexpr double VAR_WEIGHT[N_VAR_COLORS] = {0.7143, 0.4052, 0.1332, 0.0508};
+static const char*      VAR_COLOR_NAMES[N_VAR_COLORS] = {"spL", "spD", "spR", "spW"};
+
+// A single assignment of rare-color identities to var_rare slots.
+struct ColorAssignment {
+    int    color_idx[4];  // VAR_COLOR_NAMES index for each slot (0..3)
+    double weight;        // normalized probability of this full assignment
+};
+
+// Enumerate all P(N_VAR_COLORS, n_var_rare) assignments of distinct rare colors
+// to n_var_rare slots, weighted by the without-replacement draw probabilities.
+// Appends results to `out`.
+static void enumerate_color_assignments(int n_var_rare,
+                                        std::vector<ColorAssignment>& out)
+{
+    static constexpr double W_TOTAL =
+        VAR_WEIGHT[0] + VAR_WEIGHT[1] + VAR_WEIGHT[2] + VAR_WEIGHT[3];
+
+    // Recursive fill: slot = current slot being assigned, used = bitmask of
+    // already-assigned color indices, running_w = cumulative weight so far,
+    // remaining_w = sum of weights of colors not yet used.
+    std::function<void(int, uint8_t, double, double, ColorAssignment&)> fill =
+        [&](int slot, uint8_t used, double running_w, double remaining_w,
+            ColorAssignment& cur) {
+            if (slot == n_var_rare) {
+                cur.weight = running_w;
+                out.push_back(cur);
+                return;
+            }
+            for (int c = 0; c < N_VAR_COLORS; ++c) {
+                if (used & (1 << c)) continue;
+                cur.color_idx[slot] = c;
+                fill(slot + 1,
+                     static_cast<uint8_t>(used | (1 << c)),
+                     running_w * (VAR_WEIGHT[c] / remaining_w),
+                     remaining_w - VAR_WEIGHT[c],
+                     cur);
+            }
+        };
+
+    ColorAssignment cur{};
+    fill(0, 0, 1.0, W_TOTAL, cur);
+}
+
+// Build the 25-element color array for a board given a specific rare-color
+// assignment.  Fixed ships (teal/green/yellow/spo) are unchanged; each
+// var_rare slot k gets the color VAR_COLOR_NAMES[assignment.color_idx[k]].
+static std::vector<std::string> ot_board_colors_assigned(
+    const OTBoard& b, const ColorAssignment& assignment)
+{
+    std::vector<std::string> colors(N_CELLS, "spB");
+    auto paint = [&](int32_t mask, const char* color) {
+        for (int i = 0; i < N_CELLS; ++i)
+            if ((mask >> i) & 1) colors[i] = color;
+    };
+    paint(b.teal,   "spT");
+    paint(b.green,  "spG");
+    paint(b.yellow, "spY");
+    paint(b.spo,    "spO");
+    for (int k = 0; k < b.n_var_rare; ++k)
+        paint(b.var_rare[k], VAR_COLOR_NAMES[assignment.color_idx[k]]);
+    return colors;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,12 +319,27 @@ static OTVariantResult evaluate_variant(
     printf("  n_colors=%d: %llu boards\n", n_colors, (unsigned long long)total);
     fflush(stdout);
 
+    // Precompute all rare-color assignments for this variant's n_var_rare.
+    // Each board will be evaluated once per assignment; per-board weighted EV
+    // (= Σ_assignment weight × score) is fed as a single Welford observation.
+    int n_var_rare = n_colors - 5;  // 6→1, 7→2, 8→3, 9→4
+    std::vector<ColorAssignment> assignments;
+    if (n_var_rare > 0) {
+        enumerate_color_assignments(n_var_rare, assignments);
+    } else {
+        // 5-color (no var_rare): single trivial assignment with weight 1
+        ColorAssignment trivial{};
+        trivial.weight = 1.0;
+        assignments.push_back(trivial);
+    }
+
     // Per-thread accumulators
     std::vector<Welford>  ev_acc(n_threads);
     std::vector<Welford>  clicks_acc(n_threads);
-    std::vector<uint64_t> perfect_count(n_threads, 0);
-    std::vector<uint64_t> all_ships_count(n_threads, 0);
-    std::vector<uint64_t> loss_5050_count(n_threads, 0);
+    // For fractional stats (weighted per board): accumulate as doubles
+    std::vector<double>   perfect_acc(n_threads, 0.0);
+    std::vector<double>   all_ships_acc(n_threads, 0.0);
+    std::vector<double>   loss_5050_acc(n_threads, 0.0);
 
     std::atomic<uint64_t> done_count(0);
     ProgressReporter prog(total, std::max<uint64_t>(total / 20, 50000));
@@ -262,26 +364,43 @@ static OTVariantResult evaluate_variant(
 #else
         int tid = 0;
 #endif
-        auto colors = ot_board_colors(boards[i]);
-        auto res    = run_ot_game(boards[i], colors, n_colors,
-                                  *bridges[tid], evaluation_run_states[tid]);
-        ev_acc[tid].update(res.score);
-        clicks_acc[tid].update(res.total_clicks);
-        if (res.perfect)   ++perfect_count[tid];
-        if (res.all_ships) ++all_ships_count[tid];
-        if (res.loss_5050) ++loss_5050_count[tid];
+        // Accumulate per-board weighted stats across all color assignments.
+        // Each assignment runs an independent game; the per-board observation
+        // fed into Welford is the probability-weighted sum of scores, so stdev
+        // reflects across-board spatial variance only.
+        double board_ev       = 0.0;
+        double board_clicks   = 0.0;
+        double board_perfect  = 0.0;
+        double board_allships = 0.0;
+        double board_loss5050 = 0.0;
+
+        for (const auto& assign : assignments) {
+            auto colors = ot_board_colors_assigned(boards[i], assign);
+            auto res    = run_ot_game(boards[i], colors, n_colors,
+                                      *bridges[tid], evaluation_run_states[tid]);
+            board_ev       += assign.weight * res.score;
+            board_clicks   += assign.weight * static_cast<double>(res.total_clicks);
+            board_perfect  += assign.weight * (res.perfect   ? 1.0 : 0.0);
+            board_allships += assign.weight * (res.all_ships  ? 1.0 : 0.0);
+            board_loss5050 += assign.weight * (res.loss_5050  ? 1.0 : 0.0);
+        }
+
+        ev_acc[tid].update(board_ev);
+        clicks_acc[tid].update(board_clicks);
+        perfect_acc[tid]  += board_perfect;
+        all_ships_acc[tid] += board_allships;
+        loss_5050_acc[tid] += board_loss5050;
 
         uint64_t d = done_count.fetch_add(1) + 1;
         if (d % prog.interval == 0) prog.report(d, ev_acc[tid].mean);
     }
     prog.done(ev_acc[0].mean);
 
-    // Merge per-thread accumulators
-    // For simplicity: merge means/counts using Chan's parallel algorithm
+    // Merge per-thread accumulators via Chan's parallel Welford algorithm
     double mean_total  = 0.0, clicks_total = 0.0;
     double M2_ev = 0.0, M2_cl = 0.0;
     uint64_t count_total = 0;
-    uint64_t perf = 0, all_s = 0, loss5050 = 0;
+    double perf = 0.0, all_s = 0.0, loss5050 = 0.0;
 
     for (int t = 0; t < n_threads; ++t) {
         uint64_t nb = ev_acc[t].count;
@@ -291,15 +410,14 @@ static OTVariantResult evaluate_variant(
         uint64_t nc = count_total + nb;
         mean_total   += delta   * static_cast<double>(nb) / static_cast<double>(nc);
         clicks_total += delta_c * static_cast<double>(nb) / static_cast<double>(nc);
-        // Combine M2 via parallel Welford
         M2_ev += ev_acc[t].M2 + delta * delta * static_cast<double>(count_total)
                  * static_cast<double>(nb) / static_cast<double>(nc);
         M2_cl += clicks_acc[t].M2 + delta_c * delta_c * static_cast<double>(count_total)
                  * static_cast<double>(nb) / static_cast<double>(nc);
         count_total = nc;
-        perf     += perfect_count[t];
-        all_s    += all_ships_count[t];
-        loss5050 += loss_5050_count[t];
+        perf     += perfect_acc[t];
+        all_s    += all_ships_acc[t];
+        loss5050 += loss_5050_acc[t];
     }
 
     OTVariantResult r;
@@ -308,9 +426,9 @@ static OTVariantResult evaluate_variant(
     r.ev             = mean_total;
     r.stdev          = count_total > 1 ? std::sqrt(M2_ev / static_cast<double>(count_total - 1)) : 0.0;
     r.avg_clicks     = clicks_total;
-    r.perfect_rate   = count_total > 0 ? static_cast<double>(perf)     / static_cast<double>(count_total) : 0.0;
-    r.all_ships_rate = count_total > 0 ? static_cast<double>(all_s)    / static_cast<double>(count_total) : 0.0;
-    r.loss_5050_rate = count_total > 0 ? static_cast<double>(loss5050) / static_cast<double>(count_total) : 0.0;
+    r.perfect_rate   = count_total > 0 ? perf     / static_cast<double>(count_total) : 0.0;
+    r.all_ships_rate = count_total > 0 ? all_s    / static_cast<double>(count_total) : 0.0;
+    r.loss_5050_rate = count_total > 0 ? loss5050 / static_cast<double>(count_total) : 0.0;
     return r;
 }
 
