@@ -80,12 +80,11 @@ public:
         // Ensure interpreter is initialised (idempotent)
         if (!Py_IsInitialized()) {
             Py_InitializeEx(0);
-            // Append the repo root to sys.path so interface/ is importable
+            // Add the repo root to sys.path so interface/ is importable.
+            // REPO_ROOT is injected at compile time via -DREPO_ROOT=\"...\"
             PyRun_SimpleString(
-                "import sys, os\n"
-                "root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__"
-                " if hasattr(__builtins__, '__file__') else '.')), '../..'))\n"
-                "if root not in sys.path: sys.path.insert(0, root)\n"
+                "import sys\n"
+                "if '" REPO_ROOT "' not in sys.path: sys.path.insert(0, '" REPO_ROOT "')\n"
             );
         }
 
@@ -173,29 +172,34 @@ public:
     }
 
     std::string init_payload() override {
+        PyGILState_STATE gstate = PyGILState_Ensure();
         PyObject* ret = PyObject_CallMethod(instance_, "init_payload", nullptr);
-        if (!ret) { PyErr_Clear(); return "null"; }
+        if (!ret) { PyErr_Clear(); PyGILState_Release(gstate); return "null"; }
         std::string s = py_to_json(ret);
         Py_DECREF(ret);
+        PyGILState_Release(gstate);
         return s;
     }
 
     std::string init_run(const std::string& meta_json,
                          const std::string& state_json) override {
+        PyGILState_STATE gstate = PyGILState_Ensure();
         PyObject* meta  = json_to_py(meta_json);
         PyObject* state = json_to_py(state_json);
         PyObject* ret   = PyObject_CallMethod(instance_, "init_run", "OO", meta, state);
         Py_DECREF(meta);
         Py_DECREF(state);
-        if (!ret) { PyErr_Print(); return state_json; }
+        if (!ret) { PyErr_Print(); PyGILState_Release(gstate); return state_json; }
         std::string s = py_to_json(ret);
         Py_DECREF(ret);
+        PyGILState_Release(gstate);
         return s;
     }
 
     Click next_click(const std::vector<Cell>& revealed,
                      const std::string&        meta_json,
                      const std::string&        state_json) override {
+        PyGILState_STATE gstate = PyGILState_Ensure();
         PyObject* rev   = cells_to_py(revealed);
         PyObject* meta  = json_to_py(meta_json);
         PyObject* state = json_to_py(state_json);
@@ -205,6 +209,7 @@ public:
         Py_DECREF(state);
         if (!ret) {
             PyErr_Print();
+            PyGILState_Release(gstate);
             return {0, 0};
         }
         Click c = py_to_click(ret);
@@ -214,6 +219,7 @@ public:
             last_state_ = py_to_json(ns);
         }
         Py_DECREF(ret);
+        PyGILState_Release(gstate);
         return c;
     }
 
