@@ -14,6 +14,7 @@ Submit a strategy, run the evaluator, and see how it compares against others on 
 - [Leaderboards](#leaderboards)
 - [Building](#building)
 - [Board Data](#board-data)
+- [External Data Files](#external-data-files)
 - [Game Rules](#game-rules)
 
 ---
@@ -268,6 +269,85 @@ scripts/generate_boards --text
 ```
 
 oh does not have a board file — boards are generated stochastically during evaluation using the appearance distribution in `boards/oh_dark_stats.json`.
+
+---
+
+## External Data Files
+
+Some strategies require large precomputed files (lookup tables, policy matrices, etc.) that cannot reasonably be committed to the repository. These live in `data/` and are either committed directly (if small enough) or downloaded automatically by the strategy on first run.
+
+### Directory layout
+
+The `data/` directory is gitignored by default. Two patterns apply:
+
+| Situation | Approach |
+|-----------|----------|
+| File ≤ ~80 MB compressed | Commit to `data/` with `git add -f data/<filename>` |
+| File > ~80 MB compressed | Host externally; auto-download via `interface/data` helper |
+
+Files added with `git add -f` are tracked normally once committed — no further `.gitignore` exceptions needed.
+
+### Auto-download helper
+
+`interface/data` provides a `fetch()` function in all three languages. Call it in `init_evaluation_run` (or `initEvaluationRun` / `strategy_init_evaluation_run` for JS/C++). The file is downloaded once to `data/`, its SHA-256 is verified, and it is reused on every subsequent run.
+
+**Python:**
+
+```python
+from interface.data import fetch
+
+# External data: oh_harvest_lut.bin.lzma
+# Size: ~66 MB compressed / ~14 GB uncompressed
+# Hosted at: https://huggingface.co/datasets/org/repo/resolve/main/oh_harvest_lut.bin.lzma
+_LUT_URL    = "https://huggingface.co/datasets/org/repo/resolve/main/oh_harvest_lut.bin.lzma"
+_LUT_SHA256 = "<hex sha256>"
+
+class MyOHStrategy(OHStrategy):
+    def init_evaluation_run(self):
+        lut_path = fetch(url=_LUT_URL, sha256=_LUT_SHA256, filename="oh_harvest_lut.bin.lzma")
+        return {"lut": load_lut(lut_path)}
+```
+
+**JavaScript:**
+
+```js
+const { fetch: fetchData } = require("../../interface/data.js");
+
+class MyOHStrategy extends OHStrategy {
+  async initEvaluationRun() {
+    const filePath = await fetchData({
+      url: "https://...",
+      sha256: "<hex sha256>",
+      filename: "oh_harvest_lut.bin.lzma",
+    });
+    return { lut: loadLut(filePath) };
+  }
+}
+```
+
+**C++:**
+
+```cpp
+#include "../../interface/data.h"
+
+std::string init_evaluation_run() override {
+    std::string path = sphere::data::fetch(
+        "https://...", "<hex sha256>", "oh_harvest_lut.bin.lzma"
+    );
+    load_lut(path);  // store result in a member variable
+    return "{}";
+}
+```
+
+### Hosting large files
+
+| Host | File size limit | Cost | URL stability |
+|------|----------------|------|--------------|
+| [Hugging Face Datasets](https://huggingface.co/docs/datasets/) | None | Free | Permanent |
+| GitHub Releases | 2 GB per file | Free | Tied to release tag |
+| [Zenodo](https://zenodo.org) | 50 GB | Free | DOI-backed, permanent |
+
+Hugging Face Datasets is recommended for most cases.
 
 ---
 

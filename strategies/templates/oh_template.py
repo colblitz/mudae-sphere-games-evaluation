@@ -78,9 +78,28 @@ oq/stateful.py        — init_game_payload() + state threading (per-game state)
 """
 
 import random
+from pathlib import Path
 from typing import Any
 
 from interface.strategy import OHStrategy
+
+# If your strategy needs a large precomputed file (lookup table, policy matrix,
+# etc.), use interface.data.fetch() in init_evaluation_run() to download and
+# cache it automatically.  Small files (≤ ~80 MB compressed) can be committed
+# directly to data/ and loaded by path instead:
+#
+#   DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+#
+# Uncomment and adapt the fetch example below if you need a large file:
+#
+#   from interface.data import fetch
+#
+#   # External data: <filename>
+#   # Size: ~X MB compressed / ~Y GB uncompressed
+#   # Hosted at: <url>
+#   _LUT_URL    = "https://huggingface.co/datasets/org/repo/resolve/main/<filename>"
+#   _LUT_SHA256 = "<hex sha256>"
+#   _LUT_FILE   = "<filename>"
 
 
 class MyOHStrategy(OHStrategy):
@@ -99,6 +118,16 @@ class MyOHStrategy(OHStrategy):
 
         Returns:
             Any Python object.  Default: None.
+
+        Example (large external file via auto-download):
+            lut_path = fetch(url=_LUT_URL, sha256=_LUT_SHA256, filename=_LUT_FILE)
+            lut = load_lut(lut_path)   # your own loader
+            return {"lut": lut}
+
+        Example (small committed file in data/):
+            lut_path = DATA_DIR / "oh_harvest_lut.bin.lzma"
+            lut = load_lut(lut_path)
+            return {"lut": lut}
         """
         # TODO: replace with your global precomputation, or delete this method
         return None

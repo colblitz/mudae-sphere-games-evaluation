@@ -76,6 +76,23 @@
 
 const { OHStrategy, register } = require("../../interface/strategy.js");
 
+// If your strategy needs a large precomputed file (lookup table, policy matrix,
+// etc.), require interface/data.js and call fetchData() in initEvaluationRun().
+// Small files (≤ ~80 MB compressed) can be committed directly to data/ and
+// loaded by path instead.
+//
+// Uncomment and adapt the fetch example below if you need a large file:
+//
+//   const { fetch: fetchData } = require("../../interface/data.js");
+//   const path = require("path");
+//
+//   // External data: <filename>
+//   // Size: ~X MB compressed / ~Y GB uncompressed
+//   // Hosted at: <url>
+//   const LUT_URL    = "https://huggingface.co/datasets/org/repo/resolve/main/<filename>";
+//   const LUT_SHA256 = "<hex sha256>";
+//   const LUT_FILE   = "<filename>";
+
 class MyOHStrategy extends OHStrategy {
   // -------------------------------------------------------------------------
   // Optional: global state (computed once, shared across ALL games)
@@ -90,8 +107,21 @@ class MyOHStrategy extends OHStrategy {
    *
    * @returns {*}  Any JSON-serialisable value.  Default: null.
    */
+  // If using a large external file, make this method async:
+  //   async initEvaluationRun() { ... }
   initEvaluationRun() {
-    // TODO: replace with your global precomputation, or delete this method
+    // TODO: replace with your global precomputation, or delete this method.
+    //
+    // Example (large external file via auto-download):
+    //   async initEvaluationRun() {
+    //     const filePath = await fetchData({ url: LUT_URL, sha256: LUT_SHA256, filename: LUT_FILE });
+    //     return { lut: loadLut(filePath) };  // your own loader
+    //   }
+    //
+    // Example (small committed file in data/):
+    //   const DATA_DIR = path.join(__dirname, "..", "..", "data");
+    //   const filePath = path.join(DATA_DIR, "oh_harvest_lut.bin.lzma");
+    //   return { lut: loadLut(filePath) };
     return null;
   }
 

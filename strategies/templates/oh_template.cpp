@@ -68,6 +68,23 @@
 
 #include "../../interface/strategy.h"
 
+// If your strategy needs a large precomputed file (lookup table, policy matrix,
+// etc.), include interface/data.h and call sphere::data::fetch() in
+// init_evaluation_run().  Small files (≤ ~80 MB compressed) can be committed
+// directly to data/ and loaded by path instead (DATA_DIR is set by the Makefile
+// via -DREPO_ROOT=...).
+//
+// Uncomment and adapt the fetch example below if you need a large file:
+//
+//   #include "../../interface/data.h"
+//
+//   // External data: <filename>
+//   // Size: ~X MB compressed / ~Y GB uncompressed
+//   // Hosted at: <url>
+//   static const char* LUT_URL    = "https://huggingface.co/datasets/org/repo/resolve/main/<filename>";
+//   static const char* LUT_SHA256 = "<hex sha256>";
+//   static const char* LUT_FILE   = "<filename>";
+
 using namespace sphere;
 
 class MyOHStrategy : public OHStrategy {
@@ -91,7 +108,15 @@ public:
      * next_click() can do a fast linear scan instead of recomputing.
      */
     std::string init_evaluation_run() override {
-        // TODO: replace with your global precomputation, or delete this method
+        // TODO: replace with your global precomputation, or delete this method.
+        //
+        // Example (large external file via auto-download):
+        //   std::string path = sphere::data::fetch(LUT_URL, LUT_SHA256, LUT_FILE);
+        //   load_lut(path);  // your own loader; store result in a member variable
+        //
+        // Example (small committed file in data/):
+        //   std::string path = std::string(REPO_ROOT) + "/data/oh_harvest_lut.bin.lzma";
+        //   load_lut(path);
         return "{}";
     }
 

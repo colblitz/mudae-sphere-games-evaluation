@@ -11,6 +11,8 @@ This repo is a competitive evaluation framework for four Mudae `/sphere` mini-ga
 | `strategies/templates/<game>_template.<ext>` | Copy this to start a new strategy |
 | `strategies/<game>/<your_strategy>.<ext>` | Where your strategy file lives |
 | `interface/strategy.{py,h,js}` | Read-only — defines the ABCs/base classes |
+| `interface/data.{py,h,js}` | Read-only — external data file helper |
+| `data/<small_file>` | Commit small data files here with `git add -f` |
 
 Do **not** modify anything in `harness/`, `boards/`, `scripts/`, `leaderboards/`, or `scores/`. Do not modify `README.md` directly — `scripts/evaluate.py --commit` owns it.
 
@@ -130,3 +132,68 @@ See the README for the full list of `evaluate.py` flags (`--games`, `--seed`, `-
 - **File:** `strategies/<game>/<descriptive_approach>.<ext>` — name it after what the strategy does, not who wrote it (e.g. `entropy_reduction.py`, `corner_first.js`, not `alice_strategy.py`).
 - **Class:** name it after the approach, not a generic placeholder (e.g. `EntropyOCStrategy`, not `MyOCStrategy`).
 - All three language implementations of the same strategy should share the same base filename (`my_approach.py`, `my_approach.cpp`, `my_approach.js`).
+
+---
+
+## External Data Files
+
+If your strategy needs a large precomputed file (lookup table, policy matrix, etc.):
+
+- **≤ ~80 MB compressed:** commit it to `data/` with `git add -f data/<filename>`, then load it by path in `init_evaluation_run`.
+- **Larger:** host it externally (Hugging Face Datasets recommended — free, no size limit, permanent URLs) and use `interface/data.fetch()` to auto-download on first use.
+
+The `data/` directory is gitignored by default. Files added with `git add -f` are tracked normally once committed — no further special handling needed.
+
+### Python
+
+```python
+from interface.data import fetch
+
+# External data: oh_harvest_lut.bin.lzma
+# Size: ~66 MB compressed / ~14 GB uncompressed
+# Hosted at: https://huggingface.co/datasets/org/repo/resolve/main/oh_harvest_lut.bin.lzma
+_LUT_URL    = "https://huggingface.co/datasets/org/repo/resolve/main/oh_harvest_lut.bin.lzma"
+_LUT_SHA256 = "<hex sha256>"
+
+class MyOHStrategy(OHStrategy):
+    def init_evaluation_run(self):
+        lut_path = fetch(url=_LUT_URL, sha256=_LUT_SHA256, filename="oh_harvest_lut.bin.lzma")
+        return {"lut": load_lut(lut_path)}
+```
+
+### JavaScript
+
+```js
+const { fetch: fetchData } = require("../../interface/data.js");
+
+class MyOHStrategy extends OHStrategy {
+  async initEvaluationRun() {
+    const filePath = await fetchData({
+      url: "https://...",
+      sha256: "<hex sha256>",
+      filename: "oh_harvest_lut.bin.lzma",
+    });
+    return { lut: loadLut(filePath) };
+  }
+}
+```
+
+### C++
+
+```cpp
+#include "../../interface/data.h"
+
+std::string init_evaluation_run() override {
+    std::string path = sphere::data::fetch(
+        "https://...", "<hex sha256>", "oh_harvest_lut.bin.lzma"
+    );
+    load_lut(path);  // store result in a member variable
+    return "{}";
+}
+```
+
+**Common mistakes:**
+
+- **Hard-coding an absolute path.** Always use `fetch()` or `DATA_DIR` from `interface/data` — they resolve `data/` relative to the repo root regardless of where `evaluate.py` is run from.
+- **Storing downloaded data in `run_state` and mutating it.** `run_state` is shared across all games; treat it as read-only after `init_evaluation_run` returns. Load the file once and store the result immutably.
+- **Forgetting to add a comment block.** Put a comment near the top of your strategy file documenting the external dependency (filename, size, URL) so contributors know what to expect before running.

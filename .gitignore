@@ -33,3 +33,8 @@ boards/*.txt
 
 # Evaluation result JSON (raw, not leaderboard)
 results/
+
+# External strategy data files (auto-downloaded by interface/data helpers)
+# Small committed files (≤ ~80 MB compressed) are tracked via `git add -f`.
+data/*
+!data/.gitkeep

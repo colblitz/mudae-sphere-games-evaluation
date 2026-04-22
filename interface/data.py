@@ -1,0 +1,158 @@
+"""
+interface/data.py — external data file helper for strategies.
+
+Strategies that need large precomputed files (lookup tables, policy matrices,
+etc.) call fetch() in init_evaluation_run() to get a local path.  The file is
+downloaded once, verified against a SHA-256 hash, and cached in data/ for all
+subsequent runs.
+
+Usage
+-----
+::
+
+    from interface.data import fetch
+
+    class MyOHStrategy(OHStrategy):
+        def init_evaluation_run(self):
+            path = fetch(
+                url="https://huggingface.co/datasets/org/repo/resolve/main/oh_harvest_lut.bin.lzma",
+                sha256="abcdef1234...",   # hex digest of the file as hosted
+                filename="oh_harvest_lut.bin.lzma",
+            )
+            lut = load_lut(path)          # your own loader
+            return {"lut": lut}
+
+Committed files (≤ ~80 MB compressed)
+--------------------------------------
+Small data files committed directly to data/ do not need this helper — just
+load them by path:
+
+::
+
+    DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+    lut_path = DATA_DIR / "oh_harvest_lut.bin.lzma"
+
+Notes
+-----
+- The cache directory is always ``<repo_root>/data/``.
+- If the file is already present and the SHA-256 matches, no network request
+  is made.  A hash mismatch triggers a fresh download (the old file is
+  overwritten).
+- Download progress is written to stderr so it does not interfere with the
+  harness stdout protocol.
+- No third-party libraries are required.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import sys
+import urllib.request
+from pathlib import Path
+
+# Resolve data/ relative to this file so it works regardless of CWD.
+_DATA_DIR: Path = Path(__file__).resolve().parent.parent / "data"
+
+
+def fetch(url: str, sha256: str, filename: str) -> Path:
+    """Return the local path to *filename*, downloading from *url* if needed.
+
+    Parameters
+    ----------
+    url:
+        Direct download URL for the file.  Hugging Face Datasets, GitHub
+        Releases, Zenodo, and S3 presigned URLs all work.
+    sha256:
+        Expected lowercase hex SHA-256 digest of the file.  Used both to
+        skip re-downloads and to detect corrupt/truncated downloads.
+    filename:
+        Name of the file as it should appear in ``data/``.  Should match
+        the basename of the hosted file to avoid confusion.
+
+    Returns
+    -------
+    pathlib.Path
+        Absolute path to the verified local copy of the file.
+
+    Raises
+    ------
+    ValueError
+        If the downloaded file's SHA-256 does not match *sha256*.
+    urllib.error.URLError
+        If the download fails (network error, 404, etc.).
+    """
+    _DATA_DIR.mkdir(exist_ok=True)
+    dest = _DATA_DIR / filename
+
+    if dest.exists():
+        if _sha256(dest) == sha256.lower():
+            return dest
+        print(
+            f"[data] {filename}: hash mismatch — re-downloading.",
+            file=sys.stderr,
+        )
+
+    print(f"[data] Downloading {filename} ...", file=sys.stderr, flush=True)
+    _download(url, dest)
+
+    actual = _sha256(dest)
+    if actual != sha256.lower():
+        dest.unlink(missing_ok=True)
+        raise ValueError(
+            f"[data] SHA-256 mismatch for {filename}.\n"
+            f"  expected: {sha256.lower()}\n"
+            f"  got:      {actual}\n"
+            "The file has been removed.  Check that the url and sha256 are correct."
+        )
+
+    print(f"[data] {filename}: OK ({dest.stat().st_size:,} bytes)", file=sys.stderr)
+    return dest
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _sha256(path: Path) -> str:
+    """Return the lowercase hex SHA-256 digest of *path*."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _download(url: str, dest: Path) -> None:
+    """Download *url* to *dest*, printing a progress bar to stderr."""
+    tmp = dest.with_suffix(dest.suffix + ".part")
+
+    def _reporthook(block_num: int, block_size: int, total_size: int) -> None:
+        downloaded = block_num * block_size
+        if total_size > 0:
+            pct = min(100, downloaded * 100 // total_size)
+            filled = pct // 2
+            bar = "#" * filled + "-" * (50 - filled)
+            mb_done = downloaded / (1 << 20)
+            mb_total = total_size / (1 << 20)
+            print(
+                f"\r[data]   [{bar}] {pct:3d}%  {mb_done:.1f}/{mb_total:.1f} MB",
+                end="",
+                file=sys.stderr,
+                flush=True,
+            )
+        else:
+            mb_done = downloaded / (1 << 20)
+            print(
+                f"\r[data]   {mb_done:.1f} MB downloaded",
+                end="",
+                file=sys.stderr,
+                flush=True,
+            )
+
+    try:
+        urllib.request.urlretrieve(url, tmp, reporthook=_reporthook)
+        print(file=sys.stderr)  # newline after progress bar
+        tmp.replace(dest)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
