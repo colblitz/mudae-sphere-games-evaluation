@@ -23,7 +23,7 @@
  *     After ships_hit ≥ 5, the next blue ends the game.
  *
  * Ship SP values: spT=20 spG=35 spY=55 spO=90 spL=76 spD=104 spR=150 spW=500
- * Blue (spB) = 0 SP (just an empty cell).
+ * Blue (spB) = 10 SP (awarded on click, does not count as a ship hit).
  *
  * Rare-ship color weighting:
  *   Each board stores only the spatial placements of var_rare ships; their
@@ -83,6 +83,7 @@ using namespace sphere;
 // ---------------------------------------------------------------------------
 
 static constexpr int OT_BASE_CLICKS = 4;
+static constexpr int OT_BLUE_VALUE  = 10;
 
 static int ot_ship_value(const std::string& color) {
     if (color == "spT") return 20;
@@ -93,7 +94,7 @@ static int ot_ship_value(const std::string& color) {
     if (color == "spD") return 104;
     if (color == "spR") return 150;
     if (color == "spW") return 500;
-    return 0;  // spB (blue = 0)
+    return 0;  // spB handled separately via OT_BLUE_VALUE
 }
 
 static bool ot_is_ship(const std::string& color) {
@@ -318,7 +319,9 @@ static OTGameResult run_ot_game(
             if (si >= 0 && si < n_ships) ship_hit[si] = true;
             // Ship click is free — no blues_used increment
         } else {
-            // Blue click
+            // Blue click — awards OT_BLUE_VALUE SP and costs one blue click
+            score += OT_BLUE_VALUE;
+
             // Estimate P(blue) for 50/50 detection: count remaining unclicked cells
             int unclicked_count = 0, unclicked_blue = 0;
             for (int i = 0; i < N_CELLS; ++i) {
@@ -340,7 +343,7 @@ static OTGameResult run_ot_game(
                     mr.row               = c.row;
                     mr.col               = c.col;
                     mr.color             = color;
-                    mr.sp_delta          = 0.0;
+                    mr.sp_delta          = OT_BLUE_VALUE;
                     mr.running_score     = score;
                     mr.ships_hit_before  = ships_before;
                     mr.blues_used_before = blues_before;
