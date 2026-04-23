@@ -30,6 +30,7 @@
  * Usage:
  *   evaluate_oh --strategy <path> [--games N] [--seed S] [--threads N]
  *               [--dark-stats path/to/oh_dark_stats.json]
+ *               [--trace N]   (trace mode: sample N games, emit TRACE_JSON)
  */
 
 #include <algorithm>
@@ -262,6 +263,29 @@ static OHBoard make_oh_board(const Dist& appearance_dist, std::mt19937_64& rng) 
 }
 
 // ---------------------------------------------------------------------------
+// Trace record
+// ---------------------------------------------------------------------------
+
+struct MoveRecord {
+    int    move_num;
+    int    row, col;
+    std::string color;
+    double sp_delta;
+    double running_score;
+    int    clicks_left_before;
+    bool   is_free;
+};
+
+struct GameTrace {
+    int    game_index;
+    uint64_t game_seed;
+    double score;
+    bool   has_chest;
+    std::string initial_board[N_SLOTS];  // color name for revealed, "?" for covered
+    std::vector<MoveRecord> moves;
+};
+
+// ---------------------------------------------------------------------------
 // Simulate one oh game
 // ---------------------------------------------------------------------------
 
@@ -276,7 +300,8 @@ static OHGameResult run_oh_game(
     StrategyBridge& strategy,
     std::string&   game_state_json,
     std::mt19937_64& rng,
-    uint64_t       game_seed)
+    uint64_t       game_seed,
+    GameTrace*     trace = nullptr)
 {
     OHColor slot_colors[N_SLOTS];
     bool    revealed[N_SLOTS];
@@ -289,6 +314,7 @@ static OHGameResult run_oh_game(
     double score         = 0.0;
     bool   clicked_chest = false;
     int    clicks_left   = MAX_CLICKS;
+    int    move_num      = 0;
 
     // Add initially revealed cells
     for (int i = 0; i < N_SLOTS; ++i) {
@@ -327,10 +353,10 @@ static OHGameResult run_oh_game(
         // Build available (unrevealed and unclicked) cells list — for validity check
         meta = "{\"clicks_left\":" + std::to_string(clicks_left)
              + ",\"max_clicks\":" + std::to_string(MAX_CLICKS) + "}";
+        int clicks_before = clicks_left;
 
         Click c = strategy.next_click(revealed_cells, meta, game_state_json);
-        if (auto* pb = dynamic_cast<PythonBridge*>(&strategy))
-            game_state_json = pb->last_game_state();
+        game_state_json = strategy.last_game_state();
 
         int idx = rc_to_idx(c.row, c.col);
         if (idx < 0 || idx >= N_SLOTS || clicked[idx]) {
@@ -341,13 +367,17 @@ static OHGameResult run_oh_game(
 
         OHColor color = slot_colors[idx];
         bool is_free  = false;
+        double delta  = 0.0;
+        std::string color_reported;
 
     handle_click:
         switch (color) {
             case OH_SPP:
                 // Purple: free click
-                score   += oh_base_ev(OH_SPP);
-                is_free  = true;
+                delta        = oh_base_ev(OH_SPP);
+                score       += delta;
+                is_free      = true;
+                color_reported = "spP";
                 do_reveal(idx);
                 break;
 
@@ -357,32 +387,42 @@ static OHGameResult run_oh_game(
                 do_reveal(idx);  // show it revealed as dark first
                 if (transform == OH_SPP) {
                     // Dark → purple: refund the click
-                    score   += oh_base_ev(OH_SPP);
-                    is_free  = true;
+                    delta        = oh_base_ev(OH_SPP);
+                    score       += delta;
+                    is_free      = true;
+                    color_reported = "spD→spP";
                 } else {
-                    score += oh_base_ev(transform);
+                    delta        = oh_base_ev(transform);
+                    score       += delta;
+                    color_reported = std::string("spD→") + oh_color_name(transform);
                 }
                 break;
             }
 
             case OH_SPB:
                 // Blue: reveals 3 covered cells, gives its base value
-                score += oh_base_ev(OH_SPB);
+                delta        = oh_base_ev(OH_SPB);
+                score       += delta;
+                color_reported = "spB";
                 do_reveal(idx);
                 reveal_n_covered(3);
                 break;
 
             case OH_SPT:
                 // Teal: reveals 1 covered cell
-                score += oh_base_ev(OH_SPT);
+                delta        = oh_base_ev(OH_SPT);
+                score       += delta;
+                color_reported = "spT";
                 do_reveal(idx);
                 reveal_n_covered(1);
                 break;
 
             case OH_CHEST:
                 // Chest covered cell: high EV
-                score += CHEST_EV;
+                delta        = CHEST_EV;
+                score       += delta;
                 clicked_chest = true;
+                color_reported = "chest";
                 do_reveal(idx);
                 break;
 
@@ -396,15 +436,81 @@ static OHGameResult run_oh_game(
 
             default:
                 // Flat: spG spY spL spO spR spW
-                score += oh_base_ev(color);
+                delta        = oh_base_ev(color);
+                score       += delta;
+                color_reported = oh_color_name(color);
                 do_reveal(idx);
                 break;
+        }
+
+        ++move_num;
+        if (trace) {
+            MoveRecord mr;
+            mr.move_num           = move_num;
+            mr.row                = c.row;
+            mr.col                = c.col;
+            mr.color              = color_reported;
+            mr.sp_delta           = delta;
+            mr.running_score      = score;
+            mr.clicks_left_before = clicks_before;
+            mr.is_free            = is_free;
+            trace->moves.push_back(mr);
         }
 
         if (!is_free) --clicks_left;
     }
 
     return {score, clicked_chest};
+}
+
+// ---------------------------------------------------------------------------
+// JSON helpers for trace output
+// ---------------------------------------------------------------------------
+
+static void escape_json_string(const std::string& s, char* buf, size_t bufsz) {
+    size_t out = 0;
+    for (char ch : s) {
+        if (out + 4 >= bufsz) break;
+        if (ch == '"' || ch == '\\') buf[out++] = '\\';
+        buf[out++] = ch;
+    }
+    buf[out] = '\0';
+}
+
+static void print_trace_json(const std::vector<GameTrace>& traces) {
+    printf("TRACE_JSON: [");
+    for (size_t gi = 0; gi < traces.size(); ++gi) {
+        const auto& t = traces[gi];
+        if (gi > 0) printf(",");
+        printf("{\"game_index\":%d,\"game_seed\":%llu,\"score\":%.1f,"
+               "\"has_chest\":%s,\"initial_board\":[",
+               t.game_index,
+               (unsigned long long)t.game_seed,
+               t.score,
+               t.has_chest ? "true" : "false");
+        for (int i = 0; i < N_SLOTS; ++i) {
+            if (i > 0) printf(",");
+            printf("\"%s\"", t.initial_board[i].c_str());
+        }
+        printf("],\"moves\":[");
+        for (size_t mi = 0; mi < t.moves.size(); ++mi) {
+            const auto& m = t.moves[mi];
+            if (mi > 0) printf(",");
+            char cbuf[64];
+            escape_json_string(m.color, cbuf, sizeof(cbuf));
+            printf("{\"move_num\":%d,\"row\":%d,\"col\":%d,"
+                   "\"color\":\"%s\",\"sp_delta\":%.1f,\"running_score\":%.1f,"
+                   "\"meta\":{\"clicks_left\":%d,\"max_clicks\":%d},"
+                   "\"free\":%s}",
+                   m.move_num, m.row, m.col,
+                   cbuf, m.sp_delta, m.running_score,
+                   m.clicks_left_before, MAX_CLICKS,
+                   m.is_free ? "true" : "false");
+        }
+        printf("]}");
+    }
+    printf("]\n");
+    fflush(stdout);
 }
 
 // ---------------------------------------------------------------------------
@@ -421,6 +527,7 @@ int main(int argc, char* argv[]) {
 #ifdef _OPENMP
     n_threads = omp_get_max_threads();
 #endif
+    int trace_n = 0;
 
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--strategy") && i + 1 < argc)  strategy_path  = argv[++i];
@@ -428,9 +535,15 @@ int main(int argc, char* argv[]) {
         else if (!strcmp(argv[i], "--seed")     && i + 1 < argc)  seed       = strtoull(argv[++i], nullptr, 10);
         else if (!strcmp(argv[i], "--threads")  && i + 1 < argc)  n_threads  = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--dark-stats") && i + 1 < argc) dark_stats_path = argv[++i];
+        else if (!strcmp(argv[i], "--trace")    && i + 1 < argc)  trace_n    = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--boards-dir") && i + 1 < argc) {
+            // derive dark-stats path from boards-dir
+            dark_stats_path = std::string(argv[++i]) + "/oh_dark_stats.json";
+        }
     }
     if (strategy_path.empty()) {
-        fprintf(stderr, "Usage: evaluate_oh --strategy <path> [--games N] [--seed S] [--threads N]\n");
+        fprintf(stderr, "Usage: evaluate_oh --strategy <path> [--games N] [--seed S] [--threads N]\n"
+                        "                   [--trace N]\n");
         return 1;
     }
 
@@ -458,6 +571,47 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "ERROR: %s\n", e.what());
         return 1;
     }
+
+    // ------------------------------------------------------------------
+    // TRACE MODE
+    // ------------------------------------------------------------------
+    if (trace_n > 0) {
+        printf("Trace mode: sampling %d games (seed=%llu) ...\n",
+               trace_n, (unsigned long long)seed);
+        fflush(stdout);
+
+        std::string eval_run_state = bridge->init_evaluation_run();
+        std::vector<GameTrace> traces;
+        traces.reserve(trace_n);
+
+        for (int gi = 0; gi < trace_n; ++gi) {
+            uint64_t game_seed = seed ^ (static_cast<uint64_t>(gi) * 6364136223846793005ULL + 1442695040888963407ULL);
+            std::mt19937_64 rng(game_seed);
+            OHBoard board = make_oh_board(appearance_dist, rng);
+
+            GameTrace gt;
+            gt.game_index = gi;
+            gt.game_seed  = game_seed;
+            gt.has_chest  = board.has_chest;
+            // Build initial board: revealed cells show color, covered show "?"
+            for (int i = 0; i < N_SLOTS; ++i) {
+                gt.initial_board[i] = board.revealed[i]
+                    ? oh_color_name(board.slot_colors[i])
+                    : "?";
+            }
+
+            auto result = run_oh_game(board, dark_dist, *bridge, eval_run_state, rng, game_seed, &gt);
+            gt.score = result.score;
+            traces.push_back(std::move(gt));
+        }
+
+        print_trace_json(traces);
+        return 0;
+    }
+
+    // ------------------------------------------------------------------
+    // NORMAL EVALUATION MODE
+    // ------------------------------------------------------------------
     printf("Strategy loaded. Running %llu games (seed=%llu, threads=%d) ...\n",
            (unsigned long long)n_games, (unsigned long long)seed, n_threads);
     fflush(stdout);

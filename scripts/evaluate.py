@@ -19,16 +19,25 @@ The --commit flow makes two commits:
      and updates leaderboards/<game>.json and README.md if the result enters
      the top 5.  All changed files are bundled into this single commit.
 
+Trace mode — inspect individual games:
+  python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py --trace --n 20
+
+  Randomly samples N games, prints the starting board (ASCII 5×5) and the
+  sequence of moves for each game.  No files are written.  --commit is
+  incompatible with --trace.  For ot, a specific --n-colors value is required.
+
 Flags
 -----
   --game            one of: oh oc oq ot                     (required)
   --strategy        path to the strategy file (.py/.cpp/.js) (required)
   --commit          two commits: strategy file + scoring artifacts
   --games N         (oh) number of Monte Carlo games         default: 100000
-  --seed S          (oh) RNG seed
+  --seed S          RNG seed (evaluation and trace mode)     default: 42
   --n-colors X      (ot) 6|7|8|9|all                        default: all
   --threads N       number of parallel threads               default: all cores
   --boards-dir      override boards directory
+  --trace           enable trace mode (print per-game boards and moves)
+  --n N             (trace) number of games to sample        default: 20
 """
 
 from __future__ import annotations
@@ -412,6 +421,126 @@ def update_readme() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Trace rendering
+# ---------------------------------------------------------------------------
+
+# Single-letter color codes for ASCII board display
+_COLOR_LETTER: dict[str, str] = {
+    "spR": "R", "spO": "O", "spY": "Y", "spG": "G", "spT": "T",
+    "spB": "B", "spP": "P", "spD": "D", "spL": "L", "spW": "W",
+    "spU": "U", "chest": "C",
+    "?": "?",
+}
+
+def _cell_letter(color: str) -> str:
+    """Return a single display letter for a color string (handles spD→spX variants)."""
+    if color in _COLOR_LETTER:
+        return _COLOR_LETTER[color]
+    # Handle oh dark-transform notation like "spD→spP"
+    if "→" in color:
+        return "D"
+    return color[:1].upper() if color else "?"
+
+
+def _render_board(cells: list[str], clicked_positions: set[tuple[int, int]] | None = None) -> str:
+    """Render a 5×5 board from a 25-element cell list.
+
+    cells[i] is the color string for cell i (row = i//5, col = i%5).
+    Clicked cells are shown in lowercase.
+    Returns a multi-line string.
+    """
+    header = "    0   1   2   3   4"
+    rows = [header]
+    for r in range(5):
+        parts = [f"{r} "]
+        for c in range(5):
+            idx = r * 5 + c
+            letter = _cell_letter(cells[idx])
+            if clicked_positions and (r, c) in clicked_positions:
+                letter = letter.lower()
+            parts.append(f" {letter:>2} ")
+        rows.append("".join(parts))
+    return "\n".join(rows)
+
+
+def _meta_str(meta: dict[str, Any], game: str) -> str:
+    """Format meta dict as a compact key=val string, game-appropriate fields only."""
+    parts = []
+    if game in ("oc", "oh", "oq") and "clicks_left" in meta:
+        parts.append(f"clicks_left={meta['clicks_left']}")
+    if game == "oq" and "purples_found" in meta:
+        parts.append(f"purples={meta['purples_found']}")
+    if game == "ot":
+        if "ships_hit" in meta:
+            parts.append(f"ships_hit={meta['ships_hit']}")
+        if "blues_used" in meta:
+            parts.append(f"blues_used={meta['blues_used']}")
+    return "  ".join(parts)
+
+
+def render_trace(game: str, traces: list[dict[str, Any]]) -> None:
+    """Print a human-readable trace of sampled games to stdout."""
+    total = len(traces)
+    print(f"\n{'='*60}")
+    print(f"  Trace: {game}  ({total} game{'s' if total != 1 else ''})")
+    print(f"{'='*60}")
+
+    for gi, t in enumerate(traces, 1):
+        score = t.get("score", 0.0)
+
+        # Game header
+        if game == "oh":
+            chest_tag = "  [has chest]" if t.get("has_chest") else ""
+            seed_tag = f"  seed={t.get('game_seed', '?')}"
+            print(f"\n--- Game {gi}/{total}{chest_tag}{seed_tag}  score={score:.0f} SP ---")
+        elif game == "ot":
+            nc = t.get("n_colors", "?")
+            assign = [c for c in t.get("color_assignment", []) if c]
+            assign_tag = f"  rare={assign}" if assign else ""
+            print(f"\n--- Game {gi}/{total}  n_colors={nc}{assign_tag}  score={score:.0f} SP ---")
+        else:
+            board_idx = t.get("board_index", "?")
+            print(f"\n--- Game {gi}/{total}  board #{board_idx}  score={score:.0f} SP ---")
+
+        # Initial board
+        initial_board: list[str] = t.get("initial_board", ["?"] * 25)
+        print("\nInitial board:")
+        print(_render_board(initial_board))
+
+        # Moves
+        moves: list[dict[str, Any]] = t.get("moves", [])
+        if not moves:
+            print("\n(no moves recorded)")
+        else:
+            print("\nMoves:")
+            clicked: set[tuple[int, int]] = set()
+            for m in moves:
+                mn    = m.get("move_num", "?")
+                row   = m.get("row", 0)
+                col   = m.get("col", 0)
+                color = m.get("color", "?")
+                delta = m.get("sp_delta", 0.0)
+                total_score = m.get("running_score", 0.0)
+                meta  = m.get("meta", {})
+                free  = m.get("free", False)
+
+                letter = _cell_letter(color)
+                meta_s = _meta_str(meta, game)
+                free_tag = "  [free]" if free else ""
+                delta_sign = "+" if delta >= 0 else ""
+                print(f"  #{mn:>2}  ({row},{col}) → {letter:<8}  "
+                      f"{delta_sign}{delta:.0f} SP  [total {total_score:.0f}]"
+                      f"  {meta_s}{free_tag}")
+                clicked.add((row, col))
+
+            # Final board state (initial board with clicked cells lower-cased)
+            print("\nFinal board (clicked cells in lowercase):")
+            print(_render_board(initial_board, clicked))
+
+    print(f"\n{'='*60}\n")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -423,12 +552,17 @@ def main() -> None:
                         help="Make two commits: one for the strategy file, one for scores")
     parser.add_argument("--games",           type=int, default=100000,
                         help="(oh) number of Monte Carlo games  default: 100000")
-    parser.add_argument("--seed",            type=int, default=42, help="(oh) RNG seed  default: 42")
+    parser.add_argument("--seed",            type=int, default=42,
+                        help="RNG seed (evaluation and trace mode)  default: 42")
     parser.add_argument("--n-colors",        default="all",
                         help="(ot) 6|7|8|9|all  default: all")
     parser.add_argument("--threads",         type=int,
                         help="number of parallel threads  default: all cores")
     parser.add_argument("--boards-dir",      help="override boards directory")
+    parser.add_argument("--trace",           action="store_true",
+                        help="Trace mode: print per-game boards and moves instead of aggregate stats")
+    parser.add_argument("--n",               type=int, default=20,
+                        help="(trace) number of games to sample  default: 20")
     args = parser.parse_args()
 
     strategy_path = Path(args.strategy)
@@ -442,6 +576,17 @@ def main() -> None:
             sys.exit(1)
     strategy_abs = str(strategy_path.resolve())
 
+    # --trace is incompatible with --commit
+    if args.trace and args.commit:
+        print("ERROR: --trace and --commit are incompatible.", file=sys.stderr)
+        sys.exit(1)
+
+    # --trace for ot requires a specific n-colors value
+    if args.trace and args.game == "ot" and args.n_colors == "all":
+        print("ERROR: --trace for ot requires a specific --n-colors value (6, 7, 8, or 9).",
+              file=sys.stderr)
+        sys.exit(1)
+
     # Build harness extra args
     extra: list[str] = []
     if args.game == "oh":
@@ -453,6 +598,44 @@ def main() -> None:
         extra += ["--threads", str(args.threads)]
     if args.boards_dir:
         extra += ["--boards-dir", args.boards_dir]
+
+    # ------------------------------------------------------------------
+    # TRACE MODE
+    # ------------------------------------------------------------------
+    if args.trace:
+        trace_extra = extra.copy()
+        trace_extra += ["--trace", str(args.n)]
+        # Seed is forwarded for all games (oc/oq/ot use it for board sampling;
+        # oh already gets it via --seed above for oh, add it for others)
+        if args.game != "oh":
+            trace_extra += ["--seed", str(args.seed)]
+        binary = build_harness(args.game)
+        cmd = [str(binary), "--strategy", strategy_abs] + trace_extra
+        if "--boards-dir" not in " ".join(trace_extra):
+            cmd += ["--boards-dir", str(REPO_ROOT / "boards")]
+        print(f"[run] {' '.join(cmd)}")
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=None, text=True, bufsize=1)
+        trace_json: list[Any] | None = None
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            line = line.rstrip("\n")
+            if line.startswith("TRACE_JSON:"):
+                try:
+                    trace_json = json.loads(line[len("TRACE_JSON:"):].strip())
+                except json.JSONDecodeError as e:
+                    print(f"ERROR: could not parse TRACE_JSON: {e}", file=sys.stderr)
+                    sys.exit(1)
+            else:
+                print(line, flush=True)
+        proc.wait()
+        if proc.returncode != 0:
+            print(f"ERROR: harness exited with code {proc.returncode}", file=sys.stderr)
+            sys.exit(1)
+        if trace_json is None:
+            print("ERROR: harness did not emit TRACE_JSON", file=sys.stderr)
+            sys.exit(1)
+        render_trace(args.game, trace_json)
+        return
 
     # ------------------------------------------------------------------
     # --commit: commit 1 — the strategy file

@@ -22,6 +22,7 @@
  * Usage:
  *   evaluate_oc --strategy path/to/strategy.py [--boards path/to/oc_boards.bin.lzma]
  *               [--threads N]
+ *               [--trace N] [--seed S]   (trace mode: sample N boards, emit TRACE_JSON)
  */
 
 #include <algorithm>
@@ -31,6 +32,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -52,6 +54,27 @@
 using namespace sphere;
 
 // ---------------------------------------------------------------------------
+// Trace record
+// ---------------------------------------------------------------------------
+
+struct MoveRecord {
+    int    move_num;
+    int    row, col;
+    std::string color;
+    double sp_delta;
+    double running_score;
+    int    clicks_left_before;  // meta value at the time of the click decision
+    bool   is_free;             // oc: never free, but kept for consistency
+};
+
+struct GameTrace {
+    int    board_index;
+    double score;
+    std::string initial_board[N_CELLS];  // "?" for covered, color name for revealed
+    std::vector<MoveRecord> moves;
+};
+
+// ---------------------------------------------------------------------------
 // Simulate one oc game
 // ---------------------------------------------------------------------------
 
@@ -59,7 +82,8 @@ using namespace sphere;
 static std::pair<double, bool> run_oc_game(
     const OCBoard&  board,
     StrategyBridge& strategy,
-    std::string&    game_state_json)
+    std::string&    game_state_json,
+    GameTrace*      trace = nullptr)
 {
     std::vector<Cell> revealed;
     double score      = 0.0;
@@ -71,24 +95,17 @@ static std::pair<double, bool> run_oc_game(
     game_state_json = strategy.init_game_payload(meta, game_state_json);
 
     bool clicked[N_CELLS] = {};
+    int  move_num = 0;
 
     while (clicks_left > 0) {
         // Build current meta
         meta = "{\"clicks_left\":" + std::to_string(clicks_left) + ",\"max_clicks\":5}";
+        int clicks_before = clicks_left;
 
         Click c = strategy.next_click(revealed, meta, game_state_json);
-        // Thread state from bridge (Python bridge stores it internally)
-        // For C++/JS bridges the state is embedded in the return; we use a
-        // workaround: each bridge returns updated state as a side-channel.
-        // For Python strategies the game_state_json is extracted from the return tuple
-        // and stored in last_game_state() on the bridge.
-        // The Python bridge stores last_state_ internally; we read it back.
-        // For C++ and JS bridges, state is returned inline in the JSON response.
-        // This is handled by each bridge's next_click updating last_state_.
-        // We pull it via dynamic_cast.
-        if (auto* pb = dynamic_cast<PythonBridge*>(&strategy)) {
-            game_state_json = pb->last_game_state();
-        }
+        // Thread the updated game state back for the next call.
+        // All bridge types (Python, C++, JS) store it in last_game_state().
+        game_state_json = strategy.last_game_state();
 
         int idx = rc_to_idx(c.row, c.col);
         if (idx < 0 || idx >= N_CELLS || clicked[idx]) {
@@ -108,9 +125,57 @@ static std::pair<double, bool> run_oc_game(
         score += value;
         if (color_int == 0) red_found = true;  // spR
         --clicks_left;
+        ++move_num;
+
+        if (trace) {
+            MoveRecord mr;
+            mr.move_num           = move_num;
+            mr.row                = c.row;
+            mr.col                = c.col;
+            mr.color              = color;
+            mr.sp_delta           = value;
+            mr.running_score      = score;
+            mr.clicks_left_before = clicks_before;
+            mr.is_free            = false;
+            trace->moves.push_back(mr);
+        }
     }
 
     return {score, red_found};
+}
+
+// ---------------------------------------------------------------------------
+// JSON helpers for trace output
+// ---------------------------------------------------------------------------
+
+static void print_trace_json(const std::vector<GameTrace>& traces) {
+    printf("TRACE_JSON: [");
+    for (size_t gi = 0; gi < traces.size(); ++gi) {
+        const auto& t = traces[gi];
+        if (gi > 0) printf(",");
+        printf("{\"board_index\":%d,\"score\":%.1f,\"initial_board\":[",
+               t.board_index, t.score);
+        for (int i = 0; i < N_CELLS; ++i) {
+            if (i > 0) printf(",");
+            printf("\"%s\"", t.initial_board[i].c_str());
+        }
+        printf("],\"moves\":[");
+        for (size_t mi = 0; mi < t.moves.size(); ++mi) {
+            const auto& m = t.moves[mi];
+            if (mi > 0) printf(",");
+            printf("{\"move_num\":%d,\"row\":%d,\"col\":%d,"
+                   "\"color\":\"%s\",\"sp_delta\":%.1f,\"running_score\":%.1f,"
+                   "\"meta\":{\"clicks_left\":%d,\"max_clicks\":5},"
+                   "\"free\":%s}",
+                   m.move_num, m.row, m.col,
+                   m.color.c_str(), m.sp_delta, m.running_score,
+                   m.clicks_left_before,
+                   m.is_free ? "true" : "false");
+        }
+        printf("]}");
+    }
+    printf("]\n");
+    fflush(stdout);
 }
 
 // ---------------------------------------------------------------------------
@@ -125,14 +190,23 @@ int main(int argc, char* argv[]) {
 #ifdef _OPENMP
     n_threads = omp_get_max_threads();
 #endif
+    int      trace_n   = 0;
+    uint64_t trace_seed = 42;
 
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--strategy") && i + 1 < argc) strategy_path = argv[++i];
         else if (!strcmp(argv[i], "--boards")  && i + 1 < argc) boards_path = argv[++i];
+        else if (!strcmp(argv[i], "--boards-dir") && i + 1 < argc) {
+            // evaluate_oc uses --boards, not --boards-dir; accept and derive path
+            boards_path = std::string(argv[++i]) + "/oc_boards.bin.lzma";
+        }
         else if (!strcmp(argv[i], "--threads") && i + 1 < argc) n_threads   = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--trace")   && i + 1 < argc) trace_n     = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--seed")    && i + 1 < argc) trace_seed  = strtoull(argv[++i], nullptr, 10);
     }
     if (strategy_path.empty()) {
-        fprintf(stderr, "Usage: evaluate_oc --strategy <path> [--boards <path>] [--threads N]\n");
+        fprintf(stderr, "Usage: evaluate_oc --strategy <path> [--boards <path>] [--threads N]\n"
+                        "                   [--trace N] [--seed S]\n");
         return 1;
     }
 
@@ -157,6 +231,45 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "ERROR: %s\n", e.what());
         return 1;
     }
+
+    // ------------------------------------------------------------------
+    // TRACE MODE
+    // ------------------------------------------------------------------
+    if (trace_n > 0) {
+        printf("Trace mode: sampling %d boards (seed=%llu) ...\n",
+               trace_n, (unsigned long long)trace_seed);
+        fflush(stdout);
+
+        // Sample board indices
+        std::mt19937_64 rng(trace_seed);
+        std::vector<int> indices(boards.size());
+        for (int i = 0; i < (int)boards.size(); ++i) indices[i] = i;
+        std::shuffle(indices.begin(), indices.end(), rng);
+        if (trace_n > (int)indices.size()) trace_n = (int)indices.size();
+        indices.resize(trace_n);
+
+        std::string eval_run_state = bridge->init_evaluation_run();
+        std::vector<GameTrace> traces;
+        traces.reserve(trace_n);
+
+        for (int idx : indices) {
+            GameTrace gt;
+            gt.board_index = idx;
+            // All cells covered at start
+            for (int c = 0; c < N_CELLS; ++c) gt.initial_board[c] = "?";
+
+            auto [score, _red] = run_oc_game(boards[idx], *bridge, eval_run_state, &gt);
+            gt.score = score;
+            traces.push_back(std::move(gt));
+        }
+
+        print_trace_json(traces);
+        return 0;
+    }
+
+    // ------------------------------------------------------------------
+    // NORMAL EVALUATION MODE
+    // ------------------------------------------------------------------
     printf("Strategy loaded. Running %zu boards (threads=%d) ...\n", boards.size(), n_threads);
     fflush(stdout);
 

@@ -45,6 +45,8 @@
  * Usage:
  *   evaluate_ot --strategy <path> [--boards-dir <dir>]
  *               [--n-colors 6|7|8|9|all] [--threads N]
+ *               [--trace N] [--seed S]
+ *                 (trace mode: sample N boards; requires specific --n-colors, not "all")
  */
 
 #include <algorithm>
@@ -55,6 +57,7 @@
 #include <cstring>
 #include <functional>
 #include <mutex>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -193,12 +196,33 @@ struct OTGameResult {
     bool   loss_5050    = false;  // lost on a ~50/50 blue decision
 };
 
+struct MoveRecord {
+    int    move_num;
+    int    row, col;
+    std::string color;
+    double sp_delta;
+    double running_score;
+    int    ships_hit_before;
+    int    blues_used_before;
+    bool   is_free;  // true for ship hits (free clicks)
+};
+
+struct GameTrace {
+    int    board_index;
+    int    n_colors;
+    std::string color_assignment[4];  // rare color names assigned to var_rare slots
+    double score;
+    std::string initial_board[N_CELLS];  // all "?" for ot
+    std::vector<MoveRecord> moves;
+};
+
 static OTGameResult run_ot_game(
     const OTBoard&              board,
     const std::vector<std::string>& colors,  // pre-derived cell colors
     int                         n_colors,
     StrategyBridge&             strategy,
-    std::string&                game_state_json)
+    std::string&                game_state_json,
+    GameTrace*                  trace = nullptr)
 {
     bool clicked[N_CELLS] = {};
     std::vector<Cell> revealed;
@@ -238,10 +262,14 @@ static OTGameResult run_ot_game(
     int ship_clicks         = 0;  // clicks that hit a ship cell
     // Track whether game-ending blue was ~50/50
     bool last_blue_was_5050 = false;
+    int  move_num = 0;
 
     while (true) {
         // Check game over condition
         if (ot_game_over(blues_used, ships_hit)) break;
+
+        int ships_before = ships_hit;
+        int blues_before = blues_used;
 
         // Build meta
         meta = "{\"n_colors\":" + std::to_string(n_colors)
@@ -250,8 +278,7 @@ static OTGameResult run_ot_game(
              + ",\"max_clicks\":" + std::to_string(OT_BASE_CLICKS) + "}";
 
         Click c = strategy.next_click(revealed, meta, game_state_json);
-        if (auto* pb = dynamic_cast<PythonBridge*>(&strategy))
-            game_state_json = pb->last_game_state();
+        game_state_json = strategy.last_game_state();
 
         int idx = rc_to_idx(c.row, c.col);
         if (idx < 0 || idx >= N_CELLS || clicked[idx]) {
@@ -263,15 +290,18 @@ static OTGameResult run_ot_game(
         }
         clicked[idx] = true;
         ++total_clicks;
+        ++move_num;
 
         const std::string& color = colors[idx];
         bool is_ship = ot_is_ship(color);
+        double delta = 0.0;
 
         revealed.push_back({static_cast<int8_t>(c.row),
                              static_cast<int8_t>(c.col), color});
 
         if (is_ship) {
-            score += ot_ship_value(color);
+            delta = ot_ship_value(color);
+            score += delta;
             ++ships_hit;
             ++revealed_ship_cells;
             ++ship_clicks;
@@ -294,7 +324,36 @@ static OTGameResult run_ot_game(
             last_blue_was_5050 = (p_blue > 0.25 && p_blue < 0.75);
 
             ++blues_used;
-            if (ot_game_over(blues_used, ships_hit)) break;
+            if (ot_game_over(blues_used, ships_hit)) {
+                if (trace) {
+                    MoveRecord mr;
+                    mr.move_num          = move_num;
+                    mr.row               = c.row;
+                    mr.col               = c.col;
+                    mr.color             = color;
+                    mr.sp_delta          = 0.0;
+                    mr.running_score     = score;
+                    mr.ships_hit_before  = ships_before;
+                    mr.blues_used_before = blues_before;
+                    mr.is_free           = false;
+                    trace->moves.push_back(mr);
+                }
+                break;
+            }
+        }
+
+        if (trace) {
+            MoveRecord mr;
+            mr.move_num          = move_num;
+            mr.row               = c.row;
+            mr.col               = c.col;
+            mr.color             = color;
+            mr.sp_delta          = delta;
+            mr.running_score     = score;
+            mr.ships_hit_before  = ships_before;
+            mr.blues_used_before = blues_before;
+            mr.is_free           = is_ship;
+            trace->moves.push_back(mr);
         }
     }
 
@@ -310,6 +369,51 @@ static OTGameResult run_ot_game(
     // we flag loss if ships_hit < total_ship_cells at game end AND last blue was ~50/50)
     res.loss_5050 = (!res.perfect && last_blue_was_5050);
     return res;
+}
+
+// ---------------------------------------------------------------------------
+// JSON helpers for trace output
+// ---------------------------------------------------------------------------
+
+static void print_trace_json(const std::vector<GameTrace>& traces) {
+    printf("TRACE_JSON: [");
+    for (size_t gi = 0; gi < traces.size(); ++gi) {
+        const auto& t = traces[gi];
+        if (gi > 0) printf(",");
+        printf("{\"board_index\":%d,\"n_colors\":%d,\"score\":%.1f,"
+               "\"color_assignment\":[",
+               t.board_index, t.n_colors, t.score);
+        for (int k = 0; k < 4; ++k) {
+            if (k > 0) printf(",");
+            if (!t.color_assignment[k].empty())
+                printf("\"%s\"", t.color_assignment[k].c_str());
+            else
+                printf("null");
+        }
+        printf("],\"initial_board\":[");
+        for (int i = 0; i < N_CELLS; ++i) {
+            if (i > 0) printf(",");
+            printf("\"%s\"", t.initial_board[i].c_str());
+        }
+        printf("],\"moves\":[");
+        for (size_t mi = 0; mi < t.moves.size(); ++mi) {
+            const auto& m = t.moves[mi];
+            if (mi > 0) printf(",");
+            printf("{\"move_num\":%d,\"row\":%d,\"col\":%d,"
+                   "\"color\":\"%s\",\"sp_delta\":%.1f,\"running_score\":%.1f,"
+                   "\"meta\":{\"n_colors\":%d,\"ships_hit\":%d,"
+                   "\"blues_used\":%d,\"max_clicks\":%d},"
+                   "\"free\":%s}",
+                   m.move_num, m.row, m.col,
+                   m.color.c_str(), m.sp_delta, m.running_score,
+                   t.n_colors, m.ships_hit_before, m.blues_used_before,
+                   OT_BASE_CLICKS,
+                   m.is_free ? "true" : "false");
+        }
+        printf("]}");
+    }
+    printf("]\n");
+    fflush(stdout);
 }
 
 // ---------------------------------------------------------------------------
@@ -466,17 +570,22 @@ int main(int argc, char* argv[]) {
 #ifdef _OPENMP
     n_threads = omp_get_max_threads();
 #endif
+    int      trace_n    = 0;
+    uint64_t trace_seed = 42;
 
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--strategy")  && i + 1 < argc) strategy_path = argv[++i];
         else if (!strcmp(argv[i], "--boards-dir") && i + 1 < argc) boards_dir   = argv[++i];
         else if (!strcmp(argv[i], "--n-colors")   && i + 1 < argc) n_colors_arg = argv[++i];
         else if (!strcmp(argv[i], "--threads")    && i + 1 < argc) n_threads    = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--trace")      && i + 1 < argc) trace_n      = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--seed")       && i + 1 < argc) trace_seed   = strtoull(argv[++i], nullptr, 10);
     }
     if (strategy_path.empty()) {
         fprintf(stderr,
             "Usage: evaluate_ot --strategy <path> [--boards-dir <dir>]\n"
-            "                   [--n-colors 6|7|8|9|all] [--threads N]\n");
+            "                   [--n-colors 6|7|8|9|all] [--threads N]\n"
+            "                   [--trace N] [--seed S]\n");
         return 1;
     }
 
@@ -484,8 +593,121 @@ int main(int argc, char* argv[]) {
     if (n_colors_arg == "all") variants = {6, 7, 8, 9};
     else variants = {atoi(n_colors_arg.c_str())};
 
+    // ------------------------------------------------------------------
+    // TRACE MODE
+    // ------------------------------------------------------------------
+    if (trace_n > 0) {
+        if (variants.size() != 1) {
+            fprintf(stderr, "ERROR: --trace requires a specific --n-colors value (6, 7, 8, or 9), not 'all'.\n");
+            return 1;
+        }
+        int nc = variants[0];
+        int n_var_rare = nc - 5;  // 6→1, 7→2, 8→3, 9→4
+
+        int n_rare = nc - 4;
+        std::string board_path = boards_dir + "/ot_boards_" + std::to_string(n_rare) + ".bin.lzma";
+        printf("Loading %s ...\n", board_path.c_str());
+        fflush(stdout);
+        auto boards = load_ot_boards(board_path, n_rare);
+        if (boards.empty()) {
+            fprintf(stderr, "ERROR: failed to load boards from %s\n", board_path.c_str());
+            return 1;
+        }
+        printf("Loaded %zu boards for n_colors=%d.\n", boards.size(), nc);
+
+        printf("Loading strategy %s ...\n", strategy_path.c_str());
+        fflush(stdout);
+        std::unique_ptr<StrategyBridge> bridge;
+        try {
+            bridge = StrategyBridge::load(strategy_path, "ot");
+        } catch (const std::exception& e) {
+            fprintf(stderr, "ERROR: %s\n", e.what());
+            return 1;
+        }
+
+        // Precompute color assignments
+        std::vector<ColorAssignment> assignments;
+        if (n_var_rare > 0) {
+            enumerate_color_assignments(n_var_rare, assignments);
+        } else {
+            ColorAssignment trivial{};
+            trivial.weight = 1.0;
+            assignments.push_back(trivial);
+        }
+
+        printf("Trace mode: sampling %d boards (seed=%llu, n_colors=%d) ...\n",
+               trace_n, (unsigned long long)trace_seed, nc);
+        fflush(stdout);
+
+        // Sample board indices
+        std::mt19937_64 rng(trace_seed);
+        std::vector<int> indices(boards.size());
+        for (int i = 0; i < (int)boards.size(); ++i) indices[i] = i;
+        std::shuffle(indices.begin(), indices.end(), rng);
+        if (trace_n > (int)indices.size()) trace_n = (int)indices.size();
+        indices.resize(trace_n);
+
+        std::string eval_run_state = bridge->init_evaluation_run();
+        std::vector<GameTrace> traces;
+        traces.reserve(trace_n);
+
+        for (int bidx : indices) {
+            // Sample one color assignment by weight
+            double total_w = 0.0;
+            for (auto& a : assignments) total_w += a.weight;
+            double r = std::uniform_real_distribution<double>(0.0, total_w)(rng);
+            double acc = 0.0;
+            int chosen = 0;
+            for (int ai = 0; ai < (int)assignments.size(); ++ai) {
+                acc += assignments[ai].weight;
+                if (r <= acc) { chosen = ai; break; }
+            }
+            const auto& assign = assignments[chosen];
+            auto colors = ot_board_colors_assigned(boards[bidx], assign);
+
+            GameTrace gt;
+            gt.board_index = bidx;
+            gt.n_colors    = nc;
+            for (int k = 0; k < 4; ++k) {
+                if (k < n_var_rare)
+                    gt.color_assignment[k] = VAR_COLOR_NAMES[assign.color_idx[k]];
+                else
+                    gt.color_assignment[k] = "";
+            }
+            for (int c = 0; c < N_CELLS; ++c) gt.initial_board[c] = "?";
+
+            run_ot_game(boards[bidx], colors, nc, *bridge, eval_run_state, &gt);
+
+            // Compute score from moves
+            gt.score = gt.moves.empty() ? 0.0 : gt.moves.back().running_score;
+            traces.push_back(std::move(gt));
+        }
+
+        print_trace_json(traces);
+        return 0;
+    }
+
+    // ------------------------------------------------------------------
+    // NORMAL EVALUATION MODE
+    // ------------------------------------------------------------------
     printf("evaluate_ot  strategy=%s  threads=%d\n", strategy_path.c_str(), n_threads);
     fflush(stdout);
+
+    // Load strategy (used inside evaluate_variant per-thread, but we verify it loads first)
+    printf("Loading strategy %s ...\n", strategy_path.c_str());
+    fflush(stdout);
+    {
+        std::unique_ptr<StrategyBridge> probe;
+        try {
+            probe = StrategyBridge::load(strategy_path, "ot");
+        } catch (const std::exception& e) {
+            fprintf(stderr, "ERROR: %s\n", e.what());
+            return 1;
+        }
+    }
+
+    // Release the GIL so OpenMP threads can each re-acquire it via PyGILState_Ensure
+    PyThreadState* _tstate = Py_IsInitialized() ? PyEval_SaveThread() : nullptr;
 
     OTResult overall_result;
     double   total_boards_weighted = 0.0;
@@ -511,6 +733,9 @@ int main(int argc, char* argv[]) {
         weighted_ev           += vr.ev * static_cast<double>(vr.n_boards);
         total_boards_weighted += static_cast<double>(vr.n_boards);
     }
+
+    // Re-acquire the GIL on the main thread
+    if (_tstate) PyEval_RestoreThread(_tstate);
 
     if (total_boards_weighted > 0.0)
         overall_result.aggregate_ev = weighted_ev / total_boards_weighted;

@@ -12,15 +12,15 @@
  *   cell colors via neighbor-count rules:
  *     spB=0 spT=1 spG=2 spY=3 spO=4 purple neighbors
  *   Clicking a purple is FREE (does not cost a click).
- *   Click 3 purples → 4th converts to red (spR, 150 SP) — free click.
- *   After red, remaining budget is spent: derive all hidden colors from
- *   constraints and click greedily in descending value order.
+ *   Click 3 purples → 4th converts to red (spR, 150 SP) — also a free click.
+ *   The strategy sees spR in revealed and decides when to click it.
  *
  * Output: JSON to stdout on completion.
  *
  * Usage:
  *   evaluate_oq --strategy path/to/strategy.py [--boards path/to/oq_boards.bin.lzma]
  *               [--threads N]
+ *               [--trace N] [--seed S]   (trace mode: sample N boards, emit TRACE_JSON)
  */
 
 #include <algorithm>
@@ -31,6 +31,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -84,9 +85,11 @@ static void build_nb_masks() {
     }
 }
 
-// Derive cell color from purple_mask and cell index
-static const char* oq_cell_color(uint32_t purple_mask, int idx) {
-    if ((purple_mask >> idx) & 1) return "spP";
+// Derive cell color from purple_mask and cell index.
+// purples_clicked is the number of purples already clicked before this cell;
+// if it equals 3, the 4th purple appears as red (spR) to the strategy.
+static const char* oq_cell_color(uint32_t purple_mask, int idx, int purples_clicked) {
+    if ((purple_mask >> idx) & 1) return purples_clicked >= 3 ? "spR" : "spP";
     int n = __builtin_popcount(purple_mask & g_nb_mask[idx]);
     switch (n) {
         case 0: return "spB";
@@ -108,13 +111,36 @@ static int oq_cell_value(const char* color) {
 }
 
 // ---------------------------------------------------------------------------
+// Trace record
+// ---------------------------------------------------------------------------
+
+struct MoveRecord {
+    int    move_num;
+    int    row, col;
+    std::string color;
+    double sp_delta;
+    double running_score;
+    int    clicks_left_before;
+    int    purples_found_before;
+    bool   is_free;
+};
+
+struct GameTrace {
+    int    board_index;
+    double score;
+    std::string initial_board[N_CELLS];  // all "?" for oq
+    std::vector<MoveRecord> moves;
+};
+
+// ---------------------------------------------------------------------------
 // Simulate one oq game
 // ---------------------------------------------------------------------------
 
 static std::pair<double, bool> run_oq_game(
     uint32_t        purple_mask,
     StrategyBridge& strategy,
-    std::string&    game_state_json)
+    std::string&    game_state_json,
+    GameTrace*      trace = nullptr)
 {
     std::vector<Cell> revealed;
     double score      = 0.0;
@@ -122,7 +148,7 @@ static std::pair<double, bool> run_oq_game(
     int    purples    = 0;
     int    clicks_left = MAX_CLICKS;
     bool   clicked[N_CELLS] = {};
-    bool   red_visible = false;
+    int    move_num = 0;
 
     std::string meta = "{\"clicks_left\":" + std::to_string(clicks_left)
                      + ",\"max_clicks\":" + std::to_string(MAX_CLICKS)
@@ -130,39 +156,14 @@ static std::pair<double, bool> run_oq_game(
     game_state_json = strategy.init_game_payload(meta, game_state_json);
 
     while (clicks_left > 0) {
-        // If red is visible, click it immediately (free)
-        if (red_visible) {
-            // Find red in revealed (it's the 4th purple slot converted)
-            for (int i = 0; i < N_CELLS; ++i) {
-                if (!clicked[i]) {
-                    const char* col = oq_cell_color(purple_mask, i);
-                    // After 3 purples clicked, the 4th purple becomes red
-                    if ((purple_mask >> i) & 1) {
-                        if (purples == 3) {
-                            // This is the red cell
-                            clicked[i] = true;
-                            revealed.push_back({static_cast<int8_t>(idx_to_row(i)),
-                                                static_cast<int8_t>(idx_to_col(i)), "spR"});
-                            score     += VAL_SPR;
-                            red_found  = true;
-                            red_visible = false;
-                            goto after_red;
-                        }
-                    }
-                }
-            }
-            after_red:;
-            if (!red_found) red_visible = false;
-            continue;
-        }
-
+        int clicks_before  = clicks_left;
+        int purples_before = purples;
         meta = "{\"clicks_left\":" + std::to_string(clicks_left)
              + ",\"max_clicks\":" + std::to_string(MAX_CLICKS)
              + ",\"purples_found\":" + std::to_string(purples) + "}";
 
         Click c = strategy.next_click(revealed, meta, game_state_json);
-        if (auto* pb = dynamic_cast<PythonBridge*>(&strategy))
-            game_state_json = pb->last_game_state();
+        game_state_json = strategy.last_game_state();
 
         int idx = rc_to_idx(c.row, c.col);
         if (idx < 0 || idx >= N_CELLS || clicked[idx]) {
@@ -171,23 +172,76 @@ static std::pair<double, bool> run_oq_game(
         }
         clicked[idx] = true;
 
-        const char* color = oq_cell_color(purple_mask, idx);
+        // Pass purples already clicked so the 4th purple shows as spR
+        const char* color = oq_cell_color(purple_mask, idx, purples);
         bool is_purple = ((purple_mask >> idx) & 1);
+        int  value     = oq_cell_value(color);
 
         revealed.push_back({static_cast<int8_t>(c.row),
                              static_cast<int8_t>(c.col), color});
-        score += oq_cell_value(color);
+        score += value;
+        ++move_num;
 
         if (is_purple) {
+            if (purples == 3) red_found = true;  // this click was the red (4th purple)
             ++purples;
-            // Purple click is free
-            if (purples == 3) red_visible = true;  // 4th purple becomes red next step
+            // Purple and red clicks are both free
         } else {
             --clicks_left;
+        }
+
+        if (trace) {
+            MoveRecord mr;
+            mr.move_num              = move_num;
+            mr.row                   = c.row;
+            mr.col                   = c.col;
+            mr.color                 = color;
+            mr.sp_delta              = value;
+            mr.running_score         = score;
+            mr.clicks_left_before    = clicks_before;
+            mr.purples_found_before  = purples_before;
+            mr.is_free               = is_purple;
+            trace->moves.push_back(mr);
         }
     }
 
     return {score, red_found};
+}
+
+// ---------------------------------------------------------------------------
+// JSON helpers for trace output
+// ---------------------------------------------------------------------------
+
+static void print_trace_json(const std::vector<GameTrace>& traces) {
+    printf("TRACE_JSON: [");
+    for (size_t gi = 0; gi < traces.size(); ++gi) {
+        const auto& t = traces[gi];
+        if (gi > 0) printf(",");
+        printf("{\"board_index\":%d,\"score\":%.1f,\"initial_board\":[",
+               t.board_index, t.score);
+        for (int i = 0; i < N_CELLS; ++i) {
+            if (i > 0) printf(",");
+            printf("\"%s\"", t.initial_board[i].c_str());
+        }
+        printf("],\"moves\":[");
+        for (size_t mi = 0; mi < t.moves.size(); ++mi) {
+            const auto& m = t.moves[mi];
+            if (mi > 0) printf(",");
+            printf("{\"move_num\":%d,\"row\":%d,\"col\":%d,"
+                   "\"color\":\"%s\",\"sp_delta\":%.1f,\"running_score\":%.1f,"
+                   "\"meta\":{\"clicks_left\":%d,\"max_clicks\":%d,"
+                   "\"purples_found\":%d},"
+                   "\"free\":%s}",
+                   m.move_num, m.row, m.col,
+                   m.color.c_str(), m.sp_delta, m.running_score,
+                   m.clicks_left_before, MAX_CLICKS,
+                   m.purples_found_before,
+                   m.is_free ? "true" : "false");
+        }
+        printf("]}");
+    }
+    printf("]\n");
+    fflush(stdout);
 }
 
 // ---------------------------------------------------------------------------
@@ -202,14 +256,22 @@ int main(int argc, char* argv[]) {
 #ifdef _OPENMP
     n_threads = omp_get_max_threads();
 #endif
+    int      trace_n    = 0;
+    uint64_t trace_seed = 42;
 
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--strategy") && i + 1 < argc) strategy_path = argv[++i];
         else if (!strcmp(argv[i], "--boards")  && i + 1 < argc) boards_path = argv[++i];
+        else if (!strcmp(argv[i], "--boards-dir") && i + 1 < argc) {
+            boards_path = std::string(argv[++i]) + "/oq_boards.bin.lzma";
+        }
         else if (!strcmp(argv[i], "--threads") && i + 1 < argc) n_threads   = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--trace")   && i + 1 < argc) trace_n     = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--seed")    && i + 1 < argc) trace_seed  = strtoull(argv[++i], nullptr, 10);
     }
     if (strategy_path.empty()) {
-        fprintf(stderr, "Usage: evaluate_oq --strategy <path> [--boards <path>] [--threads N]\n");
+        fprintf(stderr, "Usage: evaluate_oq --strategy <path> [--boards <path>] [--threads N]\n"
+                        "                   [--trace N] [--seed S]\n");
         return 1;
     }
 
@@ -234,6 +296,43 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "ERROR: %s\n", e.what());
         return 1;
     }
+
+    // ------------------------------------------------------------------
+    // TRACE MODE
+    // ------------------------------------------------------------------
+    if (trace_n > 0) {
+        printf("Trace mode: sampling %d boards (seed=%llu) ...\n",
+               trace_n, (unsigned long long)trace_seed);
+        fflush(stdout);
+
+        std::mt19937_64 rng(trace_seed);
+        std::vector<int> indices(boards.size());
+        for (int i = 0; i < (int)boards.size(); ++i) indices[i] = i;
+        std::shuffle(indices.begin(), indices.end(), rng);
+        if (trace_n > (int)indices.size()) trace_n = (int)indices.size();
+        indices.resize(trace_n);
+
+        std::string eval_run_state = bridge->init_evaluation_run();
+        std::vector<GameTrace> traces;
+        traces.reserve(trace_n);
+
+        for (int idx : indices) {
+            GameTrace gt;
+            gt.board_index = idx;
+            for (int c = 0; c < N_CELLS; ++c) gt.initial_board[c] = "?";
+
+            auto [score, _red] = run_oq_game(boards[idx], *bridge, eval_run_state, &gt);
+            gt.score = score;
+            traces.push_back(std::move(gt));
+        }
+
+        print_trace_json(traces);
+        return 0;
+    }
+
+    // ------------------------------------------------------------------
+    // NORMAL EVALUATION MODE
+    // ------------------------------------------------------------------
     printf("Strategy loaded. Running %zu boards (threads=%d) ...\n", boards.size(), n_threads);
     fflush(stdout);
 
