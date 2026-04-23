@@ -18,9 +18,11 @@
  *   5×5 grid, 25 cells start covered.  Blue click budget: 4.
  *   Ships: teal(4), green(3), yellow(3), orange(2), var_rare_k(2) × n_var_rare.
  *   Clicking a ship cell is FREE (does not cost a blue click).
- *   Extra Chance: if blues_used < 4 and ships_hit < 5 after the 4th blue,
- *     the game continues; each additional blue while ships_hit < 5 extends it.
- *     After ships_hit ≥ 5, the next blue ends the game.
+ *   Extra Chance: the 4th blue click (blues_used == 3 before the click) does NOT
+ *     increment blues_used if ships_hit < 5 at the time — the game continues and
+ *     subsequent blue clicks are similarly free while ships_hit < 5.  Once
+ *     ships_hit >= 5, the next blue click increments blues_used to 4 and ends
+ *     the game immediately.  Ship clicks are always free and never end the game.
  *
  * Ship SP values: spT=20 spG=35 spY=55 spO=90 spL=76 spD=104 spR=150 spW=500
  * Blue (spB) = 10 SP (awarded on click, does not count as a ship hit).
@@ -178,9 +180,11 @@ static std::vector<std::string> ot_board_colors_assigned(
 // Extra Chance logic
 // ---------------------------------------------------------------------------
 
-// Returns true if game should end after this blue click.
-// Game ends when: blues_used >= 4 AND ships_hit >= 5.
-// Extra Chance keeps the game alive if blues_used >= 4 but ships_hit < 5.
+// Returns true if a blue click should end the game.
+// Called after incrementing blues_used (i.e. blues_used is the new value).
+// The 4th blue click (blues_used == 4) ends the game only when ships_hit >= 5.
+// Blue clicks that would be the 4th while ships_hit < 5 are Extra Chance — they
+// must NOT increment blues_used and must NOT call this function.
 static bool ot_game_over(int blues_used, int ships_hit) {
     return blues_used >= OT_BASE_CLICKS && ships_hit >= 5;
 }
@@ -275,9 +279,6 @@ static OTGameResult run_ot_game(
     int  move_num = 0;
 
     while (true) {
-        // Check game over condition
-        if (ot_game_over(blues_used, ships_hit)) break;
-
         int ships_before = ships_hit;
         int blues_before = blues_used;
 
@@ -293,10 +294,12 @@ static OTGameResult run_ot_game(
 
         int idx = rc_to_idx(c.row, c.col);
         if (idx < 0 || idx >= N_CELLS || game_board[idx].clicked) {
-            // Invalid click — count as blue (worst case)
-            ++blues_used;
+            // Invalid click — count as blue (worst case), applying Extra Chance rules.
+            if (!(blues_used == 3 && ships_hit < 5)) {
+                ++blues_used;
+                if (ot_game_over(blues_used, ships_hit)) break;
+            }
             ++total_clicks;
-            if (ot_game_over(blues_used, ships_hit)) break;
             continue;
         }
         ++total_clicks;
@@ -335,22 +338,29 @@ static OTGameResult run_ot_game(
                           : 0.0;
             last_blue_was_5050 = (p_blue > 0.25 && p_blue < 0.75);
 
-            ++blues_used;
-            if (ot_game_over(blues_used, ships_hit)) {
-                if (trace) {
-                    MoveRecord mr;
-                    mr.move_num          = move_num;
-                    mr.row               = c.row;
-                    mr.col               = c.col;
-                    mr.color             = color;
-                    mr.sp_delta          = OT_BLUE_VALUE;
-                    mr.running_score     = score;
-                    mr.ships_hit_before  = ships_before;
-                    mr.blues_used_before = blues_before;
-                    mr.is_free           = false;
-                    trace->moves.push_back(mr);
+            // Extra Chance: if this would be the 4th blue click (blues_used == 3)
+            // and ships_hit < 5, the click is free — do not increment blues_used.
+            // Otherwise increment and check for game over.
+            if (blues_used == 3 && ships_hit < 5) {
+                // Free blue under Extra Chance — blues_used stays at 3.
+            } else {
+                ++blues_used;
+                if (ot_game_over(blues_used, ships_hit)) {
+                    if (trace) {
+                        MoveRecord mr;
+                        mr.move_num          = move_num;
+                        mr.row               = c.row;
+                        mr.col               = c.col;
+                        mr.color             = color;
+                        mr.sp_delta          = OT_BLUE_VALUE;
+                        mr.running_score     = score;
+                        mr.ships_hit_before  = ships_before;
+                        mr.blues_used_before = blues_before;
+                        mr.is_free           = false;
+                        trace->moves.push_back(mr);
+                    }
+                    break;
                 }
-                break;
             }
         }
 
