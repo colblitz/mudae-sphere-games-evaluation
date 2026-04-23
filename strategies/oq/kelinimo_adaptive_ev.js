@@ -259,6 +259,15 @@ class KelimoAdaptiveEVOQStrategy extends OQStrategy {
    * the harness JSON pipe.
    */
   nextClick(board, meta, gameState) {
+    // Priority: if a red cell is revealed but unclicked, click it immediately.
+    // After 3 purples are clicked the 4th is auto-revealed as spR (clicked=false);
+    // it costs 1 click but is worth 150 SP and should never be skipped.
+    for (const cell of board) {
+      if (!cell.clicked && cell.color === "spR") {
+        return { row: cell.row, col: cell.col, gameState };
+      }
+    }
+
     const clickedSet = new Set(board.filter(c => c.clicked).map(c => c.row * 5 + c.col));
 
     // Build known observations from clicked cells
