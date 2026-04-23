@@ -13,6 +13,15 @@
       "n_boards": 16800
     },
     {
+      "filename": "svessinn_solver.js",
+      "commit": "2c8558c",
+      "date": "2026-04-23",
+      "ev": 315.1411,
+      "stdev": 67.8421,
+      "red_rate": 0.9814,
+      "n_boards": 16800
+    },
+    {
       "filename": "global_state.cpp",
       "commit": "312108f",
       "date": "2026-04-21",
