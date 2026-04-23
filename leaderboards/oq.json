@@ -4,6 +4,15 @@
   "updated": "2026-04-23",
   "top5": [
     {
+      "filename": "zavex_book_heuristic.js",
+      "commit": "fc38394",
+      "date": "2026-04-23",
+      "ev": 350.8617,
+      "stdev": 44.0388,
+      "red_rate": 0.9896,
+      "n_boards": 12650
+    },
+    {
       "filename": "kelinimo_adaptive_ev.js",
       "commit": "6d763f1",
       "date": "2026-04-23",

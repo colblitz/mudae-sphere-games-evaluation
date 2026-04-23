@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-04-23T17:11:18",
+  "commit": "fc38394",
+  "filename": "zavex_book_heuristic.js",
+  "game": "oq",
+  "strategy": "/home/colblitz/mudae-sphere-games-evaluation/strategies/oq/zavex_book_heuristic.js",
+  "n_boards": 12650,
+  "ev": 350.8617,
+  "stdev": 44.0388,
+  "red_rate": 0.9896
+}
