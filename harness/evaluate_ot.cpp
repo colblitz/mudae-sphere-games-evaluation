@@ -441,8 +441,6 @@ static OTVariantResult evaluate_variant(
     int                         n_threads)
 {
     uint64_t total = boards.size();
-    printf("  n_colors=%d: %llu boards\n", n_colors, (unsigned long long)total);
-    fflush(stdout);
 
     // Precompute all rare-color assignments for this variant's n_var_rare.
     // Each board will be evaluated once per assignment; per-board weighted EV
@@ -458,6 +456,10 @@ static OTVariantResult evaluate_variant(
         assignments.push_back(trivial);
     }
 
+    printf("  n_colors=%d: %llu boards  (assignments_per_board=%zu, threads=%d)\n",
+           n_colors, (unsigned long long)total, assignments.size(), n_threads);
+    fflush(stdout);
+
     // Per-thread accumulators
     std::vector<Welford>  ev_acc(n_threads);
     std::vector<Welford>  clicks_acc(n_threads);
@@ -468,7 +470,7 @@ static OTVariantResult evaluate_variant(
     std::vector<double>   loss_5050_acc(n_threads, 0.0);
 
     std::atomic<uint64_t> done_count(0);
-    ProgressReporter prog(total, std::max<uint64_t>(total / 20, 50000));
+    ProgressReporter prog(total, 2000);
 
     // Each thread gets its own strategy instance
     std::vector<std::unique_ptr<StrategyBridge>> bridges(n_threads);
@@ -737,6 +739,8 @@ int main(int argc, char* argv[]) {
     double   total_boards_weighted = 0.0;
     double   weighted_ev           = 0.0;
 
+    auto run_start = std::chrono::steady_clock::now();
+
     for (int nc : variants) {
         int n_rare = nc - 4;
         std::string board_path = boards_dir + "/ot_boards_" + std::to_string(n_rare) + ".bin.lzma";
@@ -756,6 +760,14 @@ int main(int argc, char* argv[]) {
 
         weighted_ev           += vr.ev * static_cast<double>(vr.n_boards);
         total_boards_weighted += static_cast<double>(vr.n_boards);
+    }
+
+    {
+        auto run_end  = std::chrono::steady_clock::now();
+        double run_secs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              run_end - run_start).count() / 1000.0;
+        printf("  [done] total elapsed=%.1fs\n", run_secs);
+        fflush(stdout);
     }
 
     // Re-acquire the GIL on the main thread

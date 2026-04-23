@@ -99,7 +99,7 @@ struct OCBoard {
 };
 
 static constexpr uint8_t OC_COLOR_COUNT = 6;
-static const char* OC_COLOR_NAMES[OC_COLOR_COUNT] = {
+static constexpr const char* OC_COLOR_NAMES[OC_COLOR_COUNT] = {
     "spR", "spO", "spY", "spG", "spT", "spB"
 };
 static constexpr int OC_COLOR_VALUES[OC_COLOR_COUNT] = { 150, 90, 55, 35, 20, 10 };
