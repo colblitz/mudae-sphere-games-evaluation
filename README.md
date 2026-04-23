@@ -177,6 +177,9 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 |------|----------|--------|--------|------|
 | 1 | `random_clicks.cpp` | 688.37 | `9cf69e2` | 2026-04-21 |
 
+<details>
+<summary>Per-color variant breakdown</summary>
+
 **6-color variant**
 
 | Rank | Strategy | EV | Stdev | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Commit | Date |
@@ -200,6 +203,8 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | Rank | Strategy | EV | Stdev | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Commit | Date |
 |------|----------|----|-------|----------|------------|-------------|------------|--------|------|
 | 1 | `random_clicks.cpp` | 1069.13 | 463.78 | 0.1% | 20.9% | 9.9% | 13.86 | `9cf69e2` | 2026-04-21 |
+
+</details>
 
 <!-- LEADERBOARD_END -->
 

@@ -352,13 +352,14 @@ def render_ot_tables(lb: dict[str, Any]) -> str:
         )
     sections.append("\n".join(agg_lines))
 
-    # Per variant
+    # Per variant (collapsible)
+    variant_parts = []
     for nc in [6, 7, 8, 9]:
         key = str(nc)
         vdata = lb.get("by_variant", {}).get(key, {})
         top5 = vdata.get("top5", [])
-        sections.append(f"\n**{nc}-color variant**\n")
         v_lines = [
+            f"**{nc}-color variant**\n",
             "| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |",
             "|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|",
         ]
@@ -372,7 +373,14 @@ def render_ot_tables(lb: dict[str, Any]) -> str:
                 f"| {_fmt_f(e.get('stdev_ship_clicks','—'))} "
                 f"| `{e.get('commit','?')}` | {e.get('date','?')} |"
             )
-        sections.append("\n".join(v_lines))
+        variant_parts.append("\n".join(v_lines))
+
+    variants_block = "\n\n".join(variant_parts)
+    sections.append(
+        f"\n<details>\n<summary>Per-color variant breakdown</summary>\n\n"
+        f"{variants_block}\n\n"
+        f"</details>"
+    )
 
     return "\n".join(sections)
 
