@@ -399,7 +399,14 @@ int main(int argc, char* argv[]) {
 #else
         int tid = 0;
 #endif
-        auto [score, red_found] = run_oq_game(boards[i], *bridges[tid], evaluation_run_states[tid]);
+        double score = 0.0; bool red_found = false;
+        try {
+            auto [s, r] = run_oq_game(boards[i], *bridges[tid], evaluation_run_states[tid]);
+            score = s; red_found = r;
+        } catch (const std::exception& e) {
+            fprintf(stderr, "\nERROR on board %lld: %s\n", (long long)i, e.what());
+            exit(1);
+        }
         ev_acc[tid].update(score);
         if (red_found) ++red_count[tid];
 

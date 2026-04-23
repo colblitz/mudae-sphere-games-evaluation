@@ -666,7 +666,14 @@ int main(int argc, char* argv[]) {
         OHBoard board = make_oh_board(appearance_dist, rng);
         // game_seed is forwarded into run_oh_game → init_game_payload meta so strategies can
         // seed their own RNG deterministically, producing identical results across runs.
-        OHGameResult result = run_oh_game(board, dark_dist, *bridges[tid], evaluation_run_states[tid], rng, game_seed);
+        OHGameResult result{};
+        try {
+            result = run_oh_game(board, dark_dist, *bridges[tid], evaluation_run_states[tid], rng, game_seed);
+        } catch (const std::exception& e) {
+            fprintf(stderr, "\nERROR on game %lld (seed=%llu): %s\n",
+                    (long long)g, (unsigned long long)game_seed, e.what());
+            exit(1);
+        }
         if (result.clicked_chest) ++chest_clicked_count[tid];
         ev_acc[tid].update(result.score);
 

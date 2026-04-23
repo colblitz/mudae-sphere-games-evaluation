@@ -503,8 +503,15 @@ static OTVariantResult evaluate_variant(
 
         for (const auto& assign : assignments) {
             auto colors = ot_board_colors_assigned(boards[i], assign);
-            auto res    = run_ot_game(boards[i], colors, n_colors,
-                                      *bridges[tid], evaluation_run_states[tid]);
+            OTGameResult res{};
+            try {
+                res = run_ot_game(boards[i], colors, n_colors,
+                                  *bridges[tid], evaluation_run_states[tid]);
+            } catch (const std::exception& e) {
+                fprintf(stderr, "\nERROR on board %lld (n_colors=%d): %s\n",
+                        (long long)i, n_colors, e.what());
+                exit(1);
+            }
             board_ev          += assign.weight * res.score;
             board_clicks      += assign.weight * static_cast<double>(res.total_clicks);
             board_ship_clicks += assign.weight * static_cast<double>(res.ship_clicks);

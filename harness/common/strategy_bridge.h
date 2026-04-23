@@ -40,6 +40,9 @@
 #include <dlfcn.h>
 
 // pipe / fork / waitpid for JS strategies
+#include <cerrno>
+#include <csignal>
+#include <ctime>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -218,7 +221,7 @@ public:
         if (!ret) {
             PyErr_Print();
             PyGILState_Release(gstate);
-            return {0, 0};
+            throw std::runtime_error("PythonBridge: next_click raised an exception (traceback above)");
         }
         Click c = py_to_click(ret);
         // Extract updated game_state_json from ret[2] into the base class field
@@ -425,6 +428,13 @@ private:
 class JsBridge : public StrategyBridge {
 public:
     explicit JsBridge(const std::string& path) {
+        // Verify node is on PATH before forking
+        if (system("node --version >/dev/null 2>&1") != 0) {
+            throw std::runtime_error(
+                "JsBridge: 'node' not found on PATH. "
+                "Install Node.js (e.g. 'sudo apt install nodejs' or via https://nodejs.org).");
+        }
+
         // Pipe setup: parent writes to child stdin, reads from child stdout
         int to_child[2], from_child[2];
         if (pipe(to_child) || pipe(from_child)) {
@@ -439,7 +449,7 @@ public:
             close(to_child[0]); close(to_child[1]);
             close(from_child[0]); close(from_child[1]);
             execlp("node", "node", path.c_str(), nullptr);
-            _exit(1);
+            _exit(127);  // exec failed
         }
         // Parent
         close(to_child[0]);
@@ -470,6 +480,7 @@ public:
                         + ",\"evaluationRunState\":" + evaluation_run_state_json + "}\n";
         write_line(msg);
         std::string resp = read_line();
+        check_error_field(resp, "init_game_payload");
         return extract_json_field(resp, "value");
     }
 
@@ -482,6 +493,7 @@ public:
                         + ",\"gameState\":" + game_state_json + "}\n";
         write_line(msg);
         std::string resp = read_line();
+        check_error_field(resp, "next_click");
         Click c{0, 0};
         const char* p = strstr(resp.c_str(), "\"row\":");
         if (p) c.row = static_cast<int8_t>(atoi(p + 6));
@@ -498,12 +510,41 @@ private:
     int   read_fd_  = -1;
     FILE* read_fp_  = nullptr;
 
+    // Returns a human-readable description of how the Node child exited.
+    // Uses WNOHANG so it never blocks; returns empty string if still running.
+    std::string node_exit_description() {
+        if (pid_ <= 0) return "";
+        int status = 0;
+        pid_t r = waitpid(pid_, &status, WNOHANG);
+        if (r <= 0) return "(Node process still running or unknown state)";
+        pid_ = -1;  // prevent double-wait in destructor
+        if (WIFEXITED(status)) {
+            int code = WEXITSTATUS(status);
+            if (code == 127) return "Node process failed to exec (exit 127 — 'node' binary not found?)";
+            return "Node process exited with code " + std::to_string(code);
+        }
+        if (WIFSIGNALED(status)) {
+            int sig = WTERMSIG(status);
+            const char* name = strsignal(sig);
+            return std::string("Node process killed by signal ")
+                 + std::to_string(sig)
+                 + " (" + (name ? name : "unknown") + ")";
+        }
+        return "Node process exited with unknown status";
+    }
+
     void write_line(const std::string& s) {
         const char* p = s.c_str();
         size_t rem    = s.size();
         while (rem > 0) {
             ssize_t n = write(write_fd_, p, rem);
-            if (n <= 0) throw std::runtime_error("JsBridge: write failed");
+            if (n <= 0) {
+                std::string why = node_exit_description();
+                throw std::runtime_error(
+                    std::string("JsBridge: write to Node stdin failed: ")
+                    + strerror(errno)
+                    + (why.empty() ? "" : ". " + why));
+            }
             p   += n;
             rem -= static_cast<size_t>(n);
         }
@@ -518,7 +559,29 @@ private:
         }
         // Strip trailing carriage return if present
         if (!result.empty() && result.back() == '\r') result.pop_back();
-        return result.empty() ? "{}" : result;
+        if (c == EOF) {
+            // Node process closed its stdout — it crashed or exited unexpectedly.
+            std::string why = node_exit_description();
+            throw std::runtime_error(
+                "JsBridge: Node process closed stdout unexpectedly"
+                + (why.empty() ? "" : ". " + why)
+                + ". Check that register() is called at the bottom of the strategy "
+                  "file and that the strategy does not throw during initialisation. "
+                  "Node stderr (if any) appears above.");
+        }
+        return result;
+    }
+
+    // Inspect the response JSON for an "error" field and throw if present.
+    static void check_error_field(const std::string& resp, const char* method) {
+        std::string err = extract_json_field(resp, "error");
+        if (err == "null" || err.empty()) return;
+        // Strip surrounding quotes from string value if present
+        std::string msg = err;
+        if (msg.size() >= 2 && msg.front() == '"' && msg.back() == '"')
+            msg = msg.substr(1, msg.size() - 2);
+        throw std::runtime_error(
+            std::string("JsBridge: strategy error in ") + method + "(): " + msg);
     }
 
     // Extract the value of a top-level JSON field by key.
