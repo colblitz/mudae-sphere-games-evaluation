@@ -514,6 +514,9 @@ def render_trace(game: str, traces: list[dict[str, Any]]) -> None:
         else:
             print("\nMoves:")
             clicked: set[tuple[int, int]] = set()
+            # Build a revealed board: start from initial, overlay actual colors
+            # from moves so clicked cells show their real color rather than "?"
+            revealed_board: list[str] = list(initial_board)
             for m in moves:
                 mn    = m.get("move_num", "?")
                 row   = m.get("row", 0)
@@ -532,10 +535,11 @@ def render_trace(game: str, traces: list[dict[str, Any]]) -> None:
                       f"{delta_sign}{delta:.0f} SP  [total {total_score:.0f}]"
                       f"  {meta_s}{free_tag}")
                 clicked.add((row, col))
+                revealed_board[row * 5 + col] = color
 
-            # Final board state (initial board with clicked cells lower-cased)
+            # Final board: actual revealed colors, clicked cells in lowercase
             print("\nFinal board (clicked cells in lowercase):")
-            print(_render_board(initial_board, clicked))
+            print(_render_board(revealed_board, clicked))
 
     print(f"\n{'='*60}\n")
 
