@@ -26,6 +26,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cassert>
 #include <cmath>
@@ -86,7 +87,15 @@ static std::pair<double, bool> run_oc_game(
     std::string&    game_state_json,
     GameTrace*      trace = nullptr)
 {
-    std::vector<Cell> revealed;
+    // Full 25-cell board; all start as (color="spU", clicked=false)
+    std::array<Cell, N_CELLS> game_board;
+    for (int i = 0; i < N_CELLS; ++i) {
+        game_board[i].row     = static_cast<int8_t>(idx_to_row(i));
+        game_board[i].col     = static_cast<int8_t>(idx_to_col(i));
+        game_board[i].color   = "spU";
+        game_board[i].clicked = false;
+    }
+
     double score      = 0.0;
     bool   red_found  = false;
     int    clicks_left = 5;
@@ -95,34 +104,31 @@ static std::pair<double, bool> run_oc_game(
     std::string meta = "{\"clicks_left\":5,\"max_clicks\":5}";
     game_state_json = strategy.init_game_payload(meta, game_state_json);
 
-    bool clicked[N_CELLS] = {};
-    int  move_num = 0;
+    int move_num = 0;
 
     while (clicks_left > 0) {
-        // Build current meta
         meta = "{\"clicks_left\":" + std::to_string(clicks_left) + ",\"max_clicks\":5}";
         int clicks_before = clicks_left;
 
-        Click c = strategy.next_click(revealed, meta, game_state_json);
+        std::vector<Cell> board_vec(game_board.begin(), game_board.end());
+        Click c = strategy.next_click(board_vec, meta, game_state_json);
         // Thread the updated game state back for the next call.
         // All bridge types (Python, C++, JS) store it in last_game_state().
         game_state_json = strategy.last_game_state();
 
         int idx = rc_to_idx(c.row, c.col);
-        if (idx < 0 || idx >= N_CELLS || clicked[idx]) {
+        if (idx < 0 || idx >= N_CELLS || game_board[idx].clicked) {
             // Invalid or repeated click — skip (don't penalise, just waste a click)
             --clicks_left;
             continue;
         }
-        clicked[idx] = true;
 
         uint8_t color_int = board.cells[idx];
         const char* color = OC_COLOR_NAMES[color_int];
         int value         = OC_COLOR_VALUES[color_int];
 
-        revealed.push_back({static_cast<int8_t>(c.row),
-                             static_cast<int8_t>(c.col),
-                             color});
+        game_board[idx].color   = color;
+        game_board[idx].clicked = true;
         score += value;
         if (color_int == 0) red_found = true;  // spR
         --clicks_left;

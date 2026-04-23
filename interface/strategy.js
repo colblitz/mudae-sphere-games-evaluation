@@ -14,32 +14,40 @@
  *   const { OCStrategy, register } = require("../../interface/strategy.js");
  *
  *   class MyOCStrategy extends OCStrategy {
- *     nextClick(revealed, meta, state) {
- *       // Pick a random unrevealed cell
- *       const clicked = new Set(revealed.map(c => c.row * 5 + c.col));
+ *     nextClick(board, meta, state) {
+ *       // Pick a random unclicked cell
+ *       const clicked = new Set(board.filter(c => c.clicked).map(c => c.row * 5 + c.col));
  *       const unclicked = [];
  *       for (let r = 0; r < 5; r++)
  *         for (let c = 0; c < 5; c++)
  *           if (!clicked.has(r * 5 + c)) unclicked.push([r, c]);
  *       const [row, col] = unclicked[Math.floor(Math.random() * unclicked.length)];
- *       return { row, col, state };
+ *       return { row, col, gameState: state };
  *     }
  *   }
  *
  *   register(new MyOCStrategy());
  *
- * Revealed cell format
- * --------------------
- * `revealed` is an array of objects, one per cell revealed so far:
- *   [{ row: number, col: number, color: string }, ...]
- * Row and col are 0-indexed (0..4).  The array grows monotonically.
+ * Board cell format
+ * -----------------
+ * `board` is always an array of exactly 25 objects, one per cell on the 5×5 grid:
+ *   [{ row: number, col: number, color: string, clicked: boolean }, ...]
+ * Row and col are 0-indexed (0..4).  color="spU" means covered/unknown.
+ * clicked=false means the cell is still interactable.
+ *
+ * Cell state combinations:
+ *   color="spU",  clicked=false → normal uninteracted covered cell
+ *   color="spU",  clicked=true  → oh chest cell (remains visually covered)
+ *   color=<real>, clicked=false → passively revealed (oh blue/teal, or oq spR auto-reveal)
+ *   color=<real>, clicked=true  → normally clicked and disabled
  *
  * Return value of nextClick
  * -------------------------
- * Return an object: { row, col, state }
- *   row, col  — 0-indexed coordinates of the cell to click.
- *   state     — any JSON-serializable value; passed back on the next call.
- *               Use null if stateless.
+ * Return an object: { row, col, gameState }
+ *   row, col   — 0-indexed coordinates of the cell to click.
+ *   gameState  — any JSON-serializable value; passed back on the next call.
+ *                Use null if stateless.
+ * Do NOT return a cell where board[row*5+col].clicked is true.
  *
  * For the full color reference and game rules see interface/strategy.py.
  */
@@ -86,14 +94,16 @@ class StrategyBase {
   /**
    * Choose the next cell to click.
    *
-   * @param {Array<{row: number, col: number, color: string}>} revealed
-   *   All cells revealed so far.
+   * @param {Array<{row: number, col: number, color: string, clicked: boolean}>} board
+   *   All 25 board cells.  color="spU" means covered/unknown.
+   *   clicked=false means the cell is still interactable.
    * @param {Object} meta       Game-specific metadata (see subclass docs).
    * @param {*}      gameState  Value returned by the previous nextClick (or
    *                            initGamePayload for the first call of the game).
    * @returns {{ row: number, col: number, gameState: * }}
+   *   Do not return a cell where board[row*5+col].clicked is true.
    */
-  nextClick(revealed, meta, gameState) {  // eslint-disable-line no-unused-vars
+  nextClick(board, meta, gameState) {  // eslint-disable-line no-unused-vars
     throw new Error("nextClick() must be implemented");
   }
 }
@@ -135,6 +145,10 @@ class OCStrategy extends StrategyBase {}
  *   purples_found  number  purple cells clicked so far.
  *
  * Colors: spP spB spT spG spY spO spR
+ *
+ * After 3 purples are clicked the 4th purple is auto-revealed as spR
+ * (color="spR", clicked=false) in the board on the next call.  Click it —
+ * it costs 1 click but is worth 150 SP.
  */
 class OQStrategy extends StrategyBase {}
 
@@ -272,7 +286,7 @@ function register(instance) {
       } else if (msg.method === "init_game_payload") {
         result = { value: _strategy.initGamePayload(msg.meta, msg.evaluationRunState) };
       } else if (msg.method === "next_click") {
-        const { row, col, gameState } = _strategy.nextClick(msg.revealed, msg.meta, msg.gameState);
+        const { row, col, gameState } = _strategy.nextClick(msg.board, msg.meta, msg.gameState);
         result = { row, col, gameState };
       } else {
         result = { error: "unknown_method" };

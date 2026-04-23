@@ -12,7 +12,7 @@
  *   cell colors via neighbor-count rules:
  *     spB=0 spT=1 spG=2 spY=3 spO=4 purple neighbors
  *   Clicking a purple is FREE (does not cost a click).
- *   Click 3 purples → 4th converts to red (spR, 150 SP) — also a free click.
+ *   Click 3 purples → 4th converts to red (spR, 150 SP) — costs 1 click.
  *   The strategy sees spR in revealed and decides when to click it.
  *
  * Output: JSON to stdout on completion.
@@ -31,6 +31,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cstdint>
 #include <random>
 #include <string>
 #include <vector>
@@ -143,12 +144,19 @@ static std::pair<double, bool> run_oq_game(
     std::string&    game_state_json,
     GameTrace*      trace = nullptr)
 {
-    std::vector<Cell> revealed;
+    // Full 25-cell board; all start as (color="spU", clicked=false)
+    std::array<Cell, N_CELLS> game_board;
+    for (int i = 0; i < N_CELLS; ++i) {
+        game_board[i].row     = static_cast<int8_t>(idx_to_row(i));
+        game_board[i].col     = static_cast<int8_t>(idx_to_col(i));
+        game_board[i].color   = "spU";
+        game_board[i].clicked = false;
+    }
+
     double score      = 0.0;
     bool   red_found  = false;
     int    purples    = 0;
     int    clicks_left = MAX_CLICKS;
-    bool   clicked[N_CELLS] = {};
     int    move_num = 0;
 
     std::string meta = "{\"clicks_left\":" + std::to_string(clicks_left)
@@ -163,30 +171,45 @@ static std::pair<double, bool> run_oq_game(
              + ",\"max_clicks\":" + std::to_string(MAX_CLICKS)
              + ",\"purples_found\":" + std::to_string(purples) + "}";
 
-        Click c = strategy.next_click(revealed, meta, game_state_json);
+        std::vector<Cell> board_vec(game_board.begin(), game_board.end());
+        Click c = strategy.next_click(board_vec, meta, game_state_json);
         game_state_json = strategy.last_game_state();
 
         int idx = rc_to_idx(c.row, c.col);
-        if (idx < 0 || idx >= N_CELLS || clicked[idx]) {
+        if (idx < 0 || idx >= N_CELLS || game_board[idx].clicked) {
             --clicks_left;
             continue;
         }
-        clicked[idx] = true;
 
         // Pass purples already clicked so the 4th purple shows as spR
         const char* color = oq_cell_color(purple_mask, idx, purples);
         bool is_purple = ((purple_mask >> idx) & 1);
         int  value     = oq_cell_value(color);
 
-        revealed.push_back({static_cast<int8_t>(c.row),
-                             static_cast<int8_t>(c.col), color});
+        game_board[idx].color   = color;
+        game_board[idx].clicked = true;
         score += value;
         ++move_num;
 
         if (is_purple) {
-            if (purples == 3) red_found = true;  // this click was the red (4th purple)
+            if (purples == 3) {
+                red_found = true;  // this click was the red (4th purple)
+                --clicks_left;     // spR costs a click (unlike spP which is free)
+            }
             ++purples;
-            // Purple and red clicks are both free
+            // Only the first 3 purples (spP) are free; spR costs a click
+
+            // Auto-reveal spR: after the 3rd purple is clicked (purples now == 3),
+            // find the remaining unclicked purple in purple_mask and reveal it as spR
+            if (purples == 3) {
+                for (int bit = 0; bit < N_CELLS; ++bit) {
+                    if (((purple_mask >> bit) & 1) && !game_board[bit].clicked) {
+                        game_board[bit].color   = "spR";
+                        game_board[bit].clicked = false;  // visible but not spent
+                        break;
+                    }
+                }
+            }
         } else {
             --clicks_left;
         }

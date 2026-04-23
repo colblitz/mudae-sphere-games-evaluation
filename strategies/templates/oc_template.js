@@ -33,11 +33,12 @@
  *   spT   teal     20 SP
  *   spB   blue     10 SP
  *
- * REVEALED CELL FORMAT
- * --------------------
- * `revealed` is an array of objects, one per cell revealed so far:
- *   [{ row: number, col: number, color: string }, ...]
- * Row and col are 0-indexed (0..4).  Grows monotonically each call.
+ * BOARD CELL FORMAT
+ * -----------------
+ * `board` is always an array of exactly 25 objects, one per cell:
+ *   [{ row: number, col: number, color: string, clicked: boolean }, ...]
+ * Row and col are 0-indexed (0..4).  color="spU" = covered/unknown.
+ * clicked=false = still interactable; clicked=true = disabled.
  *
  * STATE PAYLOAD
  * -------------
@@ -45,7 +46,7 @@
  *
  *   initEvaluationRun()               → initialState (called once before all games)
  *   initGamePayload(meta, s0)           → s1           (called once per game)
- *   nextClick(revealed,meta,s1) → {row,col,gameState:s2}
+ *   nextClick(board,meta,s1) → {row,col,gameState:s2}
  *   ...
  *
  * Use initEvaluationRun() for data computed ONCE and shared across all games.
@@ -114,8 +115,8 @@ class MyOCStrategy extends OCStrategy {
   /**
    * Choose the next cell to click.
    *
-   * @param {Array<{row: number, col: number, color: string}>} revealed
-   *   All cells revealed so far this game (grows monotonically).
+   * @param {Array<{row: number, col: number, color: string, clicked: boolean}>} board
+   *   All 25 board cells.
    * @param {Object} meta
    *   { clicks_left: number, max_clicks: number }
    * @param {*} gameState
@@ -123,17 +124,14 @@ class MyOCStrategy extends OCStrategy {
    * @returns {{ row: number, col: number, gameState: * }}
    *
    * Tips:
-   *   - Each color reveal constrains where red can be.  For example, if a
-   *     cell reveals "spB" (blue, no relation to red), you know red is not at
-   *     any position whose orange/yellow/green/teal zones include that cell.
+   *   - Each clicked color constrains where red can be.
    *   - Once red is found, all remaining colors are fully determined —
-   *     greedily pick the highest-value unrevealed cell (orange first, etc.).
-   *   - Orange (90 SP) is always orthogonally adjacent to red; yellow (55 SP)
-   *     is always diagonally adjacent to red.
-   *   - Do not return a (row, col) already in revealed.
+   *     greedily pick the highest-value unclicked cell (orange first, etc.).
+   *   - Orange (90 SP) is always orthogonally adjacent to red.
+   *   - Do not return a (row, col) where board[row*5+col].clicked is true.
    */
-  nextClick(revealed, meta, gameState) {
-    const clicked = new Set(revealed.map(c => c.row * 5 + c.col));
+  nextClick(board, meta, gameState) {
+    const clicked = new Set(board.filter(c => c.clicked).map(c => c.row * 5 + c.col));
 
     // TODO: replace the random fallback with your click logic
     const unclicked = [];

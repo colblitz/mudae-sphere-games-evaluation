@@ -8,15 +8,21 @@ The harness calls ``init_evaluation_run`` once before all games begin, then
 ``init_game_payload`` once before each game, and then ``next_click`` on every
 click decision, threading the returned game state payload back in.
 
-Revealed cell format
---------------------
-``revealed`` is always a list of dicts, one per cell revealed so far::
+Board cell format
+-----------------
+``board`` is always a list of exactly 25 dicts, one per cell on the 5×5 grid::
 
-    [{"row": int, "col": int, "color": str}, ...]
+    [{"row": int, "col": int, "color": str, "clicked": bool}, ...]
 
 Row and col are 0-indexed (0..4).  Color is a Mudae emoji name, e.g.
-``"spR"``, ``"spT"``, ``"spB"``.  The list grows monotonically — every call
-includes all cells revealed since the start of the game, not just new ones.
+``"spR"``, ``"spT"``, ``"spB"``.  ``"spU"`` means the cell is covered/unknown.
+
+Cell state combinations:
+
+- ``color="spU",  clicked=False`` — normal uninteracted covered cell
+- ``color="spU",  clicked=True``  — oh chest cell (clicked, remains visually covered)
+- ``color=<real>, clicked=False`` — passively revealed (oh blue/teal reveal, or oq spR auto-reveal)
+- ``color=<real>, clicked=True``  — normally clicked and disabled
 
 Return value of next_click
 --------------------------
@@ -25,6 +31,8 @@ A 3-tuple ``(row, col, game_state)``:
 - ``row``, ``col``: 0-indexed coordinates of the cell to click next.
 - ``game_state``: any Python object; passed back in as ``game_state`` on the
   next call.  Use ``None`` if your strategy is stateless.
+
+Do NOT return a ``(row, col)`` where ``board[row*5+col]["clicked"]`` is ``True``.
 
 Color reference
 ---------------
@@ -85,15 +93,16 @@ class OHStrategy(ABC):
     """Strategy interface for /sphere harvest (oh).
 
     Game rules summary:
-    - 5×5 grid; 10 cells are revealed at the start of every game, 15 start
-      covered (spU).  The 10 initially revealed cells are already in
-      ``revealed`` on the first ``next_click`` call.
+    - 5×5 grid; 10 cells start with their real color visible (clicked=False);
+      15 cells start as (color="spU", clicked=False).
     - Click budget: 5 clicks.
     - Blue (spB) reveals 3 additional covered cells; teal (spT) reveals 1.
     - Purple (spP) clicks are FREE (do not cost a click).
     - Dark (spD) transforms into another color when clicked; if it transforms
       into purple the click is also refunded (free).
     - ~50% of boards have one "chest" covered cell worth ~345 SP on average.
+      After clicking the chest cell it shows color="spU", clicked=True
+      (its true identity remains hidden from the strategy).
     - Goal: maximise total SP collected across your 5 clicks.
 
     Game metadata keys:
@@ -141,15 +150,17 @@ class OHStrategy(ABC):
     @abstractmethod
     def next_click(
         self,
-        revealed: list[dict[str, Any]],
+        board: list[dict[str, Any]],
         meta: dict[str, Any],
         game_state: Any,
     ) -> tuple[int, int, Any]:
         """Choose the next cell to click.
 
         Args:
-            revealed: all cells revealed so far, each as
-                ``{"row": int, "col": int, "color": str}``.
+            board: all 25 board cells, each as
+                ``{"row": int, "col": int, "color": str, "clicked": bool}``.
+                color="spU" means covered/unknown.  clicked=False means
+                the cell is still interactable.
             meta: ``{"clicks_left": int, "max_clicks": int}``.
             game_state: value returned by the previous ``next_click`` call
                 (or ``init_game_payload`` for the first call of the game).
@@ -157,6 +168,7 @@ class OHStrategy(ABC):
         Returns:
             ``(row, col, game_state)`` — coordinates of the cell to click
             (0-indexed) and the updated game state to pass into the next call.
+            Do not return a cell where ``board[row*5+col]["clicked"]`` is True.
         """
         ...
 
@@ -206,19 +218,21 @@ class OCStrategy(ABC):
     @abstractmethod
     def next_click(
         self,
-        revealed: list[dict[str, Any]],
+        board: list[dict[str, Any]],
         meta: dict[str, Any],
         game_state: Any,
     ) -> tuple[int, int, Any]:
         """Choose the next cell to click.
 
         Args:
-            revealed: all cells revealed so far.
+            board: all 25 board cells, each as
+                ``{"row": int, "col": int, "color": str, "clicked": bool}``.
             meta: ``{"clicks_left": int, "max_clicks": int}``.
             game_state: value from the previous call (or init_game_payload).
 
         Returns:
             ``(row, col, game_state)``.
+            Do not return a cell where ``board[row*5+col]["clicked"]`` is True.
         """
         ...
 
@@ -232,15 +246,16 @@ class OQStrategy(ABC):
     """Strategy interface for /sphere quest (oq).
 
     Game rules summary:
-    - 5×5 grid; all 25 cells start covered.
+    - 5×5 grid; all 25 cells start as (color="spU", clicked=False).
     - Click budget: 7 non-purple clicks.
     - 4 purple spheres (spP) are hidden among the cells.
     - Clicking a purple is FREE (does not cost a click).
     - Non-purple cells reveal the count of purple neighbours (0–4) as a color:
         spB=0, spT=1, spG=2, spY=3, spO=4
-    - Goal: click 3 of the 4 purples → the 4th converts to red (spR, 150 SP).
-      Then spend remaining budget greedily on highest-value derivable tiles.
-    - Clicking red does NOT cost a click.
+    - Goal: click 3 of the 4 purples → the 4th is auto-revealed as spR
+      (color="spR", clicked=False) in the board on the next call.
+      Click it — it costs 1 click but is worth 150 SP.
+    - Clicking red DOES cost a click (unlike purple which is free).
 
     Game metadata keys:
         clicks_left (int): remaining non-purple click budget.
@@ -263,20 +278,24 @@ class OQStrategy(ABC):
     @abstractmethod
     def next_click(
         self,
-        revealed: list[dict[str, Any]],
+        board: list[dict[str, Any]],
         meta: dict[str, Any],
         game_state: Any,
     ) -> tuple[int, int, Any]:
         """Choose the next cell to click.
 
         Args:
-            revealed: all cells revealed so far.
+            board: all 25 board cells, each as
+                ``{"row": int, "col": int, "color": str, "clicked": bool}``.
+                After 3 purples are clicked, the 4th purple appears with
+                color="spR", clicked=False — click it (costs 1 click, worth 150 SP).
             meta: ``{"clicks_left": int, "max_clicks": int,
                       "purples_found": int}``.
             game_state: value from the previous call (or init_game_payload).
 
         Returns:
             ``(row, col, game_state)``.
+            Do not return a cell where ``board[row*5+col]["clicked"]`` is True.
         """
         ...
 
@@ -329,19 +348,21 @@ class OTStrategy(ABC):
     @abstractmethod
     def next_click(
         self,
-        revealed: list[dict[str, Any]],
+        board: list[dict[str, Any]],
         meta: dict[str, Any],
         game_state: Any,
     ) -> tuple[int, int, Any]:
         """Choose the next cell to click.
 
         Args:
-            revealed: all cells revealed so far.
+            board: all 25 board cells, each as
+                ``{"row": int, "col": int, "color": str, "clicked": bool}``.
             meta: ``{"n_colors": int, "ships_hit": int,
                       "blues_used": int, "max_clicks": int}``.
             game_state: value from the previous call (or init_game_payload).
 
         Returns:
             ``(row, col, game_state)``.
+            Do not return a cell where ``board[row*5+col]["clicked"]`` is True.
         """
         ...

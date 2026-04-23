@@ -50,6 +50,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cassert>
 #include <cstdio>
@@ -225,8 +226,15 @@ static OTGameResult run_ot_game(
     std::string&                game_state_json,
     GameTrace*                  trace = nullptr)
 {
-    bool clicked[N_CELLS] = {};
-    std::vector<Cell> revealed;
+    // Full 25-cell board; all start as (color="spU", clicked=false)
+    std::array<Cell, N_CELLS> game_board;
+    for (int i = 0; i < N_CELLS; ++i) {
+        game_board[i].row     = static_cast<int8_t>(idx_to_row(i));
+        game_board[i].col     = static_cast<int8_t>(idx_to_col(i));
+        game_board[i].color   = "spU";
+        game_board[i].clicked = false;
+    }
+
     double score      = 0.0;
     int    blues_used = 0;
     int    ships_hit  = 0;
@@ -278,18 +286,18 @@ static OTGameResult run_ot_game(
              + ",\"blues_used\":" + std::to_string(blues_used)
              + ",\"max_clicks\":" + std::to_string(OT_BASE_CLICKS) + "}";
 
-        Click c = strategy.next_click(revealed, meta, game_state_json);
+        std::vector<Cell> board_vec(game_board.begin(), game_board.end());
+        Click c = strategy.next_click(board_vec, meta, game_state_json);
         game_state_json = strategy.last_game_state();
 
         int idx = rc_to_idx(c.row, c.col);
-        if (idx < 0 || idx >= N_CELLS || clicked[idx]) {
+        if (idx < 0 || idx >= N_CELLS || game_board[idx].clicked) {
             // Invalid click — count as blue (worst case)
             ++blues_used;
             ++total_clicks;
             if (ot_game_over(blues_used, ships_hit)) break;
             continue;
         }
-        clicked[idx] = true;
         ++total_clicks;
         ++move_num;
 
@@ -297,8 +305,8 @@ static OTGameResult run_ot_game(
         bool is_ship = ot_is_ship(color);
         double delta = 0.0;
 
-        revealed.push_back({static_cast<int8_t>(c.row),
-                             static_cast<int8_t>(c.col), color});
+        game_board[idx].color   = color;
+        game_board[idx].clicked = true;
 
         if (is_ship) {
             delta = ot_ship_value(color);
@@ -314,7 +322,7 @@ static OTGameResult run_ot_game(
             // Estimate P(blue) for 50/50 detection: count remaining unclicked cells
             int unclicked_count = 0, unclicked_blue = 0;
             for (int i = 0; i < N_CELLS; ++i) {
-                if (!clicked[i]) {
+                if (!game_board[i].clicked) {
                     ++unclicked_count;
                     if (!ot_is_ship(colors[i])) ++unclicked_blue;
                 }

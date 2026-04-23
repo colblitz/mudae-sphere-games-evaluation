@@ -87,28 +87,28 @@ class LoadDataOHStrategy(OHStrategy):
 
     def next_click(
         self,
-        revealed: list[dict[str, Any]],
+        board: list[dict[str, Any]],
         meta: dict[str, Any],
         game_state: Any,
     ) -> tuple[int, int, Any]:
         color_values: dict[str, int] = game_state["color_values"]
         rng: random.Random = self._rng
 
-        clicked = {(c["row"], c["col"]) for c in revealed}
+        clicked = {(c["row"], c["col"]) for c in board if c["clicked"]}
 
         # Purples are free — click any visible purple immediately.
-        purples = [(c["row"], c["col"]) for c in revealed if c["color"] == "spP"]
+        purples = [(c["row"], c["col"]) for c in board if c["color"] == "spP" and not c["clicked"]]
         if purples:
             row, col = rng.choice(purples)
             return row, col, game_state
 
         # Among all revealed-but-unclicked cells, pick the highest-value one.
-        # (Revealed cells have a known color; covered cells do not.)
+        # (color != "spU" means the color is known; clicked=False means not spent yet.)
         candidates = [
             (color_values.get(c["color"], 0), c["row"], c["col"])
-            for c in revealed
-            if (c["row"], c["col"]) not in clicked
-            and c["color"] not in ("spB", "spT")  # skip info-only cells for now
+            for c in board
+            if not c["clicked"]
+            and c["color"] not in ("spU", "spB", "spT")  # skip unknown and info-only
         ]
         if candidates:
             best_value = max(v for v, _, _ in candidates)

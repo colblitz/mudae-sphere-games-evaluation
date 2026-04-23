@@ -22,13 +22,14 @@ static inline int idx_to_row(int idx)          { return idx / GRID_SIZE; }
 static inline int idx_to_col(int idx)          { return idx % GRID_SIZE; }
 
 // ---------------------------------------------------------------------------
-// Revealed cell
+// Board cell
 // ---------------------------------------------------------------------------
 
 struct Cell {
     int8_t      row;
     int8_t      col;
-    std::string color;  // Mudae emoji name
+    std::string color   = "spU";  // Mudae emoji name; "spU" = covered/unknown
+    bool        clicked = false;  // true = cell has been clicked (disabled)
 };
 
 // ---------------------------------------------------------------------------

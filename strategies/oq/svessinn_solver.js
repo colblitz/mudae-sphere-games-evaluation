@@ -36,7 +36,7 @@
  *
  * Important notes:
  *   - Purple (spP) clicks are FREE — the harness does not decrement clicks_left.
- *   - Red (spR) appears after 3 purples and is also free.
+ *   - Red (spR) appears after 3 purples and costs 1 click (worth 150 SP).
  *   - The revealed list from the harness includes ALL revealed cells (purples,
  *     reds, and numbered clues).  We must handle all of them when filtering.
  *   - We never return a cell that is already in revealed.

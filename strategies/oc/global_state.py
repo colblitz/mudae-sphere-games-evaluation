@@ -99,12 +99,12 @@ class GlobalStateOCStrategy(OCStrategy):
 
     def next_click(
         self,
-        revealed: list[dict[str, Any]],
+        board: list[dict[str, Any]],
         meta: dict[str, Any],
         game_state: Any,
     ) -> tuple[int, int, Any]:
-        """Pick the first cell in the precomputed order that isn't revealed yet."""
-        clicked = {(c["row"], c["col"]) for c in revealed}
+        """Pick the first cell in the precomputed order that isn't clicked yet."""
+        clicked = {(c["row"], c["col"]) for c in board if c["clicked"]}
         order: list[tuple[int, int]] = game_state["order"]
 
         for row, col in order:

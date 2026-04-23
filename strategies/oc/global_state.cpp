@@ -137,7 +137,7 @@ public:
     // init_game_payload() is intentionally omitted: the default returns game_state_json
     // unchanged, which is exactly what we want — no per-game reset needed.
 
-    void next_click(const std::vector<Cell>& revealed,
+    void next_click(const std::vector<Cell>& board,
                     const std::string& /*meta_json*/,
                     const std::string& game_state_json,
                     ClickResult& out) override
@@ -147,8 +147,8 @@ public:
         // variable parsed once from init_evaluation_run's return; kept simple here
         // to illustrate game_state_json usage clearly.
         bool clicked[25] = {};
-        for (const Cell& c : revealed)
-            clicked[c.row * 5 + c.col] = true;
+        for (const Cell& c : board)
+            if (c.clicked) clicked[c.row * 5 + c.col] = true;
 
         // Extract the "order" array from the state JSON
         auto pos = game_state_json.find("\"order\":");
@@ -191,26 +191,27 @@ extern "C" const char* strategy_init_game_payload(void*, const char*, const char
 }
 
 extern "C" const char* strategy_next_click(void* inst,
-                                            const char* revealed_json,
+                                            const char* board_json,
                                             const char* meta_json,
                                             const char* game_state_json)
 {
     thread_local static std::string buf;
     auto* s = static_cast<GlobalStateOCStrategy*>(inst);
 
-    std::vector<Cell> revealed;
-    const char* p = revealed_json;
+    std::vector<Cell> board;
+    const char* p = board_json;
     while ((p = strstr(p, "\"row\":")) != nullptr) {
         Cell c;
         c.row = atoi(p + 6);
         const char* cp = strstr(p, "\"col\":"); if (cp) c.col = atoi(cp + 6);
         const char* colp = strstr(p, "\"color\":\"");
         if (colp) { colp += 9; const char* e = strchr(colp, '"'); if (e) c.color = std::string(colp, e - colp); }
-        revealed.push_back(c); p += 6;
+        const char* clkp = strstr(p, "\"clicked\":"); if (clkp) { clkp += 10; while (*clkp==' ') ++clkp; c.clicked = (strncmp(clkp,"true",4)==0); }
+        board.push_back(c); p += 6;
     }
 
     ClickResult out;
-    s->next_click(revealed, meta_json ? meta_json : "{}", game_state_json ? game_state_json : "{}", out);
+    s->next_click(board, meta_json ? meta_json : "{}", game_state_json ? game_state_json : "{}", out);
     buf = "{\"row\":" + std::to_string(out.row) +
           ",\"col\":" + std::to_string(out.col) +
           ",\"state\":" + out.game_state_json + "}";

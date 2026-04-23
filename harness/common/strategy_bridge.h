@@ -19,7 +19,7 @@
  *   auto bridge = StrategyBridge::load("strategies/oc/my_strategy.py", "oc");
  *   bridge->init_evaluation_run();
  *   bridge->init_game_payload(meta_json);
- *   Click c = bridge->next_click(revealed, meta_json);
+ *   Click c = bridge->next_click(board, meta_json);
  */
 
 #pragma once
@@ -60,14 +60,22 @@ public:
     virtual std::string init_evaluation_run()                                                   = 0;
     virtual std::string init_game_payload(const std::string& meta_json,
                                           const std::string& evaluation_run_state_json)        = 0;
-    virtual Click       next_click(const std::vector<Cell>& revealed,
+    virtual Click       next_click(const std::vector<Cell>& board,
                                    const std::string&        meta_json,
                                    const std::string&        game_state_json)                  = 0;
+
+    // Returns the updated game state JSON from the most recent next_click call.
+    // Subclasses must set last_game_state_json_ before returning from next_click.
+    // Callers must thread this back in as game_state_json on the next call.
+    const std::string& last_game_state() const { return last_game_state_json_; }
 
     // Factory: detects language from extension and constructs the right bridge.
     // game_name is one of "oh", "oc", "oq", "ot" (used to find the ABC class).
     static std::unique_ptr<StrategyBridge> load(const std::string& path,
                                                 const std::string& game_name);
+
+protected:
+    std::string last_game_state_json_ = "null";
 };
 
 // ---------------------------------------------------------------------------
@@ -196,11 +204,11 @@ public:
         return s;
     }
 
-    Click next_click(const std::vector<Cell>& revealed,
+    Click next_click(const std::vector<Cell>& board,
                      const std::string&        meta_json,
                      const std::string&        game_state_json) override {
         PyGILState_STATE gstate = PyGILState_Ensure();
-        PyObject* rev        = cells_to_py(revealed);
+        PyObject* rev        = cells_to_py(board);
         PyObject* meta       = json_to_py(meta_json);
         PyObject* game_state = json_to_py(game_state_json);
         PyObject* ret        = PyObject_CallMethod(instance_, "next_click", "OOO", rev, meta, game_state);
@@ -213,32 +221,28 @@ public:
             return {0, 0};
         }
         Click c = py_to_click(ret);
-        // Extract updated game_state_json from ret[2]
+        // Extract updated game_state_json from ret[2] into the base class field
         PyObject* ns = PyTuple_GetItem(ret, 2);
         if (ns) {
-            last_game_state_ = py_to_json(ns);
+            last_game_state_json_ = py_to_json(ns);
         }
         Py_DECREF(ret);
         PyGILState_Release(gstate);
         return c;
     }
 
-    // The last game_state_json returned by next_click (callers should retrieve
-    // this after each call to thread it back in).
-    const std::string& last_game_state() const { return last_game_state_; }
-
 private:
-    PyObject*   instance_        = nullptr;
-    std::string last_game_state_ = "null";
+    PyObject* instance_ = nullptr;
 
-    // Convert std::vector<Cell> → Python list of dicts
+    // Convert std::vector<Cell> (full 25-cell board) → Python list of dicts
     static PyObject* cells_to_py(const std::vector<Cell>& cells) {
         PyObject* lst = PyList_New(static_cast<Py_ssize_t>(cells.size()));
         for (size_t i = 0; i < cells.size(); ++i) {
             PyObject* d = PyDict_New();
-            PyDict_SetItemString(d, "row",   PyLong_FromLong(cells[i].row));
-            PyDict_SetItemString(d, "col",   PyLong_FromLong(cells[i].col));
-            PyDict_SetItemString(d, "color", PyUnicode_FromString(cells[i].color.c_str()));
+            PyDict_SetItemString(d, "row",     PyLong_FromLong(cells[i].row));
+            PyDict_SetItemString(d, "col",     PyLong_FromLong(cells[i].col));
+            PyDict_SetItemString(d, "color",   PyUnicode_FromString(cells[i].color.c_str()));
+            PyDict_SetItemString(d, "clicked", PyBool_FromLong(cells[i].clicked ? 1 : 0));
             PyList_SET_ITEM(lst, static_cast<Py_ssize_t>(i), d);
         }
         return lst;
@@ -343,12 +347,14 @@ public:
         return r ? r : evaluation_run_state_json;
     }
 
-    Click next_click(const std::vector<Cell>& revealed,
+    Click next_click(const std::vector<Cell>& board,
                      const std::string&        meta_json,
                      const std::string&        game_state_json) override {
-        std::string rev_json = cells_to_json(revealed);
+        std::string rev_json = cells_to_json(board);
         const char* r = nc_fn_(instance_, rev_json.c_str(), meta_json.c_str(), game_state_json.c_str());
         if (!r) return {0, 0};
+        // Extract updated game_state_json from the JSON response
+        last_game_state_json_ = json_parse_state(r);
         return json_parse_click(r);
     }
 
@@ -367,7 +373,8 @@ private:
             if (i) s += ',';
             s += "{\"row\":" + std::to_string(cells[i].row)
                + ",\"col\":" + std::to_string(cells[i].col)
-               + ",\"color\":\"" + cells[i].color + "\"}";
+               + ",\"color\":\"" + cells[i].color + "\""
+               + ",\"clicked\":" + (cells[i].clicked ? "true" : "false") + "}";
         }
         s += "]";
         return s;
@@ -381,6 +388,33 @@ private:
         p = strstr(s, "\"col\":");
         if (p) c.col = static_cast<int8_t>(atoi(p + 6));
         return c;
+    }
+
+    // Extract the "game_state" field from a C++ strategy JSON response.
+    // The C++ interface returns {"row":N,"col":N,"game_state":"<json>"}.
+    static std::string json_parse_state(const char* s) {
+        const char* key = "\"game_state\":";
+        const char* p = strstr(s, key);
+        if (!p) return "null";
+        p += strlen(key);
+        while (*p == ' ') ++p;
+        if (!*p) return "null";
+        // Value is either a quoted string or a raw JSON value
+        if (*p == '"') {
+            // Unescape the inner JSON string
+            ++p;
+            std::string result;
+            while (*p && *p != '"') {
+                if (*p == '\\' && *(p+1)) { result += *(++p); }
+                else result += *p;
+                ++p;
+            }
+            return result;
+        }
+        // Raw value: take until end of object
+        const char* end = p + strlen(p) - 1;
+        while (end > p && (*end == '}' || *end == ' ' || *end == '\n')) --end;
+        return std::string(p, end - p + 1);
     }
 };
 
@@ -439,11 +473,11 @@ public:
         return extract_json_field(resp, "value");
     }
 
-    Click next_click(const std::vector<Cell>& revealed,
+    Click next_click(const std::vector<Cell>& board,
                      const std::string&        meta_json,
                      const std::string&        game_state_json) override {
-        std::string rev_json = cells_to_json(revealed);
-        std::string msg = "{\"method\":\"next_click\",\"revealed\":" + rev_json
+        std::string rev_json = cells_to_json(board);
+        std::string msg = "{\"method\":\"next_click\",\"board\":" + rev_json
                         + ",\"meta\":" + meta_json
                         + ",\"gameState\":" + game_state_json + "}\n";
         write_line(msg);
@@ -453,14 +487,16 @@ public:
         if (p) c.row = static_cast<int8_t>(atoi(p + 6));
         p = strstr(resp.c_str(), "\"col\":");
         if (p) c.col = static_cast<int8_t>(atoi(p + 6));
+        // Extract the updated gameState from the response into the base class field
+        last_game_state_json_ = extract_json_field(resp, "gameState");
         return c;
     }
 
 private:
-    pid_t  pid_      = -1;
-    int    write_fd_ = -1;
-    int    read_fd_  = -1;
-    FILE*  read_fp_  = nullptr;
+    pid_t pid_      = -1;
+    int   write_fd_ = -1;
+    int   read_fd_  = -1;
+    FILE* read_fp_  = nullptr;
 
     void write_line(const std::string& s) {
         const char* p = s.c_str();
@@ -474,27 +510,65 @@ private:
     }
 
     std::string read_line() {
-        char buf[65536];
-        if (!fgets(buf, sizeof(buf), read_fp_))
-            return "{}";
-        // Strip trailing newline
-        size_t len = strlen(buf);
-        while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r')) buf[--len] = '\0';
-        return std::string(buf);
+        std::string result;
+        result.reserve(4096);
+        int c;
+        while ((c = fgetc(read_fp_)) != EOF && c != '\n') {
+            result += static_cast<char>(c);
+        }
+        // Strip trailing carriage return if present
+        if (!result.empty() && result.back() == '\r') result.pop_back();
+        return result.empty() ? "{}" : result;
     }
 
+    // Extract the value of a top-level JSON field by key.
+    // Handles arbitrarily nested/large values by tracking bracket depth.
     static std::string extract_json_field(const std::string& json, const char* field) {
-        // Very minimal: find "field": <value> and extract the raw value
         std::string key = std::string("\"") + field + "\":";
         size_t pos = json.find(key);
         if (pos == std::string::npos) return "null";
         size_t start = pos + key.size();
         while (start < json.size() && json[start] == ' ') ++start;
         if (start >= json.size()) return "null";
-        // Return the rest up to the closing brace/bracket (shallow; sufficient for state)
-        size_t end = json.size() - 1;
-        while (end > start && (json[end] == '}' || json[end] == ' ')) --end;
-        return json.substr(start, end - start + 1);
+
+        char first = json[start];
+
+        // String value
+        if (first == '"') {
+            size_t end = start + 1;
+            while (end < json.size()) {
+                if (json[end] == '\\') { end += 2; continue; }
+                if (json[end] == '"') { ++end; break; }
+                ++end;
+            }
+            return json.substr(start, end - start);
+        }
+
+        // Object or array: scan for matching close bracket respecting depth
+        if (first == '{' || first == '[') {
+            char open = first, close = (first == '{') ? '}' : ']';
+            int depth = 0;
+            bool in_str = false;
+            size_t i = start;
+            for (; i < json.size(); ++i) {
+                char c = json[i];
+                if (in_str) {
+                    if (c == '\\') { ++i; continue; }
+                    if (c == '"')  in_str = false;
+                    continue;
+                }
+                if (c == '"')   { in_str = true; continue; }
+                if (c == open)  { ++depth; continue; }
+                if (c == close) { --depth; if (depth == 0) { ++i; break; } }
+            }
+            return json.substr(start, i - start);
+        }
+
+        // Primitive (number, bool, null): read until delimiter
+        size_t end = start;
+        while (end < json.size() && json[end] != ',' && json[end] != '}' && json[end] != ']')
+            ++end;
+        return json.substr(start, end - start);
     }
 
     static std::string cells_to_json(const std::vector<Cell>& cells) {
@@ -503,7 +577,8 @@ private:
             if (i) s += ',';
             s += "{\"row\":" + std::to_string(cells[i].row)
                + ",\"col\":" + std::to_string(cells[i].col)
-               + ",\"color\":\"" + cells[i].color + "\"}";
+               + ",\"color\":\"" + cells[i].color + "\""
+               + ",\"clicked\":" + (cells[i].clicked ? "true" : "false") + "}";
         }
         s += "]";
         return s;

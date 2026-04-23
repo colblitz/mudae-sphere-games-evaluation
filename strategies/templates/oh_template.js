@@ -34,12 +34,12 @@
  *   spD   dark    ~104 SP average, transforms on click
  *   spU   covered (unrevealed; directly clickable)
  *
- * REVEALED CELL FORMAT
- * --------------------
- * `revealed` is an array of objects, one per cell revealed so far
- * (monotonically growing — every call includes all cells since game start):
- *   [{ row: number, col: number, color: string }, ...]
- * Row and col are 0-indexed (0..4).
+ * BOARD CELL FORMAT
+ * -----------------
+ * `board` is always an array of exactly 25 objects, one per cell:
+ *   [{ row: number, col: number, color: string, clicked: boolean }, ...]
+ * Row and col are 0-indexed (0..4).  color="spU" = covered/unknown.
+ * clicked=false = still interactable; clicked=true = disabled.
  *
  * STATE PAYLOAD
  * -------------
@@ -47,7 +47,7 @@
  *
  *   initEvaluationRun()             → initialState   (called once before all games)
  *   initGamePayload(meta, s0)         → s1             (called once per game)
- *   nextClick(revealed,meta,s1) → {row,col,gameState:s2}
+ *   nextClick(board,meta,s1) → {row,col,gameState:s2}
  *   nextClick(revealed,meta,s2) → {row,col,gameState:s3}
  *   ...
  *
@@ -150,8 +150,9 @@ class MyOHStrategy extends OHStrategy {
   /**
    * Choose the next cell to click.
    *
-   * @param {Array<{row: number, col: number, color: string}>} revealed
-   *   All cells revealed so far this game (grows monotonically).
+   * @param {Array<{row: number, col: number, color: string, clicked: boolean}>} board
+   *   All 25 board cells.  color="spU" = covered/unknown.
+   *   clicked=false = still interactable.
    * @param {Object} meta
    *   { clicks_left: number, max_clicks: number, game_seed: number }
    * @param {*} gameState
@@ -159,21 +160,19 @@ class MyOHStrategy extends OHStrategy {
    *   call of the game).
    * @returns {{ row: number, col: number, gameState: * }}
    *   row, col    : 0-indexed coordinates of the cell to click.
-   *   gameState   : updated gameState for the next call.  Return `gameState`
-   *                 unchanged if nothing needs updating.
+   *   gameState   : updated gameState for the next call.
    *
    * Tips:
-   *   - Purple cells ("spP") are free — click them immediately if visible.
-   *   - Blue ("spB") and teal ("spT") reveal more cells, giving more info
-   *     before spending remaining clicks on value cells.
+   *   - Purple cells ("spP") with clicked=false are free — click them immediately.
+   *   - Blue ("spB") and teal ("spT") with clicked=false reveal more cells.
    *   - Dark ("spD") transforms on click; average value ~104 SP.
-   *   - Do not return a (row, col) already present in revealed.
+   *   - Do not return a (row, col) where board[row*5+col].clicked is true.
    */
-  nextClick(revealed, meta, gameState) {
-    const clicked = new Set(revealed.map(c => c.row * 5 + c.col));
+  nextClick(board, meta, gameState) {
+    const clicked = new Set(board.filter(c => c.clicked).map(c => c.row * 5 + c.col));
 
-    // Prefer any visible purple (free click)
-    const purples = revealed.filter(c => c.color === "spP");
+    // Prefer any visible unclicked purple (free click)
+    const purples = board.filter(c => c.color === "spP" && !c.clicked);
     if (purples.length > 0) {
       const pick = purples[0];
       return { row: pick.row, col: pick.col, gameState };

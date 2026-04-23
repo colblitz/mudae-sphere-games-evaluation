@@ -16,11 +16,22 @@
  * The harness compiles the strategy file as a shared library automatically;
  * you do not need to compile it yourself.
  *
- * Revealed cell format
- * --------------------
- * `revealed` is a vector of Cell structs, one per cell revealed so far.
- * Row and col are 0-indexed (0..4).  color is a Mudae emoji name such as
- * "spR", "spT", "spB".  The vector grows monotonically each call.
+ * Board cell format
+ * -----------------
+ * `board` is always a vector of exactly 25 Cell structs (all cells on the
+ * 5x5 grid).  Row and col are 0-indexed (0..4).
+ *
+ * Each cell carries:
+ *   color    — Mudae emoji name, e.g. "spR", "spT", "spB".
+ *              "spU" means the cell is covered/unknown.
+ *   clicked  — false = cell has NOT yet been clicked (still interactable).
+ *              true  = cell HAS been clicked (disabled, do not re-click).
+ *
+ * Cell state combinations:
+ *   color="spU",   clicked=false  → normal uninteracted covered cell
+ *   color="spU",   clicked=true   → oh chest cell (remains visually covered)
+ *   color=<real>,  clicked=false  → passively revealed (oh blue/teal, or oq spR auto-reveal)
+ *   color=<real>,  clicked=true   → normally clicked and disabled
  *
  * Return value of next_click
  * --------------------------
@@ -29,6 +40,8 @@
  *   out.game_state_json     — arbitrary JSON string; passed back as
  *                             game_state_json on the next call.
  *                             Use "{}" if stateless.
+ *
+ * Do NOT return a (row, col) where board[row*5+col].clicked is true.
  *
  * For the full color reference and game rules see interface/strategy.py.
  */
@@ -47,7 +60,8 @@ namespace sphere {
 struct Cell {
     int         row;
     int         col;
-    std::string color;  // Mudae emoji name, e.g. "spR", "spT", "spB"
+    std::string color   = "spU";  // Mudae emoji name; "spU" = covered/unknown
+    bool        clicked = false;  // true = cell has been clicked (disabled)
 };
 
 struct ClickResult {
@@ -98,13 +112,15 @@ public:
     /**
      * Choose the next cell to click.
      *
-     * @param revealed        All cells revealed so far.
+     * @param board           All 25 board cells.  color="spU" means covered/unknown;
+     *                        clicked=false means still interactable.
      * @param meta_json       JSON object with game-specific metadata.
      * @param game_state_json Value returned by the previous next_click (or
      *                        init_game_payload for the first call of the game).
      * @param out             Filled in with (row, col, game_state_json).
+     *                        Do not return a cell where board[row*5+col].clicked is true.
      */
-    virtual void next_click(const std::vector<Cell>& revealed,
+    virtual void next_click(const std::vector<Cell>& board,
                             const std::string&        meta_json,
                             const std::string&        game_state_json,
                             ClickResult&              out) = 0;
@@ -115,9 +131,8 @@ public:
 // ---------------------------------------------------------------------------
 
 /**
- * Board setup: 10 cells are revealed at the start of every game; 15 start
- * covered (spU).  The 10 initially revealed cells are included in the
- * `revealed` vector on the first next_click call.
+ * Board setup: 10 cells start with their real color visible (clicked=false);
+ * 15 cells start as (color="spU", clicked=false).
  *
  * Game metadata JSON keys:
  *   "clicks_left"  int  remaining click budget (5 at start; decreases by 1
@@ -155,6 +170,10 @@ class OCStrategy : public StrategyBase {};
  *   "purples_found"  int  purple cells clicked so far.
  *
  * Colors: spP spB spT spG spY spO spR
+ *
+ * After 3 purples are clicked the 4th purple is auto-revealed as spR
+ * (color="spR", clicked=false) in the board on the next call.  Click it —
+ * it costs 1 click but is worth 150 SP.
  */
 class OQStrategy : public StrategyBase {};
 

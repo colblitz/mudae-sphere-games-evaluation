@@ -14,8 +14,8 @@
 const { OTStrategy, register } = require("../../interface/strategy.js");
 
 class RandomOTStrategy extends OTStrategy {
-  nextClick(revealed, meta, gameState) {
-    const clicked = new Set(revealed.map(c => c.row * 5 + c.col));
+  nextClick(board, meta, gameState) {
+    const clicked = new Set(board.filter(c => c.clicked).map(c => c.row * 5 + c.col));
     const unclicked = [];
     for (let r = 0; r < 5; r++)
       for (let c = 0; c < 5; c++)

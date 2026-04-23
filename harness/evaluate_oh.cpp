@@ -34,6 +34,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cassert>
 #include <cmath>
@@ -305,66 +306,69 @@ static OHGameResult run_oh_game(
     GameTrace*     trace = nullptr)
 {
     OHColor slot_colors[N_SLOTS];
-    bool    revealed[N_SLOTS];
-    bool    clicked[N_SLOTS] = {};
-
     memcpy(slot_colors, board.slot_colors, sizeof(slot_colors));
-    memcpy(revealed,    board.revealed,    sizeof(revealed));
 
-    std::vector<Cell> revealed_cells;
+    // Full 25-cell board passed to strategy each turn.
+    // Initially: all cells start as (color="spU", clicked=false).
+    // The 10 pre-revealed cells get their real color but clicked=false
+    // (they are visible but not disabled — the strategy can click them).
+    std::array<Cell, N_CELLS> game_board;
+    for (int i = 0; i < N_CELLS; ++i) {
+        game_board[i].row     = static_cast<int8_t>(idx_to_row(i));
+        game_board[i].col     = static_cast<int8_t>(idx_to_col(i));
+        game_board[i].color   = "spU";
+        game_board[i].clicked = false;
+    }
+    // Set real colors for the 10 initially-visible cells
+    for (int i = 0; i < N_SLOTS; ++i) {
+        if (board.revealed[i]) {
+            game_board[i].color = oh_color_name(slot_colors[i]);
+            // clicked stays false — visible but not spent
+        }
+    }
+
     double score         = 0.0;
     bool   clicked_chest = false;
     int    clicks_left   = MAX_CLICKS;
     int    move_num      = 0;
-
-    // Add initially revealed cells
-    for (int i = 0; i < N_SLOTS; ++i) {
-        if (revealed[i]) {
-            revealed_cells.push_back({static_cast<int8_t>(idx_to_row(i)),
-                                       static_cast<int8_t>(idx_to_col(i)),
-                                       oh_color_name(slot_colors[i])});
-            clicked[i] = true;
-        }
-    }
 
     std::string meta = "{\"clicks_left\":" + std::to_string(clicks_left)
                      + ",\"max_clicks\":" + std::to_string(MAX_CLICKS)
                      + ",\"game_seed\":"  + std::to_string(game_seed) + "}";
     game_state_json = strategy.init_game_payload(meta, game_state_json);
 
+    // do_reveal: passively reveals a cell (sets color, does NOT set clicked)
     auto do_reveal = [&](int idx) {
-        if (idx < 0 || idx >= N_SLOTS || revealed[idx]) return;
-        revealed[idx] = true;
-        revealed_cells.push_back({static_cast<int8_t>(idx_to_row(idx)),
-                                    static_cast<int8_t>(idx_to_col(idx)),
-                                    oh_color_name(slot_colors[idx])});
+        if (idx < 0 || idx >= N_SLOTS || game_board[idx].color != "spU") return;
+        game_board[idx].color = oh_color_name(slot_colors[idx]);
+        // clicked stays false — passive reveal does not disable the cell
     };
 
     // Reveal N random covered cells
     auto reveal_n_covered = [&](int n) {
         std::vector<int> covered;
         for (int i = 0; i < N_SLOTS; ++i)
-            if (!revealed[i]) covered.push_back(i);
+            if (game_board[i].color == "spU") covered.push_back(i);
         std::shuffle(covered.begin(), covered.end(), rng);
         int cnt = std::min(n, (int)covered.size());
         for (int k = 0; k < cnt; ++k) do_reveal(covered[k]);
     };
 
     while (clicks_left > 0) {
-        // Build available (unrevealed and unclicked) cells list — for validity check
         meta = "{\"clicks_left\":" + std::to_string(clicks_left)
              + ",\"max_clicks\":" + std::to_string(MAX_CLICKS) + "}";
         int clicks_before = clicks_left;
 
-        Click c = strategy.next_click(revealed_cells, meta, game_state_json);
+        std::vector<Cell> board_vec(game_board.begin(), game_board.end());
+        Click c = strategy.next_click(board_vec, meta, game_state_json);
         game_state_json = strategy.last_game_state();
 
         int idx = rc_to_idx(c.row, c.col);
-        if (idx < 0 || idx >= N_SLOTS || clicked[idx]) {
+        if (idx < 0 || idx >= N_SLOTS || game_board[idx].clicked) {
             --clicks_left;
             continue;
         }
-        clicked[idx] = true;
+        game_board[idx].clicked = true;
 
         OHColor color = slot_colors[idx];
         bool is_free  = false;
@@ -431,6 +435,7 @@ static OHGameResult run_oh_game(
                 // Plain covered cell: resolves to a random color
                 OHColor resolved = dark_dist.sample(rng);  // use appearance dist as proxy
                 slot_colors[idx] = resolved;
+                game_board[idx].color = oh_color_name(resolved);  // update board color
                 color = resolved;
                 goto handle_click;
             }
@@ -604,8 +609,7 @@ int main(int argc, char* argv[]) {
             for (int i = 0; i < N_SLOTS; ++i) {
                 gt.actual_board[i]  = oh_color_name(board.slot_colors[i]);
                 gt.initial_board[i] = board.revealed[i]
-                    ? gt.actual_board[i]
-                    : "?";
+                    ? gt.actual_board[i] : "?";
             }
 
             auto result = run_oh_game(board, dark_dist, *bridge, eval_run_state, rng, game_seed, &gt);

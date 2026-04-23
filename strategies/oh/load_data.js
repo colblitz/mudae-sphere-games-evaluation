@@ -90,27 +90,27 @@ class LoadDataOHStrategy extends OHStrategy {
   // -------------------------------------------------------------------------
 
   /**
-   * @param {Array<{row: number, col: number, color: string}>} revealed
+   * @param {Array<{row: number, col: number, color: string, clicked: boolean}>} board
    * @param {Object} meta  { clicks_left, max_clicks, game_seed }
    * @param {*} gameState
    * @returns {{ row: number, col: number, gameState: * }}
    */
-  nextClick(revealed, meta, gameState) {  // eslint-disable-line no-unused-vars
+  nextClick(board, meta, gameState) {  // eslint-disable-line no-unused-vars
     const colorValues = this._colorValues;
     const rng = this._rng;
-    const clicked = new Set(revealed.map(c => c.row * 5 + c.col));
+    const clicked = new Set(board.filter(c => c.clicked).map(c => c.row * 5 + c.col));
 
     // Purples are free — click any visible purple immediately.
-    const purples = revealed.filter(c => c.color === "spP");
+    const purples = board.filter(c => c.color === "spP" && !c.clicked);
     if (purples.length > 0) {
       const pick = purples[Math.floor(rng() * purples.length)];
       return { row: pick.row, col: pick.col, gameState };
     }
 
     // Among revealed-but-unclicked cells, pick the highest-value one.
-    const INFO_ONLY = new Set(["spB", "spT"]);
-    const candidates = revealed.filter(
-      c => !clicked.has(c.row * 5 + c.col) && !INFO_ONLY.has(c.color)
+    const INFO_ONLY = new Set(["spU", "spB", "spT"]);
+    const candidates = board.filter(
+      c => !c.clicked && !INFO_ONLY.has(c.color)
     );
     if (candidates.length > 0) {
       const bestVal = Math.max(...candidates.map(c => colorValues[c.color] ?? 0));
@@ -119,7 +119,7 @@ class LoadDataOHStrategy extends OHStrategy {
       return { row: pick.row, col: pick.col, gameState };
     }
 
-    // Fall back to a random covered cell.
+    // Fall back to a random unclicked cell.
     const unclicked = [];
     for (let r = 0; r < 5; r++)
       for (let c = 0; c < 5; c++)

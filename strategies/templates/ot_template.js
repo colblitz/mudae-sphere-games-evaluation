@@ -38,11 +38,12 @@
  *   spW   white   ship of length 2 (9-color only)
  *   spB   blue    empty cell (costs 1 blue click)
  *
- * REVEALED CELL FORMAT
- * --------------------
- * `revealed` is an array of objects, one per cell revealed so far:
- *   [{ row: number, col: number, color: string }, ...]
- * Row and col are 0-indexed (0..4).  Grows monotonically each call.
+ * BOARD CELL FORMAT
+ * -----------------
+ * `board` is always an array of exactly 25 objects, one per cell:
+ *   [{ row: number, col: number, color: string, clicked: boolean }, ...]
+ * Row and col are 0-indexed (0..4).  color="spU" = covered/unknown.
+ * clicked=false = still interactable; clicked=true = disabled.
  *
  * STATE PAYLOAD
  * -------------
@@ -50,7 +51,7 @@
  *
  *   initEvaluationRun()               → initialState (called once before all games)
  *   initGamePayload(meta, s0)           → s1           (called once per game)
- *   nextClick(revealed,meta,s1) → {row,col,gameState:s2}
+ *   nextClick(board,meta,s1) → {row,col,gameState:s2}
  *   ...
  *
  * Use initEvaluationRun() for data computed ONCE and shared across all games.
@@ -121,8 +122,8 @@ class MyOTStrategy extends OTStrategy {
   /**
    * Choose the next cell to click.
    *
-   * @param {Array<{row: number, col: number, color: string}>} revealed
-   *   All cells revealed so far this game (grows monotonically).
+   * @param {Array<{row: number, col: number, color: string, clicked: boolean}>} board
+   *   All 25 board cells.
    * @param {Object} meta
    *   { n_colors: number, ships_hit: number, blues_used: number, max_clicks: number }
    * @param {*} gameState
@@ -130,19 +131,17 @@ class MyOTStrategy extends OTStrategy {
    * @returns {{ row: number, col: number, gameState: * }}
    *
    * Tips:
-   *   - Revealed ship cells constrain remaining ship placements (ships are
+   *   - Clicked ship cells constrain remaining ship placements (ships are
    *     contiguous horizontal or vertical segments of fixed per-color length).
-   *   - A revealed blue at (r,c) eliminates all placements passing through it.
-   *   - After hitting one cell of a ship, the adjacent cells in both directions
-   *     along the same axis are candidate continuations.
-   *   - Prefer cells with high probability of being ship cells to avoid wasting
-   *     blue clicks on empty cells.
-   *   - The ship color tells you the ship's length:
-   *       spT=4, spG=3, spY=3, spO/spL/spD/spR/spW=2
-   *   - Do not return a (row, col) already in revealed.
+   *   - A clicked blue at (r,c) eliminates all placements passing through it.
+   *   - After hitting one cell of a ship, adjacent cells along the same axis
+   *     are candidate continuations.
+   *   - Prefer cells with high P(ship) to avoid wasting blue clicks.
+   *   - Ship lengths: spT=4, spG=3, spY=3, spO/spL/spD/spR/spW=2
+   *   - Do not return a (row, col) where board[row*5+col].clicked is true.
    */
-  nextClick(revealed, meta, gameState) {
-    const clicked = new Set(revealed.map(c => c.row * 5 + c.col));
+  nextClick(board, meta, gameState) {
+    const clicked = new Set(board.filter(c => c.clicked).map(c => c.row * 5 + c.col));
 
     // TODO: replace the random fallback with your click logic
     const unclicked = [];

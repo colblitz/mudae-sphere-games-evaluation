@@ -97,15 +97,15 @@ class GlobalStateOCStrategy extends OCStrategy {
   // which is exactly what we want — no per-game reset needed.
 
   /**
-   * Pick the first cell in the precomputed order that isn't revealed yet.
+   * Pick the first cell in the precomputed order that isn't clicked yet.
    *
-   * @param {Array<{row: number, col: number, color: string}>} revealed
+   * @param {Array<{row: number, col: number, color: string, clicked: boolean}>} board
    * @param {Object} meta  { clicks_left, max_clicks }
    * @param {{ order: Array<[number, number]> }} gameState  Global visit order (read-only)
    * @returns {{ row: number, col: number, gameState: object }}
    */
-  nextClick(revealed, meta, gameState) {
-    const clicked = new Set(revealed.map(c => c.row * 5 + c.col));
+  nextClick(board, meta, gameState) {
+    const clicked = new Set(board.filter(c => c.clicked).map(c => c.row * 5 + c.col));
 
     for (const [row, col] of gameState.order) {
       if (!clicked.has(row * 5 + col)) {

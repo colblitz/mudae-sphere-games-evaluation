@@ -38,14 +38,14 @@ spR   red     ship of length 2 (8-color and above)
 spW   white   ship of length 2 (9-color only)
 spB   blue    empty cell (costs 1 blue click)
 
-REVEALED CELL FORMAT
---------------------
-revealed is a list of dicts, one per cell revealed so far (monotonically
-growing — every call includes all cells revealed since game start):
+BOARD CELL FORMAT
+-----------------
+board is always a list of exactly 25 dicts, one per cell:
 
-    [{"row": int, "col": int, "color": str}, ...]
+    [{"row": int, "col": int, "color": str, "clicked": bool}, ...]
 
-Row and col are 0-indexed (0..4).
+Row and col are 0-indexed (0..4).  color="spU" = covered/unknown.
+clicked=False = still interactable; clicked=True = disabled.
 
 META KEYS (ot)
 --------------
@@ -139,18 +139,18 @@ class MyOTStrategy(OTStrategy):
 
     def next_click(
         self,
-        revealed: list[dict[str, Any]],
+        board: list[dict[str, Any]],
         meta: dict[str, Any],
         game_state: Any,
     ) -> tuple[int, int, Any]:
         """Choose the next cell to click.
 
         Args:
-            revealed: all cells revealed so far this game, each as
-                      {"row": int, "col": int, "color": str}.
+            board: all 25 board cells, each as
+                   {"row": int, "col": int, "color": str, "clicked": bool}.
             meta: {
                 "n_colors":   int,  # ship color count (6, 7, 8, or 9)
-                "ships_hit":  int,  # ship cells revealed so far
+                "ships_hit":  int,  # ship cells clicked so far
                 "blues_used": int,  # blue clicks spent so far
                 "max_clicks": int,  # base blue budget (always 4)
             }
@@ -163,25 +163,13 @@ class MyOTStrategy(OTStrategy):
             game_state  : updated state to pass into the next call.
 
         Tips:
-            - Ship cells are FREE — clicking a revealed ship cell costs nothing.
-              After a ship cell is revealed, click it immediately before spending
-              another blue click.
-            - Each revealed cell (ship or blue) constrains where remaining ships
-              can be.  Use revealed ship segments to infer the orientation and
-              extent of each ship.
-            - A revealed blue cell confirms that row/col position is empty —
-              no ship passes through it.
-            - Prefer cells with high probability of being a ship cell to
-              minimise wasted blue clicks.
-            - Do not return a (row, col) that is already in revealed.
+            - Ship cells are FREE — clicking a ship cell does not cost a click.
+            - Each clicked cell constrains where remaining ships can be.
+            - A blue cell at (r,c) confirms no ship passes through it.
+            - Prefer cells with high P(ship) to minimise wasted blue clicks.
+            - Do not return a (row, col) where board[row*5+col]["clicked"] is True.
         """
-        clicked = {(c["row"], c["col"]) for c in revealed}
-
-        # Always collect any already-revealed ship cell that hasn't been
-        # "collected" yet — ship clicks are free and should never be skipped.
-        # (In practice the harness auto-collects contiguous ship cells when
-        #  a new segment is hit, but your strategy can also choose them
-        #  explicitly to ensure contiguous chains are followed.)
+        clicked = {(c["row"], c["col"]) for c in board if c["clicked"]}
 
         # TODO: replace with your click logic
 

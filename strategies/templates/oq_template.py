@@ -14,7 +14,7 @@ Goal   : find 3 of the 4 hidden purple spheres → the 4th converts to red
 
 Special click rules:
   - Purple (spP) : click is FREE (does not consume a click)
-  - Red (spR)    : appears after 3 purples clicked; click is also FREE
+  - Red (spR)    : appears after 3 purples clicked; costs 1 click (worth 150 SP)
 
 Non-purple cells reveal the count of purple neighbours (orthogonal +
 diagonal, capped at 4) as a color:
@@ -38,14 +38,18 @@ spG   green   2 purple neighbours
 spY   yellow  3 purple neighbours
 spO   orange  4 purple neighbours
 
-REVEALED CELL FORMAT
---------------------
-revealed is a list of dicts, one per cell revealed so far (monotonically
-growing — every call includes all cells revealed since game start):
+BOARD CELL FORMAT
+-----------------
+board is always a list of exactly 25 dicts, one per cell:
 
-    [{"row": int, "col": int, "color": str}, ...]
+    [{"row": int, "col": int, "color": str, "clicked": bool}, ...]
 
-Row and col are 0-indexed (0..4).
+Row and col are 0-indexed (0..4).  color="spU" = covered/unknown.
+clicked=False = still interactable; clicked=True = disabled.
+
+After 3 purples are clicked the 4th purple appears with color="spR",
+clicked=False in the board on the next call.  Click it — costs 1 click,
+worth 150 SP.
 
 META KEYS (oq)
 --------------
@@ -136,15 +140,17 @@ class MyOQStrategy(OQStrategy):
 
     def next_click(
         self,
-        revealed: list[dict[str, Any]],
+        board: list[dict[str, Any]],
         meta: dict[str, Any],
         game_state: Any,
     ) -> tuple[int, int, Any]:
         """Choose the next cell to click.
 
         Args:
-            revealed: all cells revealed so far this game, each as
-                      {"row": int, "col": int, "color": str}.
+            board: all 25 board cells, each as
+                   {"row": int, "col": int, "color": str, "clicked": bool}.
+                   After 3 purples are clicked, the 4th appears with
+                   color="spR", clicked=False — click it (costs 1 click, 150 SP).
             meta: {
                 "clicks_left":   int,  # remaining non-purple budget
                 "max_clicks":    int,  # total non-purple budget (always 7)
@@ -159,27 +165,23 @@ class MyOQStrategy(OQStrategy):
             game_state  : updated state to pass into the next call.
 
         Tips:
-            - Each non-purple reveal gives you a neighbor count.  Use it to
-              eliminate or confirm candidate purple positions (like Minesweeper).
-            - Purple cells are free — always click them immediately when found.
-            - Once red appears (purples_found == 3), click it; it's also free.
-            - After collecting red, spend remaining clicks on high-value tiles;
-              colors don't have an inherent SP value in this game beyond red,
-              so you'll want to infer remaining purple positions and avoid waste.
-            - Do not return a (row, col) that is already in revealed.
+            - Click any cell with color="spR" and clicked=False — 150 SP for 1 click.
+            - Click any cell with color="spP" and clicked=False immediately (free).
+            - Each non-purple reveal gives a neighbor count — use for inference.
+            - Do not return a (row, col) where board[row*5+col]["clicked"] is True.
         """
-        clicked = {(c["row"], c["col"]) for c in revealed}
+        clicked = {(c["row"], c["col"]) for c in board if c["clicked"]}
 
-        # Always click purple immediately (free)
-        purples = [(c["row"], c["col"]) for c in revealed if c["color"] == "spP"]
-        if purples:
-            row, col = purples[0]
-            return row, col, game_state
-
-        # Always click red immediately when it appears (free)
-        reds = [(c["row"], c["col"]) for c in revealed if c["color"] == "spR"]
+        # Always click red when it appears — 150 SP for 1 click
+        reds = [(c["row"], c["col"]) for c in board if c["color"] == "spR" and not c["clicked"]]
         if reds:
             row, col = reds[0]
+            return row, col, game_state
+
+        # Always click purple immediately (free)
+        purples = [(c["row"], c["col"]) for c in board if c["color"] == "spP" and not c["clicked"]]
+        if purples:
+            row, col = purples[0]
             return row, col, game_state
 
         # TODO: replace the random fallback with your click logic

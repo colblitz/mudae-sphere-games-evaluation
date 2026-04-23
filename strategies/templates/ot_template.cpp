@@ -137,7 +137,7 @@ public:
      *     wasted blue clicks.
      *   - Do not return a (row, col) already in revealed.
      */
-    void next_click(const std::vector<Cell>& revealed,
+    void next_click(const std::vector<Cell>& board,
                     const std::string& meta_json,
                     const std::string& game_state_json,
                     ClickResult& out) override
@@ -147,7 +147,7 @@ public:
         bool clicked[25] = {};
         std::vector<int> unclicked;
 
-        for (const Cell& c : revealed) clicked[c.row * 5 + c.col] = true;
+        for (const Cell& c : board) if (c.clicked) clicked[c.row * 5 + c.col] = true;
         for (int i = 0; i < 25; ++i)
             if (!clicked[i]) unclicked.push_back(i);
 
@@ -189,26 +189,27 @@ extern "C" const char* strategy_init_game_payload(void* inst,
 }
 
 extern "C" const char* strategy_next_click(void* inst,
-                                            const char* revealed_json,
+                                            const char* board_json,
                                             const char* meta_json,
                                             const char* game_state_json)
 {
     thread_local static std::string buf;
     auto* s = static_cast<MyOTStrategy*>(inst);
 
-    std::vector<Cell> revealed;
-    const char* p = revealed_json;
+    std::vector<Cell> board;
+    const char* p = board_json;
     while ((p = strstr(p, "\"row\":")) != nullptr) {
         Cell c;
         c.row = atoi(p + 6);
         const char* cp = strstr(p, "\"col\":"); if (cp) c.col = atoi(cp + 6);
         const char* colp = strstr(p, "\"color\":\"");
         if (colp) { colp += 9; const char* e = strchr(colp, '"'); if (e) c.color = std::string(colp, e - colp); }
-        revealed.push_back(c); p += 6;
+        const char* clkp = strstr(p, "\"clicked\":"); if (clkp) { clkp += 10; while (*clkp==' ') ++clkp; c.clicked = (strncmp(clkp,"true",4)==0); }
+        board.push_back(c); p += 6;
     }
 
     ClickResult out;
-    s->next_click(revealed, meta_json ? meta_json : "{}", game_state_json ? game_state_json : "{}", out);
+    s->next_click(board, meta_json ? meta_json : "{}", game_state_json ? game_state_json : "{}", out);
     buf = "{\"row\":" + std::to_string(out.row) +
           ",\"col\":" + std::to_string(out.col) +
           ",\"state\":" + out.game_state_json + "}";

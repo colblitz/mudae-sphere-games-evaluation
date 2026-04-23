@@ -47,17 +47,20 @@ The evaluator builds the harness binary automatically if it is not already built
 All strategies implement three methods:
 
 ```
-init_payload()                              → initial state
-init_run(meta, state)                       → updated state  [optional]
-next_click(revealed, meta, state)           → (row, col, next_state)
+init_evaluation_run()                       → run_state       [optional]
+init_game_payload(meta, run_state)          → game_state      [optional]
+next_click(board, meta, state)              → (row, col, next_state)
 ```
 
-- **`revealed`:** list of all cells revealed so far, each as `{row, col, color}`. Row and col are 0-indexed (0–4). Grows monotonically — every call includes all reveals since the start of the game.
+- **`board`:** fixed array of exactly **25 cells**, one per grid position. Each cell is `{row, col, color, clicked}`:
+  - `color` — Mudae emoji name (e.g. `"spR"`, `"spT"`). `"spU"` means the cell is covered/unknown.
+  - `clicked` — `false` = cell is still interactable; `true` = cell has been clicked (disabled, do not re-click).
+  - Common combinations: `{color:"spU", clicked:false}` = normal covered cell; `{color:"spR", clicked:false}` = passively revealed (e.g. oq 4th-purple auto-reveal); `{color:"spP", clicked:true}` = purple already clicked.
 - **`meta`:** game-specific metadata dict (see per-game docs below).
-- **`state`:** whatever you returned from the previous `next_click` call (or `init_run`). Use `None`/`null`/`{}` if stateless.
-- **Return:** `(row, col, next_state)` — the cell to click and your updated state.
+- **`state`:** whatever you returned from the previous `next_click` call (or `init_game_payload`). Use `None`/`null`/`{}` if stateless.
+- **Return:** `(row, col, next_state)` — the cell to click and your updated state. Do **not** return a cell where `board[row*5+col].clicked` is `true`.
 
-The harness calls `init_payload()` once before the first game, then for each game calls `init_run()` once, then `next_click()` on every click decision. `init_run` and `init_payload` are optional — default implementations are provided.
+The harness calls `init_evaluation_run()` once before all games begin (use it for expensive board-independent precomputation), then `init_game_payload()` once per game (use it to reset per-game state), then `next_click()` on every click decision. Both init methods are optional — default implementations are provided.
 
 ### Per-game metadata keys
 
@@ -76,8 +79,8 @@ import random
 from interface.strategy import OCStrategy
 
 class MyOCStrategy(OCStrategy):
-    def next_click(self, revealed, meta, state):
-        clicked = {(c["row"], c["col"]) for c in revealed}
+    def next_click(self, board, meta, state):
+        clicked = {(c["row"], c["col"]) for c in board if c["clicked"]}
         unclicked = [(r, c) for r in range(5) for c in range(5)
                      if (r, c) not in clicked]
         row, col = random.choice(unclicked)
@@ -93,27 +96,25 @@ using namespace sphere;
 
 class MyOCStrategy : public OCStrategy {
 public:
-    void next_click(const std::vector<Cell>& revealed,
+    void next_click(const std::vector<Cell>& board,
                     const std::string& meta_json,
                     const std::string& state_json,
                     ClickResult& out) override {
-        bool clicked[25] = {};
-        for (const Cell& c : revealed) clicked[c.row * 5 + c.col] = true;
-        for (int i = 0; i < 25; ++i) {
-            if (!clicked[i]) { out.row = i/5; out.col = i%5; return; }
+        for (const Cell& c : board) {
+            if (!c.clicked) { out.row = c.row; out.col = c.col; return; }
         }
     }
 };
 
 extern "C" sphere::StrategyBase* create_strategy() { return new MyOCStrategy(); }
 extern "C" void destroy_strategy(sphere::StrategyBase* s) { delete s; }
-extern "C" const char* strategy_init_payload(void*)                         { return "{}"; }
-extern "C" const char* strategy_init_run(void*, const char*, const char* s) { return s; }
+extern "C" const char* strategy_init_evaluation_run(void*)                                { return "{}"; }
+extern "C" const char* strategy_init_game_payload(void*, const char*, const char* s)      { return s; }
 extern "C" const char* strategy_next_click(void* inst,
-    const char* revealed_json, const char* meta_json, const char* state_json)
+    const char* board_json, const char* meta_json, const char* state_json)
 {
-    // Parse revealed_json, call next_click, return JSON result
-    // See strategies/oc/random_cpp.cpp for a complete example
+    // Parse board_json, call next_click, return JSON result
+    // See strategies/oc/global_state.cpp for a complete example
     static char buf[64];
     ClickResult out;
     // ... (parsing omitted for brevity)
@@ -129,12 +130,12 @@ extern "C" const char* strategy_next_click(void* inst,
 const { OCStrategy, register } = require("../../interface/strategy.js");
 
 class MyOCStrategy extends OCStrategy {
-  nextClick(revealed, meta, state) {
-    const clicked = new Set(revealed.map(c => c.row * 5 + c.col));
+  nextClick(board, meta, gameState) {
+    const clicked = new Set(board.filter(c => c.clicked).map(c => c.row * 5 + c.col));
     for (let r = 0; r < 5; r++)
       for (let c = 0; c < 5; c++)
-        if (!clicked.has(r * 5 + c)) return { row: r, col: c, state };
-    return { row: 0, col: 0, state };
+        if (!clicked.has(r * 5 + c)) return { row: r, col: c, gameState };
+    return { row: 0, col: 0, gameState };
   }
 }
 
@@ -358,7 +359,7 @@ std::string init_evaluation_run() override {
 
 ### /sphere harvest (oh)
 
-- **Grid:** 5×5, 25 cells. **10 cells are revealed at the start of every game**; the other 15 start covered (`spU`). The 10 initial reveals are passed to your strategy before the first click decision.
+- **Grid:** 5×5, 25 cells. **10 cells start with their real color visible** (`clicked=false`); the other 15 start covered (`color="spU"`, `clicked=false`). All 25 cells are present in the board on the first `next_click` call.
 - **Click budget:** 5 clicks.
 - **Blue (`spB`):** reveals 3 random covered cells when clicked. Worth ~10 SP.
 - **Teal (`spT`):** reveals 1 random covered cell. Worth ~20 SP.
@@ -393,12 +394,13 @@ std::string init_evaluation_run() override {
 
 ### /sphere quest (oq)
 
-- **Grid:** 5×5, all 25 cells start covered.
+- **Grid:** 5×5, all 25 cells start covered (`color="spU"`, `clicked=false`).
 - **Non-purple click budget:** 7 clicks.
 - **4 purple spheres (`spP`)** are hidden. Clicking a purple is **free**.
 - **Non-purple cells** reveal the count of purple neighbors (0–4) as a color:
   `spB`=0, `spT`=1, `spG`=2, `spY`=3, `spO`=4 purple neighbors.
-- **Goal:** click 3 purples → the 4th converts to red (`spR`, 150 SP, free click). Spend remaining budget greedily on highest-value derivable tiles.
+- **Auto-reveal:** after clicking the 3rd purple, the harness automatically reveals the 4th purple as `spR` (`color="spR"`, `clicked=false`) in the board passed to the next `next_click` call. Clicking it costs 1 click and is worth 150 SP.
+- **Goal:** click 3 purples → click the auto-revealed red (`spR`, 150 SP). Spend remaining budget greedily on highest-value derivable tiles.
 
 **Evaluation:** exhaustive over all C(25,4) = 12,650 boards. Stats: `ev`, `stdev`, `red_rate`.
 

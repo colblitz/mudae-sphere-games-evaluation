@@ -66,8 +66,8 @@ class StatefulOQStrategy extends OQStrategy {
    * @param {{ clickedRows: number[], clickedCols: number[], clickCount: number }} gameState
    * @returns {{ row: number, col: number, gameState: object }}
    */
-  nextClick(revealed, meta, gameState) {
-    const clickedSet = new Set(revealed.map(c => c.row * 5 + c.col));
+  nextClick(board, meta, gameState) {
+    const clickedSet = new Set(board.filter(c => c.clicked).map(c => c.row * 5 + c.col));
     const rowSet = new Set(gameState.clickedRows);
     const colSet = new Set(gameState.clickedCols);
 

@@ -138,19 +138,15 @@ public:
     // Click decision: highest-value visible cell, or random covered cell
     // -----------------------------------------------------------------------
 
-    void next_click(const std::vector<Cell>& revealed,
+    void next_click(const std::vector<Cell>& board,
                     const std::string& /*meta_json*/,
                     const std::string& game_state_json,
                     ClickResult& out) override
     {
-        bool clicked[25] = {};
-        for (const Cell& c : revealed)
-            clicked[c.row * 5 + c.col] = true;
-
-        // Purples are free — click any visible purple immediately.
+        // Purples are free — click any visible unclicked purple immediately.
         std::vector<int> purples;
-        for (const Cell& c : revealed)
-            if (c.color == "spP") purples.push_back(c.row * 5 + c.col);
+        for (const Cell& c : board)
+            if (c.color == "spP" && !c.clicked) purples.push_back(c.row * 5 + c.col);
         if (!purples.empty()) {
             int chosen = purples[std::uniform_int_distribution<int>(0, (int)purples.size() - 1)(rng_)];
             out.row = chosen / 5; out.col = chosen % 5;
@@ -161,12 +157,12 @@ public:
         // Among revealed-but-unclicked cells, pick the highest-value one.
         int best_val = -1;
         std::vector<int> best_cells;
-        for (const Cell& c : revealed) {
-            int idx = c.row * 5 + c.col;
-            if (clicked[idx]) continue;
-            if (c.color == "spB" || c.color == "spT") continue; // info-only
+        for (const Cell& c : board) {
+            if (c.clicked) continue;
+            if (c.color == "spU" || c.color == "spB" || c.color == "spT") continue;
             auto it = color_values_.find(c.color);
             int val = (it != color_values_.end()) ? it->second : 0;
+            int idx = c.row * 5 + c.col;
             if (val > best_val) { best_val = val; best_cells.clear(); }
             if (val == best_val) best_cells.push_back(idx);
         }
@@ -177,10 +173,10 @@ public:
             return;
         }
 
-        // Fall back to a random covered cell.
+        // Fall back to a random unclicked cell.
         std::vector<int> unclicked;
-        for (int i = 0; i < 25; ++i)
-            if (!clicked[i]) unclicked.push_back(i);
+        for (const Cell& c : board)
+            if (!c.clicked) unclicked.push_back(c.row * 5 + c.col);
         if (unclicked.empty()) { out.row = 0; out.col = 0; out.game_state_json = game_state_json; return; }
         int chosen = unclicked[std::uniform_int_distribution<int>(0, (int)unclicked.size() - 1)(rng_)];
         out.row = chosen / 5; out.col = chosen % 5;
@@ -217,15 +213,15 @@ extern "C" const char* strategy_init_game_payload(void* inst,
 }
 
 extern "C" const char* strategy_next_click(void* inst,
-                                            const char* revealed_json,
+                                            const char* board_json,
                                             const char* meta_json,
                                             const char* game_state_json)
 {
     thread_local static std::string buf;
     auto* s = static_cast<LoadDataOHStrategy*>(inst);
 
-    std::vector<Cell> revealed;
-    const char* p = revealed_json;
+    std::vector<Cell> board;
+    const char* p = board_json;
     while ((p = strstr(p, "\"row\":")) != nullptr) {
         Cell c;
         c.row = atoi(p + 6);
@@ -235,12 +231,17 @@ extern "C" const char* strategy_next_click(void* inst,
             const char* e = strchr(colp, '"');
             if (e) c.color = std::string(colp, e - colp);
         }
-        revealed.push_back(c);
+        const char* clkp = strstr(p, "\"clicked\":"); if (clkp) {
+            clkp += 10;
+            while (*clkp == ' ') ++clkp;
+            c.clicked = (strncmp(clkp, "true", 4) == 0);
+        }
+        board.push_back(c);
         p += 6;
     }
 
     ClickResult out;
-    s->next_click(revealed, meta_json ? meta_json : "{}", game_state_json ? game_state_json : "{}", out);
+    s->next_click(board, meta_json ? meta_json : "{}", game_state_json ? game_state_json : "{}", out);
     buf = "{\"row\":" + std::to_string(out.row) +
           ",\"col\":" + std::to_string(out.col) +
           ",\"state\":" + out.game_state_json + "}";

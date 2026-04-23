@@ -60,7 +60,7 @@ class StatefulOQStrategy(OQStrategy):
 
     def next_click(
         self,
-        revealed: list[dict[str, Any]],
+        board: list[dict[str, Any]],
         meta: dict[str, Any],
         game_state: Any,
     ) -> tuple[int, int, Any]:
@@ -69,7 +69,7 @@ class StatefulOQStrategy(OQStrategy):
         game_state carries the click history accumulated across all previous
         calls this game.  We update it and return the new version.
         """
-        clicked_set = {(c["row"], c["col"]) for c in revealed}
+        clicked_set = {(c["row"], c["col"]) for c in board if c["clicked"]}
         clicked_rows: set[int] = set(game_state["clicked_rows"])
         clicked_cols: set[int] = set(game_state["clicked_cols"])
 

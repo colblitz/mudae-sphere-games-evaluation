@@ -17,11 +17,11 @@ from interface.strategy import OTStrategy
 class RandomOTStrategy(OTStrategy):
     def next_click(
         self,
-        revealed: list[dict[str, Any]],
+        board: list[dict[str, Any]],
         meta: dict[str, Any],
         game_state: Any,
     ) -> tuple[int, int, Any]:
-        clicked = {(c["row"], c["col"]) for c in revealed}
+        clicked = {(c["row"], c["col"]) for c in board if c["clicked"]}
         unclicked = [
             (r, c)
             for r in range(5)

@@ -22,7 +22,7 @@
  *
  * Color mapping (harness sp-codes → internal color names):
  *   spP → purple   (5 SP, free click)
- *   spR → red      (150 SP, free click)
+ *   spR → red      (150 SP, costs 1 click)
  *   spB → blue     (0 purple neighbours)
  *   spT → teal     (1 purple neighbour)
  *   spG → green    (2 purple neighbours)

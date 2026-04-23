@@ -34,7 +34,7 @@
  *
  * Color mapping (harness → solver outcome codes):
  *   spP → 't'   purple mine (free click)
- *   spR → 'r'   red / 4th mine (free click, bonus phase)
+ *   spR → 'r'   red / 4th mine (costs 1 click, 150 SP)
  *   spB → '0'   0 purple neighbours
  *   spT → '1'   1 purple neighbour
  *   spG → '2'   2 purple neighbours

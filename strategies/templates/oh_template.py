@@ -33,14 +33,14 @@ spP   purple  ~5–12 SP, click is FREE
 spD   dark    ~104 SP average, transforms on click
 spU   covered (unrevealed; directly clickable)
 
-REVEALED CELL FORMAT
---------------------
-revealed is a list of dicts, one per cell revealed so far (monotonically
-growing — every call includes all cells revealed since game start):
+BOARD CELL FORMAT
+-----------------
+board is always a list of exactly 25 dicts, one per cell:
 
-    [{"row": int, "col": int, "color": str}, ...]
+    [{"row": int, "col": int, "color": str, "clicked": bool}, ...]
 
-Row and col are 0-indexed (0..4).
+Row and col are 0-indexed (0..4).  color="spU" = covered/unknown.
+clicked=False = still interactable; clicked=True = disabled.
 
 META KEYS (oh)
 --------------
@@ -164,17 +164,18 @@ class MyOHStrategy(OHStrategy):
 
     def next_click(
         self,
-        revealed: list[dict[str, Any]],
+        board: list[dict[str, Any]],
         meta: dict[str, Any],
         game_state: Any,
     ) -> tuple[int, int, Any]:
         """Choose the next cell to click.
 
         Args:
-            revealed: all cells revealed so far this game, each as
-                      {"row": int, "col": int, "color": str}.
-                      Includes cells visible from game start plus all
-                      cells uncovered by previous clicks.
+            board: all 25 board cells, each as
+                   {"row": int, "col": int, "color": str, "clicked": bool}.
+                   color="spU" = covered/unknown.  clicked=False = interactable.
+                   10 cells start with their real color visible (clicked=False);
+                   15 start as (color="spU", clicked=False).
             meta: {
                 "clicks_left": int,   # remaining budget (may be > original
                                       # if purples/darks gave free clicks)
@@ -191,15 +192,12 @@ class MyOHStrategy(OHStrategy):
                           Return `game_state` unchanged if nothing needs updating.
 
         Tips:
-            - Purple cells (spP) are free; click them first if visible.
-            - Blue (spB) and teal (spT) cells reveal more cells, giving more
-              information before spending remaining clicks.
-            - Dark (spD) cells transform when clicked — you don't know the
-              outcome in advance, but their average value is ~104 SP.
-            - All cells in `revealed` have already been interacted with;
-              do not return a (row, col) that is already in revealed.
+            - Purple cells (spP) with clicked=False are free; click them first.
+            - Blue (spB) and teal (spT) with clicked=False reveal more cells.
+            - Dark (spD) cells transform when clicked; average value ~104 SP.
+            - Do not return a (row, col) where board[row*5+col]["clicked"] is True.
         """
-        clicked = {(c["row"], c["col"]) for c in revealed}
+        clicked = {(c["row"], c["col"]) for c in board if c["clicked"]}
 
         # TODO: replace with your click logic
 

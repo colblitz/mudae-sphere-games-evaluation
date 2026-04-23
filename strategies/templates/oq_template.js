@@ -14,7 +14,7 @@
  *
  * Special click rules:
  *   Purple (spP) : click is FREE (does not consume a click)
- *   Red (spR)    : appears after 3 purples clicked; click is also FREE
+ *   Red (spR)    : appears after 3 purples clicked; costs 1 click (worth 150 SP)
  *
  * Non-purple cells reveal the count of purple neighbours (orthogonal +
  * diagonal, capped at 4) as a color:
@@ -34,11 +34,15 @@
  *   spY   yellow  3 purple neighbours
  *   spO   orange  4 purple neighbours
  *
- * REVEALED CELL FORMAT
- * --------------------
- * `revealed` is an array of objects, one per cell revealed so far:
- *   [{ row: number, col: number, color: string }, ...]
- * Row and col are 0-indexed (0..4).  Grows monotonically each call.
+ * BOARD CELL FORMAT
+ * -----------------
+ * `board` is always an array of exactly 25 objects, one per cell:
+ *   [{ row: number, col: number, color: string, clicked: boolean }, ...]
+ * Row and col are 0-indexed (0..4).  color="spU" = covered/unknown.
+ * clicked=false = still interactable; clicked=true = disabled.
+ *
+ * After 3 purples are clicked the 4th appears with color="spR", clicked=false.
+ * Click it — it costs 1 click but is worth 150 SP.
  *
  * STATE PAYLOAD
  * -------------
@@ -46,7 +50,7 @@
  *
  *   initEvaluationRun()               → initialState (called once before all games)
  *   initGamePayload(meta, s0)           → s1           (called once per game)
- *   nextClick(revealed,meta,s1) → {row,col,gameState:s2}
+ *   nextClick(board,meta,s1) → {row,col,gameState:s2}
  *   ...
  *
  * Use initEvaluationRun() for data computed ONCE and shared across all games.
@@ -113,8 +117,9 @@ class MyOQStrategy extends OQStrategy {
   /**
    * Choose the next cell to click.
    *
-   * @param {Array<{row: number, col: number, color: string}>} revealed
-   *   All cells revealed so far this game (grows monotonically).
+   * @param {Array<{row: number, col: number, color: string, clicked: boolean}>} board
+   *   All 25 board cells.  After 3 purples are clicked, the 4th appears with
+   *   color="spR", clicked=false.  Click it (costs 1 click, 150 SP).
    * @param {Object} meta
    *   { clicks_left: number, max_clicks: number, purples_found: number }
    * @param {*} gameState
@@ -122,23 +127,21 @@ class MyOQStrategy extends OQStrategy {
    * @returns {{ row: number, col: number, gameState: * }}
    *
    * Tips:
-   *   - Always click purple ("spP") cells immediately — they are free.
-   *   - Always click red ("spR") when it appears — also free.
-   *   - Each non-purple color gives a neighbour count you can use for
-   *     constraint inference (like Minesweeper).
-   *   - A cell colored "spO" (4 neighbours) means ALL 8 surrounding cells
-   *     are purple — very strong constraint.
-   *   - Do not return a (row, col) already in revealed.
+   *   - Click any cell with color="spR" and clicked=false — 150 SP for 1 click.
+   *   - Click any cell with color="spP" and clicked=false immediately (free).
+   *   - Each non-purple color gives a neighbour count for constraint inference.
+   *   - Do not return a (row, col) where board[row*5+col].clicked is true.
    */
-  nextClick(revealed, meta, gameState) {
-    const clicked = new Set(revealed.map(c => c.row * 5 + c.col));
+  nextClick(board, meta, gameState) {
+    const clicked = new Set(board.filter(c => c.clicked).map(c => c.row * 5 + c.col));
 
-    // Always collect free clicks first
-    const purples = revealed.filter(c => c.color === "spP");
-    if (purples.length > 0) return { row: purples[0].row, col: purples[0].col, gameState };
-
-    const reds = revealed.filter(c => c.color === "spR");
+    // Always click red when it appears — 150 SP for 1 click
+    const reds = board.filter(c => c.color === "spR" && !c.clicked);
     if (reds.length > 0) return { row: reds[0].row, col: reds[0].col, gameState };
+
+    // Always click purple immediately (free)
+    const purples = board.filter(c => c.color === "spP" && !c.clicked);
+    if (purples.length > 0) return { row: purples[0].row, col: purples[0].col, gameState };
 
     // TODO: replace the random fallback with your click logic
     const unclicked = [];

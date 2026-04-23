@@ -32,14 +32,14 @@ spG   green    35 SP
 spT   teal     20 SP
 spB   blue     10 SP
 
-REVEALED CELL FORMAT
---------------------
-revealed is a list of dicts, one per cell revealed so far (monotonically
-growing — every call includes all cells revealed since game start):
+BOARD CELL FORMAT
+-----------------
+board is always a list of exactly 25 dicts, one per cell:
 
-    [{"row": int, "col": int, "color": str}, ...]
+    [{"row": int, "col": int, "color": str, "clicked": bool}, ...]
 
-Row and col are 0-indexed (0..4).
+Row and col are 0-indexed (0..4).  color="spU" = covered/unknown.
+clicked=False = still interactable; clicked=True = disabled.
 
 META KEYS (oc)
 --------------
@@ -131,15 +131,15 @@ class MyOCStrategy(OCStrategy):
 
     def next_click(
         self,
-        revealed: list[dict[str, Any]],
+        board: list[dict[str, Any]],
         meta: dict[str, Any],
         game_state: Any,
     ) -> tuple[int, int, Any]:
         """Choose the next cell to click.
 
         Args:
-            revealed: all cells revealed so far this game, each as
-                      {"row": int, "col": int, "color": str}.
+            board: all 25 board cells, each as
+                   {"row": int, "col": int, "color": str, "clicked": bool}.
             meta: {
                 "clicks_left": int,   # remaining budget
                 "max_clicks":  int,   # total budget (always 5)
@@ -153,16 +153,13 @@ class MyOCStrategy(OCStrategy):
             game_state  : updated state to pass into the next call.
 
         Tips:
-            - Each revealed color constrains where the red sphere can be.
-              Any cell that would violate the revealed pattern given a
-              candidate red position can be eliminated.
+            - Each clicked color constrains where the red sphere can be.
             - Once red is found, the remaining colors are fully determined
-              and you can greedily pick the highest-value unrevealed cell.
-            - Orange (90 SP) and yellow (55 SP) are always adjacent to red;
-              after finding red you know exactly where they are.
-            - Do not return a (row, col) that is already in revealed.
+              and you can greedily pick the highest-value unclicked cell.
+            - Orange (90 SP) and yellow (55 SP) are always adjacent to red.
+            - Do not return a (row, col) where board[row*5+col]["clicked"] is True.
         """
-        clicked = {(c["row"], c["col"]) for c in revealed}
+        clicked = {(c["row"], c["col"]) for c in board if c["clicked"]}
 
         # TODO: replace with your click logic
 

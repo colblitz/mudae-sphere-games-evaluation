@@ -24,13 +24,13 @@ class RandomOTStrategy : public OTStrategy {
 public:
     RandomOTStrategy() : rng_(static_cast<uint64_t>(std::time(nullptr))) {}
 
-    void next_click(const std::vector<Cell>& revealed,
+    void next_click(const std::vector<Cell>& board,
                     const std::string& /*meta_json*/,
                     const std::string& /*game_state_json*/,
                     ClickResult& out) override
     {
         bool clicked[25] = {};
-        for (const Cell& c : revealed) clicked[c.row * 5 + c.col] = true;
+        for (const Cell& c : board) if (c.clicked) clicked[c.row * 5 + c.col] = true;
 
         std::vector<int> unclicked;
         for (int i = 0; i < 25; ++i)
@@ -53,24 +53,25 @@ extern "C" const char* strategy_init_evaluation_run(void*)                      
 extern "C" const char* strategy_init_game_payload(void*, const char*, const char* evaluation_run_state){ return evaluation_run_state; }
 
 extern "C" const char* strategy_next_click(void* inst,
-                                            const char* revealed_json,
+                                            const char* board_json,
                                             const char* meta_json,
                                             const char* game_state_json)
 {
     static char buf[64];
     auto* st = static_cast<RandomOTStrategy*>(inst);
-    std::vector<Cell> revealed;
-    const char* p = revealed_json;
+    std::vector<Cell> board;
+    const char* p = board_json;
     while ((p = strstr(p, "\"row\":")) != nullptr) {
         Cell c;
         c.row = static_cast<int8_t>(atoi(p + 6));
         const char* cp = strstr(p, "\"col\":"); if (cp) c.col = static_cast<int8_t>(atoi(cp + 6));
         const char* colp = strstr(p, "\"color\":\"");
         if (colp) { colp += 9; const char* e = strchr(colp, '"'); if (e) c.color = std::string(colp, e - colp); }
-        revealed.push_back(c); p += 6;
+        const char* clkp = strstr(p, "\"clicked\":"); if (clkp) { clkp += 10; while (*clkp==' ') ++clkp; c.clicked = (strncmp(clkp,"true",4)==0); }
+        board.push_back(c); p += 6;
     }
     ClickResult out;
-    st->next_click(revealed, meta_json ? meta_json : "{}", game_state_json ? game_state_json : "{}", out);
+    st->next_click(board, meta_json ? meta_json : "{}", game_state_json ? game_state_json : "{}", out);
     snprintf(buf, sizeof(buf), "{\"row\":%d,\"col\":%d,\"state\":{}}", out.row, out.col);
     return buf;
 }
