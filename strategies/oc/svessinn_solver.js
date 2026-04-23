@@ -237,11 +237,11 @@ class SvessinOCStrategy extends OCStrategy {
    * @param {{ possibleRedIndices: number[], revealedMap: Object }} gameState
    * @returns {{ row: number, col: number, gameState: object }}
    */
-  nextClick(revealed, meta, gameState) {
-    // --- Sync revealedMap with the full revealed list from the harness ---
-    // (revealed grows monotonically; we rebuild from scratch each call to be safe)
+  nextClick(board, meta, gameState) {
+    // --- Sync revealedMap with clicked cells from the board ---
+    // Rebuild from scratch each call to be safe.
     const revealedMap = {};
-    for (const cell of revealed) {
+    for (const cell of board.filter(c => c.clicked)) {
       const idx = cell.row * 5 + cell.col;
       const letter = COLOR_TO_LETTER[cell.color] || cell.color;
       revealedMap[idx] = letter;
