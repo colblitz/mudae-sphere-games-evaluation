@@ -213,6 +213,7 @@ struct GameTrace {
     std::string color_assignment[4];  // rare color names assigned to var_rare slots
     double score;
     std::string initial_board[N_CELLS];  // all "?" for ot
+    std::string actual_board[N_CELLS];   // true color of every cell
     std::vector<MoveRecord> moves;
 };
 
@@ -394,6 +395,11 @@ static void print_trace_json(const std::vector<GameTrace>& traces) {
         for (int i = 0; i < N_CELLS; ++i) {
             if (i > 0) printf(",");
             printf("\"%s\"", t.initial_board[i].c_str());
+        }
+        printf("],\"actual_board\":[");
+        for (int i = 0; i < N_CELLS; ++i) {
+            if (i > 0) printf(",");
+            printf("\"%s\"", t.actual_board[i].c_str());
         }
         printf("],\"moves\":[");
         for (size_t mi = 0; mi < t.moves.size(); ++mi) {
@@ -674,7 +680,10 @@ int main(int argc, char* argv[]) {
                 else
                     gt.color_assignment[k] = "";
             }
-            for (int c = 0; c < N_CELLS; ++c) gt.initial_board[c] = "?";
+            for (int c = 0; c < N_CELLS; ++c) {
+                gt.initial_board[c] = "?";
+                gt.actual_board[c]  = colors[c];
+            }
 
             run_ot_game(boards[bidx], colors, nc, *bridge, eval_run_state, &gt);
 

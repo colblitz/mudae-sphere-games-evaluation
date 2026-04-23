@@ -282,6 +282,7 @@ struct GameTrace {
     double score;
     bool   has_chest;
     std::string initial_board[N_SLOTS];  // color name for revealed, "?" for covered
+    std::string actual_board[N_SLOTS];   // true color of every cell
     std::vector<MoveRecord> moves;
 };
 
@@ -492,6 +493,11 @@ static void print_trace_json(const std::vector<GameTrace>& traces) {
             if (i > 0) printf(",");
             printf("\"%s\"", t.initial_board[i].c_str());
         }
+        printf("],\"actual_board\":[");
+        for (int i = 0; i < N_SLOTS; ++i) {
+            if (i > 0) printf(",");
+            printf("\"%s\"", t.actual_board[i].c_str());
+        }
         printf("],\"moves\":[");
         for (size_t mi = 0; mi < t.moves.size(); ++mi) {
             const auto& m = t.moves[mi];
@@ -594,9 +600,11 @@ int main(int argc, char* argv[]) {
             gt.game_seed  = game_seed;
             gt.has_chest  = board.has_chest;
             // Build initial board: revealed cells show color, covered show "?"
+            // actual_board reveals the true color of every cell
             for (int i = 0; i < N_SLOTS; ++i) {
+                gt.actual_board[i]  = oh_color_name(board.slot_colors[i]);
                 gt.initial_board[i] = board.revealed[i]
-                    ? oh_color_name(board.slot_colors[i])
+                    ? gt.actual_board[i]
                     : "?";
             }
 

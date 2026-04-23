@@ -71,6 +71,7 @@ struct GameTrace {
     int    board_index;
     double score;
     std::string initial_board[N_CELLS];  // "?" for covered, color name for revealed
+    std::string actual_board[N_CELLS];   // true color of every cell
     std::vector<MoveRecord> moves;
 };
 
@@ -158,6 +159,11 @@ static void print_trace_json(const std::vector<GameTrace>& traces) {
         for (int i = 0; i < N_CELLS; ++i) {
             if (i > 0) printf(",");
             printf("\"%s\"", t.initial_board[i].c_str());
+        }
+        printf("],\"actual_board\":[");
+        for (int i = 0; i < N_CELLS; ++i) {
+            if (i > 0) printf(",");
+            printf("\"%s\"", t.actual_board[i].c_str());
         }
         printf("],\"moves\":[");
         for (size_t mi = 0; mi < t.moves.size(); ++mi) {
@@ -255,8 +261,11 @@ int main(int argc, char* argv[]) {
         for (int idx : indices) {
             GameTrace gt;
             gt.board_index = idx;
-            // All cells covered at start
-            for (int c = 0; c < N_CELLS; ++c) gt.initial_board[c] = "?";
+            // All cells covered at start; actual_board reveals true colors
+            for (int c = 0; c < N_CELLS; ++c) {
+                gt.initial_board[c] = "?";
+                gt.actual_board[c]  = OC_COLOR_NAMES[boards[idx].cells[c]];
+            }
 
             auto [score, _red] = run_oc_game(boards[idx], *bridge, eval_run_state, &gt);
             gt.score = score;

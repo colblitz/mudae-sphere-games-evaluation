@@ -502,10 +502,10 @@ def render_trace(game: str, traces: list[dict[str, Any]]) -> None:
             board_idx = t.get("board_index", "?")
             print(f"\n--- Game {gi}/{total}  board #{board_idx}  score={score:.0f} SP ---")
 
-        # Initial board
-        initial_board: list[str] = t.get("initial_board", ["?"] * 25)
-        print("\nInitial board:")
-        print(_render_board(initial_board))
+        # Actual board (full true layout, unaffected by what was revealed)
+        actual_board: list[str] = t.get("actual_board", ["?"] * 25)
+        print("\nActual board:")
+        print(_render_board(actual_board))
 
         # Moves
         moves: list[dict[str, Any]] = t.get("moves", [])
@@ -514,9 +514,7 @@ def render_trace(game: str, traces: list[dict[str, Any]]) -> None:
         else:
             print("\nMoves:")
             clicked: set[tuple[int, int]] = set()
-            # Build a revealed board: start from initial, overlay actual colors
-            # from moves so clicked cells show their real color rather than "?"
-            revealed_board: list[str] = list(initial_board)
+            revealed_board: list[str] = list(actual_board)
             for m in moves:
                 mn    = m.get("move_num", "?")
                 row   = m.get("row", 0)
@@ -537,9 +535,9 @@ def render_trace(game: str, traces: list[dict[str, Any]]) -> None:
                 clicked.add((row, col))
                 revealed_board[row * 5 + col] = color
 
-            # Final board: actual revealed colors, clicked cells in lowercase
-            print("\nFinal board (clicked cells in lowercase):")
-            print(_render_board(revealed_board, clicked))
+            # Final board: actual board with clicked cells in lowercase
+            print("\nClicks (lowercase = clicked):")
+            print(_render_board(actual_board, clicked))
 
     print(f"\n{'='*60}\n")
 
