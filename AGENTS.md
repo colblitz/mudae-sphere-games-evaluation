@@ -14,7 +14,7 @@ This repo is a competitive evaluation framework for four Mudae `/sphere` mini-ga
 | `interface/data.{py,h,js}` | Read-only — external data file helper |
 | `data/<small_file>` | Commit small data files here with `git add -f` |
 
-Do **not** modify anything in `harness/`, `boards/`, `scripts/`, `leaderboards/`, or `scores/`. Do not modify `README.md` directly — `scripts/evaluate.py --commit` owns it.
+Do **not** modify `boards/`, `leaderboards/`, `scores/`, or `README.md` (the last is owned by `scripts/evaluate.py --commit`). Contributors shouldn't normally need to edit `harness/` or `scripts/` — if you think you've found a bug there, flag it rather than patching it unilaterally.
 
 ---
 

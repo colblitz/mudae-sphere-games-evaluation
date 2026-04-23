@@ -323,6 +323,7 @@ static OTGameResult run_ot_game(
             // Ship click is free — no blues_used increment
         } else {
             // Blue click — awards OT_BLUE_VALUE SP and costs one blue click
+            delta  = OT_BLUE_VALUE;
             score += OT_BLUE_VALUE;
 
             // Estimate P(blue) for 50/50 detection: count remaining unclicked cells
