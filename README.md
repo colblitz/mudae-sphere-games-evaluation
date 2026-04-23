@@ -170,7 +170,8 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
 |------|----------|----|-------|-------|--------|------|
 | 1 | `kelinimo_adaptive_ev.js` | 348.03 | 50.85 | 96.2% | `6d763f1` | 2026-04-23 |
-| 2 | `stateful.js` | 13.67 | 7.52 | 0.0% | `575db95` | 2026-04-21 |
+| 2 | `svessinn_solver.js` | 301.53 | 79.95 | 71.9% | `8f5127f` | 2026-04-23 |
+| 3 | `stateful.js` | 13.67 | 7.52 | 0.0% | `575db95` | 2026-04-21 |
 
 ### /sphere trace (ot)
 
