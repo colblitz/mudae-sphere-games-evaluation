@@ -1,8 +1,17 @@
 {
   "game": "oq",
   "metric": "ev",
-  "updated": "2026-04-21",
+  "updated": "2026-04-23",
   "top5": [
+    {
+      "filename": "kelinimo_adaptive_ev.js",
+      "commit": "6d763f1",
+      "date": "2026-04-23",
+      "ev": 348.032,
+      "stdev": 50.8498,
+      "red_rate": 0.962,
+      "n_boards": 12650
+    },
     {
       "filename": "stateful.js",
       "commit": "575db95",
