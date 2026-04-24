@@ -347,20 +347,22 @@ function otRolloutValue(sortedCells, probs25, pb0, C0, rareEv) {
 
 /**
  * Expected total remaining points if we click `cellIdx` next, then play greedy.
+ *
+ * PERF DEVIATION from solvespheres.kelinimo.workers.dev ot.js:
+ * The original builds and sorts `remaining` inside this function on each call,
+ * doing O(N log N) work per candidate cell (~20 times per nextClick).  Here,
+ * the caller (nextClick) pre-sorts all unrevealed cells once and passes
+ * `sortedUnrevealed` in; we filter out `cellIdx` in O(N).  Results are
+ * identical because removing one element from a sorted array preserves order.
  */
-function otScoreMove(cellIdx, probs25, knownByIdx, pb0, C0, rareEv) {
+function otScoreMove(cellIdx, sortedUnrevealed, probs25, knownByIdx, pb0, C0, rareEv) {
   const pr = probs25[cellIdx];
   const pB = pr.blue;
   const pC = 1.0 - pB;
   const blueIsFree = (pb0 >= 3) && (C0 < 5);
 
-  // Remaining cells sorted by P(blue) ascending = P(colored) descending
-  const remaining = [];
-  for (let i = 0; i < 25; i++) {
-    if (i === cellIdx || (i in knownByIdx)) continue;
-    remaining.push(i);
-  }
-  remaining.sort((a, b) => probs25[a].blue - probs25[b].blue);
+  // Remaining cells: pre-sorted by P(blue) ascending, with cellIdx excluded.
+  const remaining = sortedUnrevealed.filter(i => i !== cellIdx);
 
   let ev = 0;
 
@@ -482,9 +484,13 @@ class KelimoExpectimaxOTStrategy extends OTStrategy {
       unrevealed.push(i);
     }
 
+    // Pre-sort once by P(blue) ascending — passed into otScoreMove so it
+    // doesn't re-sort inside each of the ~20 per-cell calls.
+    const sortedUnrevealed = [...unrevealed].sort((a, b) => probs[a].blue - probs[b].blue);
+
     const moves = unrevealed.map(cellIdx => {
       const score = otScoreMove(
-        cellIdx, probs, knownByIdx,
+        cellIdx, sortedUnrevealed, probs, knownByIdx,
         effectiveClicksUsed, coloredFound, rareEv
       );
       return { cellIdx, ev: score, probs: probs[cellIdx] };
