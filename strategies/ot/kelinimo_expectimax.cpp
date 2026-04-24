@@ -1,3 +1,12 @@
+// Disable FMA contraction so floating-point arithmetic matches JavaScript's
+// strict IEEE 754 double precision (no fused multiply-add).  Without this,
+// g++ -march=native folds expressions like `p * pC * cVal` in the rollout DP
+// into single FMA instructions that round once instead of twice, producing
+// ULP-level EV differences from V8's two-step rounding.  Those ULP diffs
+// flip sort tie-breaks, causing different move choices and genuinely divergent
+// game scores.
+#pragma GCC optimize("fp-contract=off")
+
 /**
  * kelinimo_expectimax.cpp — 1-ply expectimax + greedy DP strategy for /sphere trace (ot).
  *
