@@ -54,23 +54,20 @@ ships_hit   int   number of ship cells revealed so far
 blues_used  int   number of blue clicks spent so far
 max_clicks  int   base blue click budget (always 4; Extra Chance may extend)
 
-STATE PAYLOAD
--------------
-game_state is any Python object you choose.  The harness threads it through every
-call within a game:
+STATE MODEL
+-----------
+State lives inside the bridge — it is never serialised back to the harness.
 
-  init_evaluation_run()        → initial_state        (called once before all games)
-  init_game_payload(meta, s0)    → s1                   (called once per game)
-  next_click(..., s1)   → (row, col, s2)
-  next_click(..., s2)   → (row, col, s3)
-  ...
+  init_evaluation_run()          → run state (once before all games)
+  init_game_payload(meta, rs)    → game state (reset before each game)
+  next_click(board, meta, gs)    → (row, col, new_gs)
 
-Use init_evaluation_run() for data computed ONCE and shared across all games
-(lookup tables, precomputed weights, etc.).
+init_evaluation_run():  return read-only data shared across all games.
+init_game_payload():    return fresh per-game state; the bridge resets it
+                        before every game by calling this.
+next_click():           receive current game state, return updated state.
 
-Use init_game_payload() to reset per-game bookkeeping at the start of each game.
-
-If your strategy is stateless, leave both optional methods out and return
+If your strategy is stateless, omit all three optional methods and return
 `game_state` unchanged from next_click().
 
 See also
@@ -95,8 +92,8 @@ class MyOTStrategy(OTStrategy):
         """Called once before the evaluation run begins.
 
         Compute anything that is board-independent and expensive to repeat.
-        The returned value is passed as ``evaluation_run_state`` to init_game_payload() at the start
-        of every game.  Treat it as read-only during play.
+        The returned value is stored by the bridge and passed as ``evaluation_run_state``
+        to every init_game_payload() call.  Treat it as read-only.
 
         Returns:
             Any Python object.  Default: None.

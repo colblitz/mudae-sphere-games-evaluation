@@ -44,17 +44,18 @@
  * After 3 purples are clicked the 4th appears with color="spR", clicked=false.
  * Click it — it costs 1 click but is worth 150 SP.
  *
- * STATE PAYLOAD
- * -------------
- * The game_state value is threaded through every call within a game:
+ * STATE MODEL
+ * -----------
+ * State lives inside the Node process — it is never sent back to the harness.
  *
- *   initEvaluationRun()               → initialState (called once before all games)
- *   initGamePayload(meta, s0)           → s1           (called once per game)
- *   nextClick(board,meta,s1) → {row,col,gameState:s2}
- *   ...
+ *   initEvaluationRun()          → run state (once before all games)
+ *   initGamePayload(meta, rs)    → game state (reset before each game)
+ *   nextClick(board, meta, gs)   → { row, col [, gameState] }
  *
- * Use initEvaluationRun() for data computed ONCE and shared across all games.
- * Use initGamePayload() to reset per-game bookkeeping at the start of each game.
+ * initEvaluationRun(): return read-only data shared across all games.
+ * initGamePayload():   return fresh per-game state (bridge resets it each game).
+ * nextClick():         receive current game state, return { row, col } and
+ *                      optionally a new gameState to replace it.
  *
  * meta keys (oq):
  *   clicks_left    number  remaining non-purple budget
@@ -81,10 +82,10 @@ class MyOQStrategy extends OQStrategy {
    * Called ONCE before all games begin.
    *
    * Return anything that is board-independent and expensive to repeat.
-   * The returned value is passed as `evaluationRunState` to every subsequent initGamePayload()
-   * and nextClick() call.  Treat it as a read-only global table.
+   * The returned value is stored by the bridge and passed as `evaluationRunState`
+   * to every initGamePayload() call.  Treat it as read-only.
    *
-   * @returns {*}  Any JSON-serialisable value.  Default: null.
+   * @returns {*}  Any value.  Default: null.
    */
   initEvaluationRun() {
     // TODO: replace with your global precomputation, or delete this method
@@ -124,7 +125,7 @@ class MyOQStrategy extends OQStrategy {
    *   { clicks_left: number, max_clicks: number, purples_found: number }
    * @param {*} gameState
    *   Value returned by the previous nextClick() (or initGamePayload() for first call).
-   * @returns {{ row: number, col: number, gameState: * }}
+   * @returns {{ row: number, col: number, gameState?: * }}
    *
    * Tips:
    *   - Click any cell with color="spR" and clicked=false — 150 SP for 1 click.
@@ -137,11 +138,11 @@ class MyOQStrategy extends OQStrategy {
 
     // Always click red when it appears — 150 SP for 1 click
     const reds = board.filter(c => c.color === "spR" && !c.clicked);
-    if (reds.length > 0) return { row: reds[0].row, col: reds[0].col, gameState };
+    if (reds.length > 0) return { row: reds[0].row, col: reds[0].col };
 
     // Always click purple immediately (free)
     const purples = board.filter(c => c.color === "spP" && !c.clicked);
-    if (purples.length > 0) return { row: purples[0].row, col: purples[0].col, gameState };
+    if (purples.length > 0) return { row: purples[0].row, col: purples[0].col };
 
     // TODO: replace the random fallback with your click logic
     const unclicked = [];
@@ -149,9 +150,9 @@ class MyOQStrategy extends OQStrategy {
       for (let c = 0; c < 5; c++)
         if (!clicked.has(r * 5 + c)) unclicked.push([r, c]);
 
-    if (unclicked.length === 0) return { row: 0, col: 0, gameState };
+    if (unclicked.length === 0) return { row: 0, col: 0 };
     const [row, col] = unclicked[Math.floor(Math.random() * unclicked.length)];
-    return { row, col, gameState };
+    return { row, col };
   }
 }
 

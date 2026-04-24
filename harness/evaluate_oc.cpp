@@ -84,7 +84,6 @@ struct GameTrace {
 static std::pair<double, bool> run_oc_game(
     const OCBoard&  board,
     StrategyBridge& strategy,
-    std::string&    game_state_json,
     GameTrace*      trace = nullptr)
 {
     // Full 25-cell board; all start as (color="spU", clicked=false)
@@ -102,7 +101,7 @@ static std::pair<double, bool> run_oc_game(
 
     // init_game_payload at the start of each game
     std::string meta = "{\"clicks_left\":5,\"max_clicks\":5}";
-    game_state_json = strategy.init_game_payload(meta, game_state_json);
+    strategy.init_game_payload(meta);
 
     int move_num = 0;
 
@@ -111,10 +110,7 @@ static std::pair<double, bool> run_oc_game(
         int clicks_before = clicks_left;
 
         std::vector<Cell> board_vec(game_board.begin(), game_board.end());
-        Click c = strategy.next_click(board_vec, meta, game_state_json);
-        // Thread the updated game state back for the next call.
-        // All bridge types (Python, C++, JS) store it in last_game_state().
-        game_state_json = strategy.last_game_state();
+        Click c = strategy.next_click(board_vec, meta);
 
         int idx = rc_to_idx(c.row, c.col);
         if (idx < 0 || idx >= N_CELLS || game_board[idx].clicked) {
@@ -260,7 +256,7 @@ int main(int argc, char* argv[]) {
         if (trace_n > (int)indices.size()) trace_n = (int)indices.size();
         indices.resize(trace_n);
 
-        std::string eval_run_state = bridge->init_evaluation_run();
+        bridge->init_evaluation_run();
         std::vector<GameTrace> traces;
         traces.reserve(trace_n);
 
@@ -273,7 +269,7 @@ int main(int argc, char* argv[]) {
                 gt.actual_board[c]  = OC_COLOR_NAMES[boards[idx].cells[c]];
             }
 
-            auto [score, _red] = run_oc_game(boards[idx], *bridge, eval_run_state, &gt);
+            auto [score, _red] = run_oc_game(boards[idx], *bridge, &gt);
             gt.score = score;
             traces.push_back(std::move(gt));
         }
@@ -295,9 +291,8 @@ int main(int argc, char* argv[]) {
     for (int t = 1; t < n_threads; ++t)
         bridges[t] = StrategyBridge::load(strategy_path, "oc");
 
-    std::vector<std::string> evaluation_run_states(n_threads);
     for (int t = 0; t < n_threads; ++t)
-        evaluation_run_states[t] = bridges[t]->init_evaluation_run();
+        bridges[t]->init_evaluation_run();
 
     std::vector<Welford>  ev_acc(n_threads);
     std::vector<uint64_t> red_count(n_threads, 0);
@@ -320,7 +315,7 @@ int main(int argc, char* argv[]) {
 #endif
         double score = 0.0; bool red_found = false;
         try {
-            auto [s, r] = run_oc_game(boards[i], *bridges[tid], evaluation_run_states[tid]);
+            auto [s, r] = run_oc_game(boards[i], *bridges[tid]);
             score = s; red_found = r;
         } catch (const std::exception& e) {
             fprintf(stderr, "\nERROR on board %lld: %s\n", (long long)i, e.what());

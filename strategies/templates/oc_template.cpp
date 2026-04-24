@@ -33,14 +33,13 @@
  *   spT   teal     20 SP
  *   spB   blue     10 SP
  *
- * STATE / JSON PROTOCOL
- * ---------------------
- * The harness serialises state as a JSON string threaded through every call:
+ * STATE MODEL
+ * -----------
+ * State lives in your class's member variables — not serialised.
  *
- *   init_evaluation_run()                 → game_state_json (once before all games)
- *   init_game_payload(meta_json, state0)    → state1     (once per game)
- *   next_click(revealed, meta, s1) → ClickResult{row, col, state2}
- *   ...
+ *   init_evaluation_run()   — store read-only run-level data in members
+ *   init_game_payload()     — reset per-game members; called before each game
+ *   next_click()            — read/update member variables as needed
  *
  * meta_json keys (oc):
  *   "clicks_left"  int   remaining budget
@@ -73,17 +72,11 @@ public:
     // -----------------------------------------------------------------------
 
     /**
-     * Return the initial state JSON — called ONCE before all games.
-     *
-     * Compute anything that is board-independent and expensive to repeat.
-     * The returned string is passed as evaluation_run_state_json to init_game_payload() at the start
-     * of every game.  Treat it as a read-only global lookup.
-     *
-     * Default: "{}" (empty object — no global state).
+     * Called ONCE before all games.  Store board-independent precomputed
+     * data in member variables here.
      */
-    std::string init_evaluation_run() override {
-        // TODO: replace with your global precomputation, or delete this method
-        return "{}";
+    void init_evaluation_run() override {
+        // TODO: precompute global data here, or delete this method
     }
 
     // -----------------------------------------------------------------------
@@ -91,17 +84,13 @@ public:
     // -----------------------------------------------------------------------
 
     /**
-     * Set up per-game state — called once before each game's first click.
+     * Reset per-game member variables — called once before each game.
      *
      * @param meta_json   JSON: {"clicks_left":N,"max_clicks":5}
-     * @param evaluation_run_state_json  Read-only value from init_evaluation_run().
-     * @return            Initial game_state_json for this game's first next_click.
      */
-    std::string init_game_payload(const std::string& meta_json,
-                         const std::string& evaluation_run_state_json) override {
+    void init_game_payload(const std::string& meta_json) override {
         // TODO: reset per-game fields here, or delete this method
         (void)meta_json;
-        return game_state_json;
     }
 
     // -----------------------------------------------------------------------
@@ -111,10 +100,9 @@ public:
     /**
      * Choose the next cell to click.
      *
-     * @param revealed    All cells revealed so far (.row, .col, .color).
-     * @param meta_json   JSON: {"clicks_left":N,"max_clicks":5}
-     * @param game_state_json  Value from the previous next_click (or init_game_payload).
-     * @param out         Fill in out.row, out.col, out.game_state_json.
+     * @param board      All 25 board cells (.row, .col, .color, .clicked).
+     * @param meta_json  JSON: {"clicks_left":N,"max_clicks":5}
+     * @param out        Fill in out.row and out.col.
      *
      * Tips:
      *   - Each color reveal constrains where red can be.  Eliminate candidate
@@ -123,11 +111,10 @@ public:
      *     pick the highest-value unrevealed cell (orange, then yellow, etc.).
      *   - A "blue" (spB) reveal at position P means red is not in any of the
      *     geometric zones that would map P to orange/yellow/green/teal from red.
-     *   - Do not return a (row, col) already in revealed.
+     *   - Do not return a (row, col) where board[row*5+col].clicked is true.
      */
     void next_click(const std::vector<Cell>& board,
                     const std::string& meta_json,
-                    const std::string& game_state_json,
                     ClickResult& out) override
     {
         (void)meta_json;
@@ -145,7 +132,6 @@ public:
 
         out.row = chosen / 5;
         out.col = chosen % 5;
-        out.game_state_json = game_state_json;  // TODO: update state if needed
     }
 
 private:
@@ -159,27 +145,18 @@ private:
 extern "C" sphere::StrategyBase* create_strategy()                         { return new MyOCStrategy(); }
 extern "C" void                  destroy_strategy(sphere::StrategyBase* s) { delete s; }
 
-extern "C" const char* strategy_init_evaluation_run(void* inst) {
-    thread_local static std::string buf;
-    buf = static_cast<MyOCStrategy*>(inst)->init_evaluation_run();
-    return buf.c_str();
+extern "C" void strategy_init_evaluation_run(void* inst) {
+    static_cast<MyOCStrategy*>(inst)->init_evaluation_run();
 }
 
-extern "C" const char* strategy_init_game_payload(void* inst,
-                                          const char* meta_json,
-                                          const char* game_state_json) {
-    thread_local static std::string buf;
-    buf = static_cast<MyOCStrategy*>(inst)->init_game_payload(
-        meta_json  ? meta_json  : "{}",
-        game_state_json ? game_state_json : "{}"
-    );
-    return buf.c_str();
+extern "C" void strategy_init_game_payload(void* inst, const char* meta_json) {
+    static_cast<MyOCStrategy*>(inst)->init_game_payload(
+        meta_json ? meta_json : "{}");
 }
 
 extern "C" const char* strategy_next_click(void* inst,
                                             const char* board_json,
-                                            const char* meta_json,
-                                            const char* game_state_json)
+                                            const char* meta_json)
 {
     thread_local static std::string buf;
     auto* s = static_cast<MyOCStrategy*>(inst);
@@ -197,9 +174,7 @@ extern "C" const char* strategy_next_click(void* inst,
     }
 
     ClickResult out;
-    s->next_click(board, meta_json ? meta_json : "{}", game_state_json ? game_state_json : "{}", out);
-    buf = "{\"row\":" + std::to_string(out.row) +
-          ",\"col\":" + std::to_string(out.col) +
-          ",\"state\":" + out.game_state_json + "}";
+    s->next_click(board, meta_json ? meta_json : "{}", out);
+    buf = "{\"row\":" + std::to_string(out.row) + ",\"col\":" + std::to_string(out.col) + "}";
     return buf.c_str();
 }

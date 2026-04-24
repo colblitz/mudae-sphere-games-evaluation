@@ -406,6 +406,7 @@ class KelimoExpectimaxOTStrategy extends OTStrategy {
   /**
    * Precompute run masks and rare combos for all four n_colors variants (6–9).
    * n_rare = n_colors - 4  (so nRare in [2,3,4,5]).
+   * Stored on `this` — never serialised or sent back to the harness.
    */
   initEvaluationRun() {
     const tealMasks   = otRunMasks(4);
@@ -418,24 +419,18 @@ class KelimoExpectimaxOTStrategy extends OTStrategy {
       rareCombos[N] = computeRareCombos(rareMasks, N);
     }
 
-    return {
-      runMasks: { teal: tealMasks, green: greenMasks, yellow: yellowMasks, rare: rareMasks },
-      rareCombos,
-    };
+    this._runMasks   = { teal: tealMasks, green: greenMasks, yellow: yellowMasks, rare: rareMasks };
+    this._rareCombos = rareCombos;
   }
 
-  /**
-   * No per-game reset needed beyond what we rebuild from `revealed` each call.
-   */
-  initGamePayload(meta, evaluationRunState) {
-    return evaluationRunState;
-  }
+  // initGamePayload not needed — no per-game state to reset.
 
   /**
    * Choose the next cell using 1-ply expectimax + greedy DP rollout.
    */
-  nextClick(board, meta, gameState) {
-    const { runMasks, rareCombos } = gameState;
+  nextClick(board, meta) {
+    const runMasks   = this._runMasks;
+    const rareCombos = this._rareCombos;
 
     const nColors = meta.n_colors;
     const nRare   = nColors - 4;  // number of rare run slots
@@ -465,9 +460,9 @@ class KelimoExpectimaxOTStrategy extends OTStrategy {
     if (!result) {
       for (let i = 0; i < 25; i++) {
         if (!clickedSet.has(i))
-          return { row: (i / 5) | 0, col: i % 5, gameState };
+          return { row: (i / 5) | 0, col: i % 5 };
       }
-      return { row: 0, col: 0, gameState };
+      return { row: 0, col: 0 };
     }
 
     const { probs } = result;
@@ -512,14 +507,13 @@ class KelimoExpectimaxOTStrategy extends OTStrategy {
     }
 
     if (moves.length === 0) {
-      return { row: 0, col: 0, gameState };
+      return { row: 0, col: 0 };
     }
 
     const best = moves[0];
     return {
       row: (best.cellIdx / 5) | 0,
       col: best.cellIdx % 5,
-      gameState,
     };
   }
 }

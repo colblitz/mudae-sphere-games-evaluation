@@ -228,7 +228,6 @@ static OTGameResult run_ot_game(
     const std::vector<std::string>& colors,  // pre-derived cell colors
     int                         n_colors,
     StrategyBridge&             strategy,
-    std::string&                game_state_json,
     GameTrace*                  trace = nullptr)
 {
     // Full 25-cell board; all start as (color="spU", clicked=false)
@@ -259,7 +258,7 @@ static OTGameResult run_ot_game(
     std::string meta = "{\"n_colors\":" + std::to_string(n_colors)
                      + ",\"ships_hit\":0,\"blues_used\":0"
                      + ",\"max_clicks\":" + std::to_string(OT_BASE_CLICKS) + "}";
-    game_state_json = strategy.init_game_payload(meta, game_state_json);
+    strategy.init_game_payload(meta);
 
     auto ship_index_for_cell = [&](int idx) -> int {
         int32_t bit = 1 << idx;
@@ -289,8 +288,7 @@ static OTGameResult run_ot_game(
              + ",\"max_clicks\":" + std::to_string(OT_BASE_CLICKS) + "}";
 
         std::vector<Cell> board_vec(game_board.begin(), game_board.end());
-        Click c = strategy.next_click(board_vec, meta, game_state_json);
-        game_state_json = strategy.last_game_state();
+        Click c = strategy.next_click(board_vec, meta);
 
         int idx = rc_to_idx(c.row, c.col);
         if (idx < 0 || idx >= N_CELLS || game_board[idx].clicked) {
@@ -492,9 +490,8 @@ static OTVariantResult evaluate_variant(
         bridges[t] = StrategyBridge::load(strategy_path, "ot");
     }
 
-    std::vector<std::string> evaluation_run_states(n_threads);
     for (int t = 0; t < n_threads; ++t)
-        evaluation_run_states[t] = bridges[t]->init_evaluation_run();
+        bridges[t]->init_evaluation_run();
 
 #ifdef _OPENMP
     omp_set_num_threads(n_threads);
@@ -522,7 +519,7 @@ static OTVariantResult evaluate_variant(
             OTGameResult res{};
             try {
                 res = run_ot_game(boards[i], colors, n_colors,
-                                  *bridges[tid], evaluation_run_states[tid]);
+                                  *bridges[tid]);
             } catch (const std::exception& e) {
                 fprintf(stderr, "\nERROR on board %lld (n_colors=%d): %s\n",
                         (long long)i, n_colors, e.what());
@@ -684,7 +681,7 @@ int main(int argc, char* argv[]) {
         if (trace_n > (int)indices.size()) trace_n = (int)indices.size();
         indices.resize(trace_n);
 
-        std::string eval_run_state = bridge->init_evaluation_run();
+        bridge->init_evaluation_run();
         std::vector<GameTrace> traces;
         traces.reserve(trace_n);
 
@@ -716,7 +713,7 @@ int main(int argc, char* argv[]) {
                 gt.actual_board[c]  = colors[c];
             }
 
-            run_ot_game(boards[bidx], colors, nc, *bridge, eval_run_state, &gt);
+            run_ot_game(boards[bidx], colors, nc, *bridge, &gt);
 
             // Compute score from moves
             gt.score = gt.moves.empty() ? 0.0 : gt.moves.back().running_score;

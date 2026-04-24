@@ -15,6 +15,23 @@
  *   .js   JavaScript    — spawned as a Node.js child process.  Communication
  *         uses newline-delimited JSON on stdin/stdout (see strategy.js).
  *
+ * State model
+ * -----------
+ * Each bridge instance owns two opaque state slots:
+ *
+ *   run_state   — set once by init_evaluation_run().  Passed (read-only) to
+ *                 every init_game_payload() call.  Never sent over the wire
+ *                 again after the initial call.
+ *
+ *   game_state  — reset at the start of each game by init_game_payload().
+ *                 Updated by each next_click() return.  Lives entirely inside
+ *                 the bridge; the harness never holds or serialises it.
+ *
+ * The harness calls:
+ *   bridge->init_evaluation_run()          once before all games
+ *   bridge->init_game_payload(meta_json)   once before each game
+ *   bridge->next_click(board, meta_json)   once per click decision
+ *
  * Usage:
  *   auto bridge = StrategyBridge::load("strategies/oc/my_strategy.py", "oc");
  *   bridge->init_evaluation_run();
@@ -60,25 +77,21 @@ class StrategyBridge {
 public:
     virtual ~StrategyBridge() = default;
 
-    virtual std::string init_evaluation_run()                                                   = 0;
-    virtual std::string init_game_payload(const std::string& meta_json,
-                                          const std::string& evaluation_run_state_json)        = 0;
-    virtual Click       next_click(const std::vector<Cell>& board,
-                                   const std::string&        meta_json,
-                                   const std::string&        game_state_json)                  = 0;
+    // Called once before all games.  Stores run_state internally.
+    virtual void init_evaluation_run()                          = 0;
 
-    // Returns the updated game state JSON from the most recent next_click call.
-    // Subclasses must set last_game_state_json_ before returning from next_click.
-    // Callers must thread this back in as game_state_json on the next call.
-    const std::string& last_game_state() const { return last_game_state_json_; }
+    // Called once before each game.  Resets game_state internally using the
+    // stored run_state and the initial game meta.
+    virtual void init_game_payload(const std::string& meta_json) = 0;
+
+    // Called once per click decision.  Updates game_state internally.
+    virtual Click next_click(const std::vector<Cell>& board,
+                             const std::string&        meta_json) = 0;
 
     // Factory: detects language from extension and constructs the right bridge.
     // game_name is one of "oh", "oc", "oq", "ot" (used to find the ABC class).
     static std::unique_ptr<StrategyBridge> load(const std::string& path,
                                                 const std::string& game_name);
-
-protected:
-    std::string last_game_state_json_ = "null";
 };
 
 // ---------------------------------------------------------------------------
@@ -127,7 +140,6 @@ public:
         PyObject* iface_mod = PyImport_ImportModule("interface.strategy");
         if (!iface_mod) {
             PyErr_Clear();
-            // Try direct import path
             PyRun_SimpleString(
                 "import sys, os\n"
                 "_iface_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath"
@@ -180,62 +192,64 @@ public:
 
     ~PythonBridge() override {
         Py_XDECREF(instance_);
+        Py_XDECREF(run_state_);
+        Py_XDECREF(game_state_);
     }
 
-    std::string init_evaluation_run() override {
+    void init_evaluation_run() override {
         PyGILState_STATE gstate = PyGILState_Ensure();
+        Py_XDECREF(run_state_);
         PyObject* ret = PyObject_CallMethod(instance_, "init_evaluation_run", nullptr);
-        if (!ret) { PyErr_Clear(); PyGILState_Release(gstate); return "null"; }
-        std::string s = py_to_json(ret);
-        Py_DECREF(ret);
+        if (!ret) { PyErr_Clear(); run_state_ = Py_None; Py_INCREF(Py_None); }
+        else { run_state_ = ret; }
         PyGILState_Release(gstate);
-        return s;
     }
 
-    std::string init_game_payload(const std::string& meta_json,
-                                  const std::string& evaluation_run_state_json) override {
+    void init_game_payload(const std::string& meta_json) override {
         PyGILState_STATE gstate = PyGILState_Ensure();
-        PyObject* meta  = json_to_py(meta_json);
-        PyObject* ers   = json_to_py(evaluation_run_state_json);
-        PyObject* ret   = PyObject_CallMethod(instance_, "init_game_payload", "OO", meta, ers);
+        PyObject* meta = json_to_py(meta_json);
+        PyObject* ers  = run_state_ ? run_state_ : Py_None;
+        Py_INCREF(ers);
+        PyObject* ret  = PyObject_CallMethod(instance_, "init_game_payload", "OO", meta, ers);
         Py_DECREF(meta);
         Py_DECREF(ers);
-        if (!ret) { PyErr_Print(); PyGILState_Release(gstate); return evaluation_run_state_json; }
-        std::string s = py_to_json(ret);
-        Py_DECREF(ret);
+        Py_XDECREF(game_state_);
+        if (!ret) { PyErr_Print(); game_state_ = Py_None; Py_INCREF(Py_None); }
+        else { game_state_ = ret; }
         PyGILState_Release(gstate);
-        return s;
     }
 
     Click next_click(const std::vector<Cell>& board,
-                     const std::string&        meta_json,
-                     const std::string&        game_state_json) override {
+                     const std::string&        meta_json) override {
         PyGILState_STATE gstate = PyGILState_Ensure();
         PyObject* rev        = cells_to_py(board);
         PyObject* meta       = json_to_py(meta_json);
-        PyObject* game_state = json_to_py(game_state_json);
-        PyObject* ret        = PyObject_CallMethod(instance_, "next_click", "OOO", rev, meta, game_state);
+        PyObject* gs         = game_state_ ? game_state_ : Py_None;
+        Py_INCREF(gs);
+        PyObject* ret        = PyObject_CallMethod(instance_, "next_click", "OOO", rev, meta, gs);
         Py_DECREF(rev);
         Py_DECREF(meta);
-        Py_DECREF(game_state);
+        Py_DECREF(gs);
         if (!ret) {
             PyErr_Print();
             PyGILState_Release(gstate);
             throw std::runtime_error("PythonBridge: next_click raised an exception (traceback above)");
         }
         Click c = py_to_click(ret);
-        // Extract updated game_state_json from ret[2] into the base class field
+        // Update game_state from the third element of the returned tuple
         PyObject* ns = PyTuple_GetItem(ret, 2);
-        if (ns) {
-            last_game_state_json_ = py_to_json(ns);
-        }
+        Py_XDECREF(game_state_);
+        if (ns) { game_state_ = ns; Py_INCREF(game_state_); }
+        else    { game_state_ = Py_None; Py_INCREF(Py_None); }
         Py_DECREF(ret);
         PyGILState_Release(gstate);
         return c;
     }
 
 private:
-    PyObject* instance_ = nullptr;
+    PyObject* instance_   = nullptr;
+    PyObject* run_state_  = nullptr;  // set once by init_evaluation_run()
+    PyObject* game_state_ = nullptr;  // reset each game, updated each click
 
     // Convert std::vector<Cell> (full 25-cell board) → Python list of dicts
     static PyObject* cells_to_py(const std::vector<Cell>& cells) {
@@ -301,19 +315,19 @@ private:
 using CreateFn  = void* (*)();
 using DestroyFn = void (*)(void*);
 
-// Minimal vtable-free proxy: we call the C++ strategy methods via a
-// thin JSON adapter defined in the compiled .so itself.  The .so must export:
+// The .so must export:
 //   extern "C" void*       create_strategy();
 //   extern "C" void        destroy_strategy(void*);
-//   extern "C" const char* strategy_init_evaluation_run(void*);
-//   extern "C" const char* strategy_init_game_payload(void*, const char* meta, const char* state);
-//   extern "C" const char* strategy_next_click(void*, const char* revealed_json,
-//                                               const char* meta, const char* state);
-// The last returned string must remain valid until the next call to the same function.
+//   extern "C" void        strategy_init_evaluation_run(void*);
+//   extern "C" void        strategy_init_game_payload(void*, const char* meta);
+//   extern "C" const char* strategy_next_click(void*, const char* board_json,
+//                                               const char* meta);
+// strategy_next_click must return a pointer that remains valid until the next
+// call (use static/thread_local storage in the .so).
 
-using InitPayloadFn  = const char* (*)(void*);
-using InitRunFn      = const char* (*)(void*, const char*, const char*);
-using NextClickFn    = const char* (*)(void*, const char*, const char*, const char*);
+using InitRunFn     = void        (*)(void*);
+using InitPayloadFn = void        (*)(void*, const char*);
+using NextClickFn   = const char* (*)(void*, const char*, const char*);
 
 class CppBridge : public StrategyBridge {
 public:
@@ -324,10 +338,10 @@ public:
         }
         create_fn_  = reinterpret_cast<CreateFn>(dlsym(handle_, "create_strategy"));
         destroy_fn_ = reinterpret_cast<DestroyFn>(dlsym(handle_, "destroy_strategy"));
-        ip_fn_      = reinterpret_cast<InitPayloadFn>(dlsym(handle_, "strategy_init_evaluation_run"));
-        ir_fn_      = reinterpret_cast<InitRunFn>(dlsym(handle_, "strategy_init_game_payload"));
+        ir_fn_      = reinterpret_cast<InitRunFn>(dlsym(handle_, "strategy_init_evaluation_run"));
+        ip_fn_      = reinterpret_cast<InitPayloadFn>(dlsym(handle_, "strategy_init_game_payload"));
         nc_fn_      = reinterpret_cast<NextClickFn>(dlsym(handle_, "strategy_next_click"));
-        if (!create_fn_ || !destroy_fn_ || !ip_fn_ || !ir_fn_ || !nc_fn_) {
+        if (!create_fn_ || !destroy_fn_ || !ir_fn_ || !ip_fn_ || !nc_fn_) {
             dlclose(handle_);
             throw std::runtime_error("CppBridge: missing required export(s) in " + so_path);
         }
@@ -339,25 +353,19 @@ public:
         if (handle_) dlclose(handle_);
     }
 
-    std::string init_evaluation_run() override {
-        const char* r = ip_fn_(instance_);
-        return r ? r : "null";
+    void init_evaluation_run() override {
+        ir_fn_(instance_);
     }
 
-    std::string init_game_payload(const std::string& meta_json,
-                                  const std::string& evaluation_run_state_json) override {
-        const char* r = ir_fn_(instance_, meta_json.c_str(), evaluation_run_state_json.c_str());
-        return r ? r : evaluation_run_state_json;
+    void init_game_payload(const std::string& meta_json) override {
+        ip_fn_(instance_, meta_json.c_str());
     }
 
     Click next_click(const std::vector<Cell>& board,
-                     const std::string&        meta_json,
-                     const std::string&        game_state_json) override {
+                     const std::string&        meta_json) override {
         std::string rev_json = cells_to_json(board);
-        const char* r = nc_fn_(instance_, rev_json.c_str(), meta_json.c_str(), game_state_json.c_str());
+        const char* r = nc_fn_(instance_, rev_json.c_str(), meta_json.c_str());
         if (!r) return {0, 0};
-        // Extract updated game_state_json from the JSON response
-        last_game_state_json_ = json_parse_state(r);
         return json_parse_click(r);
     }
 
@@ -366,8 +374,8 @@ private:
     void*         instance_   = nullptr;
     CreateFn      create_fn_  = nullptr;
     DestroyFn     destroy_fn_ = nullptr;
-    InitPayloadFn ip_fn_      = nullptr;
     InitRunFn     ir_fn_      = nullptr;
+    InitPayloadFn ip_fn_      = nullptr;
     NextClickFn   nc_fn_      = nullptr;
 
     static std::string cells_to_json(const std::vector<Cell>& cells) {
@@ -384,40 +392,12 @@ private:
     }
 
     static Click json_parse_click(const char* s) {
-        // Minimal parser: find "row": N, "col": N
         Click c{0, 0};
         const char* p = strstr(s, "\"row\":");
         if (p) c.row = static_cast<int8_t>(atoi(p + 6));
         p = strstr(s, "\"col\":");
         if (p) c.col = static_cast<int8_t>(atoi(p + 6));
         return c;
-    }
-
-    // Extract the "game_state" field from a C++ strategy JSON response.
-    // The C++ interface returns {"row":N,"col":N,"game_state":"<json>"}.
-    static std::string json_parse_state(const char* s) {
-        const char* key = "\"game_state\":";
-        const char* p = strstr(s, key);
-        if (!p) return "null";
-        p += strlen(key);
-        while (*p == ' ') ++p;
-        if (!*p) return "null";
-        // Value is either a quoted string or a raw JSON value
-        if (*p == '"') {
-            // Unescape the inner JSON string
-            ++p;
-            std::string result;
-            while (*p && *p != '"') {
-                if (*p == '\\' && *(p+1)) { result += *(++p); }
-                else result += *p;
-                ++p;
-            }
-            return result;
-        }
-        // Raw value: take until end of object
-        const char* end = p + strlen(p) - 1;
-        while (end > p && (*end == '}' || *end == ' ' || *end == '\n')) --end;
-        return std::string(p, end - p + 1);
     }
 };
 
@@ -466,31 +446,27 @@ public:
         if (pid_ > 0)       waitpid(pid_, nullptr, 0);
     }
 
-    std::string init_evaluation_run() override {
+    void init_evaluation_run() override {
         std::string msg = "{\"method\":\"init_evaluation_run\"}\n";
         write_line(msg);
-        std::string resp = read_line();
-        // Extract "value" field
-        return extract_json_field(resp, "value");
+        // Response is {"value":null} — we discard it; the Node process stores
+        // the run state in its own _runState variable.
+        read_line();
     }
 
-    std::string init_game_payload(const std::string& meta_json,
-                         const std::string& evaluation_run_state_json) override {
-        std::string msg = "{\"method\":\"init_game_payload\",\"meta\":" + meta_json
-                        + ",\"evaluationRunState\":" + evaluation_run_state_json + "}\n";
+    void init_game_payload(const std::string& meta_json) override {
+        std::string msg = "{\"method\":\"init_game_payload\",\"meta\":" + meta_json + "}\n";
         write_line(msg);
         std::string resp = read_line();
         check_error_field(resp, "init_game_payload");
-        return extract_json_field(resp, "value");
+        // Response is {"value":null} — Node process stores game state in _gameState.
     }
 
     Click next_click(const std::vector<Cell>& board,
-                     const std::string&        meta_json,
-                     const std::string&        game_state_json) override {
+                     const std::string&        meta_json) override {
         std::string rev_json = cells_to_json(board);
         std::string msg = "{\"method\":\"next_click\",\"board\":" + rev_json
-                        + ",\"meta\":" + meta_json
-                        + ",\"gameState\":" + game_state_json + "}\n";
+                        + ",\"meta\":" + meta_json + "}\n";
         write_line(msg);
         std::string resp = read_line();
         check_error_field(resp, "next_click");
@@ -499,8 +475,7 @@ public:
         if (p) c.row = static_cast<int8_t>(atoi(p + 6));
         p = strstr(resp.c_str(), "\"col\":");
         if (p) c.col = static_cast<int8_t>(atoi(p + 6));
-        // Extract the updated gameState from the response into the base class field
-        last_game_state_json_ = extract_json_field(resp, "gameState");
+        // gameState is stored in the Node process; we do not receive or parse it.
         return c;
     }
 

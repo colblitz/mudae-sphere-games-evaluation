@@ -38,14 +38,13 @@
  *   spW   white   ship of length 2 (9-color only)
  *   spB   blue    empty cell (costs 1 blue click)
  *
- * STATE / JSON PROTOCOL
- * ---------------------
- * The harness serialises state as a JSON string threaded through every call:
+ * STATE MODEL
+ * -----------
+ * State lives in your class's member variables — not serialised.
  *
- *   init_evaluation_run()                 → game_state_json (once before all games)
- *   init_game_payload(meta_json, state0)    → state1     (once per game)
- *   next_click(revealed, meta, s1) → ClickResult{row, col, state2}
- *   ...
+ *   init_evaluation_run()   — store read-only run-level data in members
+ *   init_game_payload()     — reset per-game members; called before each game
+ *   next_click()            — read/update member variables as needed
  *
  * meta_json keys (ot):
  *   "n_colors"    int   ship color count (6, 7, 8, or 9)
@@ -80,18 +79,117 @@ public:
     // -----------------------------------------------------------------------
 
     /**
-     * Return the initial state JSON — called ONCE before all games.
+     * Called ONCE before all games.  Store board-independent precomputed
+     * data in member variables here.
      *
-     * Compute anything that is board-independent and expensive to repeat.
-     * Default: "{}" (empty object).
-     *
-     * Example: for each n_colors variant, enumerate all valid ship placements
-     * and store per-cell marginal probabilities of being a ship cell.
+     * Example: enumerate all valid ship placements for each n_colors variant
+     * and store the per-cell marginal probabilities of being a ship cell.
      */
-    std::string init_evaluation_run() override {
-        // TODO: replace with your global precomputation, or delete this method
-        return "{}";
+    void init_evaluation_run() override {
+        // TODO: precompute global data here, or delete this method
     }
+
+    // -----------------------------------------------------------------------
+    // Optional: per-game initialisation
+    // -----------------------------------------------------------------------
+
+    /**
+     * Reset per-game member variables — called once before each game.
+     *
+     * @param meta_json  JSON: {"n_colors":N,"ships_hit":0,"blues_used":0,"max_clicks":4}
+     *
+     * Tip: read "n_colors" from meta_json to select the right precomputed
+     * tables for this variant.
+     */
+    void init_game_payload(const std::string& meta_json) override {
+        // TODO: reset per-game fields here, or delete this method
+        (void)meta_json;
+    }
+
+    // -----------------------------------------------------------------------
+    // Required: click decision
+    // -----------------------------------------------------------------------
+
+    /**
+     * Choose the next cell to click.
+     *
+     * @param board      All 25 board cells (.row, .col, .color, .clicked).
+     * @param meta_json  JSON: {"n_colors":N,"ships_hit":K,"blues_used":B,"max_clicks":4}
+     * @param out        Fill in out.row and out.col.
+     *
+     * Tips:
+     *   - Ship cells are FREE — clicking a ship cell does not cost a click.
+     *   - Each clicked cell constrains where remaining ships can be.
+     *   - A blue cell at (r,c) confirms no ship passes through it.
+     *   - Prefer cells with high P(ship) to minimise wasted blue clicks.
+     *   - Ship lengths: spT=4, spG=3, spY=3, spO/spL/spD/spR/spW=2
+     *   - Do not return a (row, col) where board[row*5+col].clicked is true.
+     */
+    void next_click(const std::vector<Cell>& board,
+                    const std::string& meta_json,
+                    ClickResult& out) override
+    {
+        (void)meta_json;
+
+        bool clicked[25] = {};
+        std::vector<int> unclicked;
+
+        for (const Cell& c : board) if (c.clicked) clicked[c.row * 5 + c.col] = true;
+        for (int i = 0; i < 25; ++i)
+            if (!clicked[i]) unclicked.push_back(i);
+
+        // TODO: replace this random fallback with your click logic
+        int chosen = unclicked.empty() ? 0
+            : unclicked[std::uniform_int_distribution<int>(0, (int)unclicked.size() - 1)(rng_)];
+
+        out.row = chosen / 5;
+        out.col = chosen % 5;
+    }
+
+private:
+    std::mt19937_64 rng_;
+};
+
+// ---------------------------------------------------------------------------
+// C exports required by the harness — do not rename these functions
+// ---------------------------------------------------------------------------
+
+extern "C" sphere::StrategyBase* create_strategy()                         { return new MyOTStrategy(); }
+extern "C" void                  destroy_strategy(sphere::StrategyBase* s) { delete s; }
+
+extern "C" void strategy_init_evaluation_run(void* inst) {
+    static_cast<MyOTStrategy*>(inst)->init_evaluation_run();
+}
+
+extern "C" void strategy_init_game_payload(void* inst, const char* meta_json) {
+    static_cast<MyOTStrategy*>(inst)->init_game_payload(
+        meta_json ? meta_json : "{}");
+}
+
+extern "C" const char* strategy_next_click(void* inst,
+                                            const char* board_json,
+                                            const char* meta_json)
+{
+    thread_local static std::string buf;
+    auto* s = static_cast<MyOTStrategy*>(inst);
+
+    std::vector<Cell> board;
+    const char* p = board_json;
+    while ((p = strstr(p, "\"row\":")) != nullptr) {
+        Cell c;
+        c.row = atoi(p + 6);
+        const char* cp = strstr(p, "\"col\":"); if (cp) c.col = atoi(cp + 6);
+        const char* colp = strstr(p, "\"color\":\"");
+        if (colp) { colp += 9; const char* e = strchr(colp, '"'); if (e) c.color = std::string(colp, e - colp); }
+        const char* clkp = strstr(p, "\"clicked\":"); if (clkp) { clkp += 10; while (*clkp==' ') ++clkp; c.clicked = (strncmp(clkp,"true",4)==0); }
+        board.push_back(c); p += 6;
+    }
+
+    ClickResult out;
+    s->next_click(board, meta_json ? meta_json : "{}", out);
+    buf = "{\"row\":" + std::to_string(out.row) + ",\"col\":" + std::to_string(out.col) + "}";
+    return buf.c_str();
+}
 
     // -----------------------------------------------------------------------
     // Optional: per-game initialisation

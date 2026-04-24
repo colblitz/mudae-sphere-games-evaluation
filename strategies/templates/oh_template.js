@@ -41,24 +41,20 @@
  * Row and col are 0-indexed (0..4).  color="spU" = covered/unknown.
  * clicked=false = still interactable; clicked=true = disabled.
  *
- * STATE PAYLOAD
- * -------------
- * The game_state value is threaded through every call within a game:
+ * STATE MODEL
+ * -----------
+ * State lives inside the Node process — it is never sent back to the harness.
  *
- *   initEvaluationRun()             → initialState   (called once before all games)
- *   initGamePayload(meta, s0)         → s1             (called once per game)
- *   nextClick(board,meta,s1) → {row,col,gameState:s2}
- *   nextClick(revealed,meta,s2) → {row,col,gameState:s3}
- *   ...
+ *   initEvaluationRun()          → run state (once before all games)
+ *   initGamePayload(meta, rs)    → game state (reset before each game)
+ *   nextClick(board, meta, gs)   → { row, col [, gameState] }
  *
- * Use initEvaluationRun() for data computed ONCE and shared across all games
- * (lookup tables, precomputed weights, etc.).
+ * initEvaluationRun(): return read-only data shared across all games.
+ * initGamePayload():   return fresh per-game state (bridge resets it each game).
+ * nextClick():         receive current game state, return { row, col } and
+ *                      optionally a new gameState to replace it.
  *
- * Use initGamePayload() to reset per-game bookkeeping at the start of each game.
- * The gameState it returns is passed to the first nextClick() call.
- *
- * If your strategy is stateless, omit both optional methods and return
- * `gameState` unchanged in nextClick().
+ * If your strategy is stateless, omit all three optional methods.
  *
  * meta keys (oh):
  *   clicks_left  number  remaining budget (starts at 5)
@@ -102,10 +98,10 @@ class MyOHStrategy extends OHStrategy {
    * Called ONCE before all games begin.
    *
    * Return anything that is board-independent and expensive to repeat.
-   * The returned value is passed as `evaluationRunState` to every subsequent initGamePayload()
-   * and nextClick() call.  Treat it as a read-only global table.
+   * The returned value is stored by the bridge and passed as `evaluationRunState`
+   * to every initGamePayload() call.  Treat it as read-only.
    *
-   * @returns {*}  Any JSON-serialisable value.  Default: null.
+   * @returns {*}  Any value.  Default: null.
    */
   // If using a large external file, make this method async:
   //   async initEvaluationRun() { ... }
@@ -158,9 +154,9 @@ class MyOHStrategy extends OHStrategy {
    * @param {*} gameState
    *   Value returned by the previous nextClick() (or initGamePayload() for the first
    *   call of the game).
-   * @returns {{ row: number, col: number, gameState: * }}
+   * @returns {{ row: number, col: number, gameState?: * }}
    *   row, col    : 0-indexed coordinates of the cell to click.
-   *   gameState   : updated gameState for the next call.
+   *   gameState   : optional; new game state for the next call.
    *
    * Tips:
    *   - Purple cells ("spP") with clicked=false are free — click them immediately.
@@ -175,7 +171,7 @@ class MyOHStrategy extends OHStrategy {
     const purples = board.filter(c => c.color === "spP" && !c.clicked);
     if (purples.length > 0) {
       const pick = purples[0];
-      return { row: pick.row, col: pick.col, gameState };
+      return { row: pick.row, col: pick.col };
     }
 
     // TODO: replace the random fallback with your click logic
@@ -184,9 +180,9 @@ class MyOHStrategy extends OHStrategy {
       for (let c = 0; c < 5; c++)
         if (!clicked.has(r * 5 + c)) unclicked.push([r, c]);
 
-    if (unclicked.length === 0) return { row: 0, col: 0, gameState };
+    if (unclicked.length === 0) return { row: 0, col: 0 };
     const [row, col] = unclicked[Math.floor(Math.random() * unclicked.length)];
-    return { row, col, gameState };
+    return { row, col };
   }
 }
 

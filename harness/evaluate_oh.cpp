@@ -300,7 +300,6 @@ static OHGameResult run_oh_game(
     const OHBoard& board,
     const Dist&    dark_dist,
     StrategyBridge& strategy,
-    std::string&   game_state_json,
     std::mt19937_64& rng,
     uint64_t       game_seed,
     GameTrace*     trace = nullptr)
@@ -335,7 +334,7 @@ static OHGameResult run_oh_game(
     std::string meta = "{\"clicks_left\":" + std::to_string(clicks_left)
                      + ",\"max_clicks\":" + std::to_string(MAX_CLICKS)
                      + ",\"game_seed\":"  + std::to_string(game_seed) + "}";
-    game_state_json = strategy.init_game_payload(meta, game_state_json);
+    strategy.init_game_payload(meta);
 
     // do_reveal: passively reveals a cell (sets color, does NOT set clicked)
     auto do_reveal = [&](int idx) {
@@ -360,8 +359,7 @@ static OHGameResult run_oh_game(
         int clicks_before = clicks_left;
 
         std::vector<Cell> board_vec(game_board.begin(), game_board.end());
-        Click c = strategy.next_click(board_vec, meta, game_state_json);
-        game_state_json = strategy.last_game_state();
+        Click c = strategy.next_click(board_vec, meta);
 
         int idx = rc_to_idx(c.row, c.col);
         if (idx < 0 || idx >= N_SLOTS || game_board[idx].clicked) {
@@ -591,7 +589,7 @@ int main(int argc, char* argv[]) {
                trace_n, (unsigned long long)seed);
         fflush(stdout);
 
-        std::string eval_run_state = bridge->init_evaluation_run();
+        bridge->init_evaluation_run();
         std::vector<GameTrace> traces;
         traces.reserve(trace_n);
 
@@ -612,7 +610,7 @@ int main(int argc, char* argv[]) {
                     ? gt.actual_board[i] : "?";
             }
 
-            auto result = run_oh_game(board, dark_dist, *bridge, eval_run_state, rng, game_seed, &gt);
+            auto result = run_oh_game(board, dark_dist, *bridge, rng, game_seed, &gt);
             gt.score = result.score;
             traces.push_back(std::move(gt));
         }
@@ -638,9 +636,8 @@ int main(int argc, char* argv[]) {
     for (int t = 1; t < n_threads; ++t)
         bridges[t] = StrategyBridge::load(strategy_path, "oh");
 
-    std::vector<std::string> evaluation_run_states(n_threads);
     for (int t = 0; t < n_threads; ++t)
-        evaluation_run_states[t] = bridges[t]->init_evaluation_run();
+        bridges[t]->init_evaluation_run();
 
     std::atomic<uint64_t> done_count(0);
     ProgressReporter prog(n_games, 10000);
@@ -668,7 +665,7 @@ int main(int argc, char* argv[]) {
         // seed their own RNG deterministically, producing identical results across runs.
         OHGameResult result{};
         try {
-            result = run_oh_game(board, dark_dist, *bridges[tid], evaluation_run_states[tid], rng, game_seed);
+            result = run_oh_game(board, dark_dist, *bridges[tid], rng, game_seed);
         } catch (const std::exception& e) {
             fprintf(stderr, "\nERROR on game %lld (seed=%llu): %s\n",
                     (long long)g, (unsigned long long)game_seed, e.what());

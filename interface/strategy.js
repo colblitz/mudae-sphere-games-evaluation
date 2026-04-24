@@ -14,7 +14,7 @@
  *   const { OCStrategy, register } = require("../../interface/strategy.js");
  *
  *   class MyOCStrategy extends OCStrategy {
- *     nextClick(board, meta, state) {
+ *     nextClick(board, meta, gameState) {
  *       // Pick a random unclicked cell
  *       const clicked = new Set(board.filter(c => c.clicked).map(c => c.row * 5 + c.col));
  *       const unclicked = [];
@@ -22,11 +22,24 @@
  *         for (let c = 0; c < 5; c++)
  *           if (!clicked.has(r * 5 + c)) unclicked.push([r, c]);
  *       const [row, col] = unclicked[Math.floor(Math.random() * unclicked.length)];
- *       return { row, col, gameState: state };
+ *       return { row, col };
  *     }
  *   }
  *
  *   register(new MyOCStrategy());
+ *
+ * State model
+ * -----------
+ * State lives entirely inside this Node process — it is never serialised and
+ * sent back to the harness.
+ *
+ *   run state   — returned by initEvaluationRun().  Stored here and passed as
+ *                 `evaluationRunState` to every initGamePayload() call.  Treat
+ *                 it as read-only; do not mutate it inside nextClick().
+ *
+ *   game state  — returned by initGamePayload() and updated by each nextClick()
+ *                 return.  Reset at the start of every game when the harness
+ *                 calls initGamePayload() again.
  *
  * Board cell format
  * -----------------
@@ -45,8 +58,8 @@
  * -------------------------
  * Return an object: { row, col, gameState }
  *   row, col   — 0-indexed coordinates of the cell to click.
- *   gameState  — any JSON-serializable value; passed back on the next call.
- *                Use null if stateless.
+ *   gameState  — optional; any value to pass back as gameState on the next call.
+ *                Omit or return null if stateless.
  * Do NOT return a cell where board[row*5+col].clicked is true.
  *
  * For the full color reference and game rules see interface/strategy.py.
@@ -84,7 +97,8 @@ class StrategyBase {
    *
    * @param {Object} meta               Game metadata (keys vary per game).
    * @param {*}      evaluationRunState Read-only value from initEvaluationRun().
-   *                                    Do not mutate — shared across all games.
+   *                                    Provided from the stored run state — do
+   *                                    not mutate it.
    * @returns {*}    Initial gameState for this game's first nextClick call.
    */
   initGamePayload(meta, evaluationRunState) {
@@ -171,7 +185,9 @@ class OTStrategy extends StrategyBase {}
 // Protocol handler — do not modify
 // ---------------------------------------------------------------------------
 
-let _strategy = null;
+let _strategy  = null;
+let _runState  = null;  // set by initEvaluationRun(); passed to every initGamePayload()
+let _gameState = null;  // reset by initGamePayload(); updated by each nextClick() return
 
 /**
  * Register a strategy instance.  Call this once at the bottom of your file.
@@ -282,12 +298,21 @@ function register(instance) {
     try {
       let result;
       if (msg.method === "init_evaluation_run") {
-        result = { value: _strategy.initEvaluationRun() };
+        // Store run state locally; respond with null (harness discards the value).
+        _runState = _strategy.initEvaluationRun();
+        result = { value: null };
       } else if (msg.method === "init_game_payload") {
-        result = { value: _strategy.initGamePayload(msg.meta, msg.evaluationRunState) };
+        // Reset game state using the stored run state; respond with null.
+        _gameState = _strategy.initGamePayload(msg.meta, _runState);
+        result = { value: null };
       } else if (msg.method === "next_click") {
-        const { row, col, gameState } = _strategy.nextClick(msg.board, msg.meta, msg.gameState);
-        result = { row, col, gameState };
+        // Pass stored game state in; capture and store the updated game state.
+        const ret = _strategy.nextClick(msg.board, msg.meta, _gameState);
+        const { row, col } = ret;
+        if (Object.prototype.hasOwnProperty.call(ret, "gameState")) {
+          _gameState = ret.gameState;
+        }
+        result = { row, col };
       } else {
         result = { error: "unknown_method" };
       }

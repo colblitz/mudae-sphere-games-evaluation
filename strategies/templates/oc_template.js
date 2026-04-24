@@ -40,17 +40,18 @@
  * Row and col are 0-indexed (0..4).  color="spU" = covered/unknown.
  * clicked=false = still interactable; clicked=true = disabled.
  *
- * STATE PAYLOAD
- * -------------
- * The game_state value is threaded through every call within a game:
+ * STATE MODEL
+ * -----------
+ * State lives inside the Node process — it is never sent back to the harness.
  *
- *   initEvaluationRun()               → initialState (called once before all games)
- *   initGamePayload(meta, s0)           → s1           (called once per game)
- *   nextClick(board,meta,s1) → {row,col,gameState:s2}
- *   ...
+ *   initEvaluationRun()          → run state (once before all games)
+ *   initGamePayload(meta, rs)    → game state (reset before each game)
+ *   nextClick(board, meta, gs)   → { row, col [, gameState] }
  *
- * Use initEvaluationRun() for data computed ONCE and shared across all games.
- * Use initGamePayload() to reset per-game bookkeeping at the start of each game.
+ * initEvaluationRun(): return read-only data shared across all games.
+ * initGamePayload():   return fresh per-game state (bridge resets it each game).
+ * nextClick():         receive current game state, return { row, col } and
+ *                      optionally a new gameState to replace it.
  *
  * meta keys (oc):
  *   clicks_left  number  remaining budget
@@ -76,10 +77,10 @@ class MyOCStrategy extends OCStrategy {
    * Called ONCE before all games begin.
    *
    * Return anything that is board-independent and expensive to repeat.
-   * The returned value is passed as `evaluationRunState` to every subsequent initGamePayload()
-   * and nextClick() call.  Treat it as a read-only global table.
+   * The returned value is stored by the bridge and passed as `evaluationRunState`
+   * to every initGamePayload() call.  Treat it as read-only.
    *
-   * @returns {*}  Any JSON-serialisable value.  Default: null.
+   * @returns {*}  Any value.  Default: null.
    *
    * Example: pre-rank all 25 cells by expected SP under a uniform prior over
    * all 16,800 possible red positions, so nextClick() can do a fast scan.
@@ -121,7 +122,7 @@ class MyOCStrategy extends OCStrategy {
    *   { clicks_left: number, max_clicks: number }
    * @param {*} gameState
    *   Value returned by the previous nextClick() (or initGamePayload() for first call).
-   * @returns {{ row: number, col: number, gameState: * }}
+   * @returns {{ row: number, col: number, gameState?: * }}
    *
    * Tips:
    *   - Each clicked color constrains where red can be.
@@ -139,9 +140,9 @@ class MyOCStrategy extends OCStrategy {
       for (let c = 0; c < 5; c++)
         if (!clicked.has(r * 5 + c)) unclicked.push([r, c]);
 
-    if (unclicked.length === 0) return { row: 0, col: 0, gameState };
+    if (unclicked.length === 0) return { row: 0, col: 0 };
     const [row, col] = unclicked[Math.floor(Math.random() * unclicked.length)];
-    return { row, col, gameState };
+    return { row, col };
   }
 }
 

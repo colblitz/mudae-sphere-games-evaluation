@@ -4,9 +4,21 @@ Each game has its own ABC.  To submit a strategy, create a file in
 ``strategies/<game>/`` that subclasses the appropriate ABC and implements
 ``next_click``.  ``init_evaluation_run`` and ``init_game_payload`` are optional overrides.
 
-The harness calls ``init_evaluation_run`` once before all games begin, then
-``init_game_payload`` once before each game, and then ``next_click`` on every
-click decision, threading the returned game state payload back in.
+State model
+-----------
+State lives inside the bridge — it is never serialised back to the harness.
+
+``init_evaluation_run`` is called once before all games.  Its return value is
+stored as the *run state* and passed (read-only) as ``evaluation_run_state`` to
+every ``init_game_payload`` call.
+
+``init_game_payload`` is called once before each game.  Its return value becomes
+the *game state* for that game's first ``next_click`` call.  The game state is
+reset at the start of every game; do not rely on it carrying values from the
+previous game.
+
+``next_click`` receives the current game state and returns ``(row, col, new_state)``.
+The bridge stores ``new_state`` and passes it back on the next call.
 
 Board cell format
 -----------------
@@ -119,8 +131,9 @@ class OHStrategy(ABC):
         """Called once before the evaluation run begins.
 
         Override to compute data shared across all games — lookup tables,
-        precomputed weights, loaded models, etc.  The returned value is passed
-        as ``evaluation_run_state`` to every ``init_game_payload`` call.
+        precomputed weights, loaded models, etc.  The returned value is stored
+        by the bridge and passed as ``evaluation_run_state`` to every
+        ``init_game_payload`` call.
 
         Do not store game-specific information here.  Each game must be played
         independently; sharing board history between games produces unfair results.
@@ -133,12 +146,13 @@ class OHStrategy(ABC):
         """Called once before the first click of each game.
 
         Override to set up fresh per-game state.  The returned value becomes
-        the ``game_state`` for that game's first ``next_click`` call.
+        the ``game_state`` for that game's first ``next_click`` call.  The
+        bridge resets game state by calling this at the start of every game.
 
         Args:
             meta: game metadata (same keys as passed to ``next_click``).
-            evaluation_run_state: read-only value returned by ``init_evaluation_run``.
-                Do not mutate this — it is shared across all games.
+            evaluation_run_state: read-only value returned by
+                ``init_evaluation_run``.  Do not mutate — shared across all games.
 
         Returns:
             Initial ``game_state`` for this game's first ``next_click`` call.
@@ -166,8 +180,8 @@ class OHStrategy(ABC):
                 (or ``init_game_payload`` for the first call of the game).
 
         Returns:
-            ``(row, col, game_state)`` — coordinates of the cell to click
-            (0-indexed) and the updated game state to pass into the next call.
+            ``(row, col, new_game_state)`` — coordinates of the cell to click
+            (0-indexed) and the updated game state for the next call.
             Do not return a cell where ``board[row*5+col]["clicked"]`` is True.
         """
         ...
@@ -204,15 +218,15 @@ class OCStrategy(ABC):
     """
 
     def init_evaluation_run(self) -> Any:
-        """Called once before the evaluation run begins. Default: None.
-
-        Do not store game-specific information here — each game must be played
-        independently; sharing board history between games produces unfair results.
-        """
+        """Called once before the evaluation run begins. Default: None."""
         return None
 
     def init_game_payload(self, meta: dict[str, Any], evaluation_run_state: Any) -> Any:
-        """Called once before each game. Returns initial game_state. Default: evaluation_run_state."""
+        """Called once before each game. Returns initial game_state.
+
+        The bridge resets game state by calling this before every game.
+        Default: returns ``evaluation_run_state`` unchanged.
+        """
         return evaluation_run_state
 
     @abstractmethod
@@ -231,7 +245,7 @@ class OCStrategy(ABC):
             game_state: value from the previous call (or init_game_payload).
 
         Returns:
-            ``(row, col, game_state)``.
+            ``(row, col, new_game_state)``.
             Do not return a cell where ``board[row*5+col]["clicked"]`` is True.
         """
         ...
@@ -264,15 +278,15 @@ class OQStrategy(ABC):
     """
 
     def init_evaluation_run(self) -> Any:
-        """Called once before the evaluation run begins. Default: None.
-
-        Do not store game-specific information here — each game must be played
-        independently; sharing board history between games produces unfair results.
-        """
+        """Called once before the evaluation run begins. Default: None."""
         return None
 
     def init_game_payload(self, meta: dict[str, Any], evaluation_run_state: Any) -> Any:
-        """Called once before each game. Returns initial game_state. Default: evaluation_run_state."""
+        """Called once before each game. Returns initial game_state.
+
+        The bridge resets game state by calling this before every game.
+        Default: returns ``evaluation_run_state`` unchanged.
+        """
         return evaluation_run_state
 
     @abstractmethod
@@ -290,11 +304,11 @@ class OQStrategy(ABC):
                 After 3 purples are clicked, the 4th purple appears with
                 color="spR", clicked=False — click it (costs 1 click, worth 150 SP).
             meta: ``{"clicks_left": int, "max_clicks": int,
-                      "purples_found": int}``.
+                       "purples_found": int}``.
             game_state: value from the previous call (or init_game_payload).
 
         Returns:
-            ``(row, col, game_state)``.
+            ``(row, col, new_game_state)``.
             Do not return a cell where ``board[row*5+col]["clicked"]`` is True.
         """
         ...
@@ -334,15 +348,15 @@ class OTStrategy(ABC):
     """
 
     def init_evaluation_run(self) -> Any:
-        """Called once before the evaluation run begins. Default: None.
-
-        Do not store game-specific information here — each game must be played
-        independently; sharing board history between games produces unfair results.
-        """
+        """Called once before the evaluation run begins. Default: None."""
         return None
 
     def init_game_payload(self, meta: dict[str, Any], evaluation_run_state: Any) -> Any:
-        """Called once before each game. Returns initial game_state. Default: evaluation_run_state."""
+        """Called once before each game. Returns initial game_state.
+
+        The bridge resets game state by calling this before every game.
+        Default: returns ``evaluation_run_state`` unchanged.
+        """
         return evaluation_run_state
 
     @abstractmethod
@@ -358,11 +372,11 @@ class OTStrategy(ABC):
             board: all 25 board cells, each as
                 ``{"row": int, "col": int, "color": str, "clicked": bool}``.
             meta: ``{"n_colors": int, "ships_hit": int,
-                      "blues_used": int, "max_clicks": int}``.
+                       "blues_used": int, "max_clicks": int}``.
             game_state: value from the previous call (or init_game_payload).
 
         Returns:
-            ``(row, col, game_state)``.
+            ``(row, col, new_game_state)``.
             Do not return a cell where ``board[row*5+col]["clicked"]`` is True.
         """
         ...

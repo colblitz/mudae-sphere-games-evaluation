@@ -36,10 +36,10 @@
  * Return value of next_click
  * --------------------------
  * Fill in the `out` ClickResult:
- *   out.row, out.col        — 0-indexed coordinates of the cell to click.
- *   out.game_state_json     — arbitrary JSON string; passed back as
- *                             game_state_json on the next call.
- *                             Use "{}" if stateless.
+ *   out.row, out.col  — 0-indexed coordinates of the cell to click.
+ *
+ * Per-game state lives in your class's member variables.  Reset it in
+ * init_game_payload(); it will be cleared correctly between games.
  *
  * Do NOT return a (row, col) where board[row*5+col].clicked is true.
  *
@@ -65,9 +65,8 @@ struct Cell {
 };
 
 struct ClickResult {
-    int         row             = 0;
-    int         col             = 0;
-    std::string game_state_json = "{}";  // Per-game state; threaded back each call
+    int row = 0;
+    int col = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -82,47 +81,36 @@ public:
      * Called once before the evaluation run begins.
      *
      * Override to compute data shared across all games — lookup tables,
-     * precomputed weights, etc.  The returned JSON is passed as
-     * evaluation_run_state_json to every init_game_payload call.
+     * precomputed weights, etc.  Store the results in member variables.
      *
      * Do not store game-specific information here.  Each game must be played
      * independently; sharing board history between games produces unfair results.
      *
-     * Default: "{}".
+     * Default: no-op.
      */
-    virtual std::string init_evaluation_run() { return "{}"; }
+    virtual void init_evaluation_run() {}
 
     /**
      * Called once before the first click of each game.
      *
-     * Override to set up fresh per-game state.  The returned JSON becomes
-     * game_state_json for that game's first next_click call.
+     * Override to reset per-game member variables so each game starts clean.
+     * The bridge calls this before every game.
      *
-     * @param meta_json                JSON object with game metadata.
-     * @param evaluation_run_state_json Read-only value from init_evaluation_run().
-     *                                  Do not mutate — shared across all games.
-     * @return                         Initial game_state_json for this game.
+     * @param meta_json  JSON object with game metadata (initial state, e.g. clicks_left).
      */
-    virtual std::string init_game_payload(const std::string& meta_json,
-                                          const std::string& evaluation_run_state_json) {
-        (void)meta_json;
-        return evaluation_run_state_json;
-    }
+    virtual void init_game_payload(const std::string& meta_json) { (void)meta_json; }
 
     /**
      * Choose the next cell to click.
      *
-     * @param board           All 25 board cells.  color="spU" means covered/unknown;
-     *                        clicked=false means still interactable.
-     * @param meta_json       JSON object with game-specific metadata.
-     * @param game_state_json Value returned by the previous next_click (or
-     *                        init_game_payload for the first call of the game).
-     * @param out             Filled in with (row, col, game_state_json).
-     *                        Do not return a cell where board[row*5+col].clicked is true.
+     * @param board      All 25 board cells.  color="spU" means covered/unknown;
+     *                   clicked=false means still interactable.
+     * @param meta_json  JSON object with game-specific metadata.
+     * @param out        Fill in out.row and out.col.
+     *                   Do not return a cell where board[row*5+col].clicked is true.
      */
     virtual void next_click(const std::vector<Cell>& board,
                             const std::string&        meta_json,
-                            const std::string&        game_state_json,
                             ClickResult&              out) = 0;
 };
 

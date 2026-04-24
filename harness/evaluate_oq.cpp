@@ -141,7 +141,6 @@ struct GameTrace {
 static std::pair<double, bool> run_oq_game(
     uint32_t        purple_mask,
     StrategyBridge& strategy,
-    std::string&    game_state_json,
     GameTrace*      trace = nullptr)
 {
     // Full 25-cell board; all start as (color="spU", clicked=false)
@@ -162,7 +161,7 @@ static std::pair<double, bool> run_oq_game(
     std::string meta = "{\"clicks_left\":" + std::to_string(clicks_left)
                      + ",\"max_clicks\":" + std::to_string(MAX_CLICKS)
                      + ",\"purples_found\":0}";
-    game_state_json = strategy.init_game_payload(meta, game_state_json);
+    strategy.init_game_payload(meta);
 
     while (clicks_left > 0) {
         int clicks_before  = clicks_left;
@@ -172,8 +171,7 @@ static std::pair<double, bool> run_oq_game(
              + ",\"purples_found\":" + std::to_string(purples) + "}";
 
         std::vector<Cell> board_vec(game_board.begin(), game_board.end());
-        Click c = strategy.next_click(board_vec, meta, game_state_json);
-        game_state_json = strategy.last_game_state();
+        Click c = strategy.next_click(board_vec, meta);
 
         int idx = rc_to_idx(c.row, c.col);
         if (idx < 0 || idx >= N_CELLS || game_board[idx].clicked) {
@@ -341,7 +339,7 @@ int main(int argc, char* argv[]) {
         if (trace_n > (int)indices.size()) trace_n = (int)indices.size();
         indices.resize(trace_n);
 
-        std::string eval_run_state = bridge->init_evaluation_run();
+        bridge->init_evaluation_run();
         std::vector<GameTrace> traces;
         traces.reserve(trace_n);
 
@@ -354,7 +352,7 @@ int main(int argc, char* argv[]) {
                 gt.actual_board[c]  = oq_cell_color(boards[idx], c, 0);
             }
 
-            auto [score, _red] = run_oq_game(boards[idx], *bridge, eval_run_state, &gt);
+            auto [score, _red] = run_oq_game(boards[idx], *bridge, &gt);
             gt.score = score;
             traces.push_back(std::move(gt));
         }
@@ -376,9 +374,8 @@ int main(int argc, char* argv[]) {
     for (int t = 1; t < n_threads; ++t)
         bridges[t] = StrategyBridge::load(strategy_path, "oq");
 
-    std::vector<std::string> evaluation_run_states(n_threads);
     for (int t = 0; t < n_threads; ++t)
-        evaluation_run_states[t] = bridges[t]->init_evaluation_run();
+        bridges[t]->init_evaluation_run();
 
     std::vector<Welford>  ev_acc(n_threads);
     std::vector<uint64_t> red_count(n_threads, 0);
@@ -401,7 +398,7 @@ int main(int argc, char* argv[]) {
 #endif
         double score = 0.0; bool red_found = false;
         try {
-            auto [s, r] = run_oq_game(boards[i], *bridges[tid], evaluation_run_states[tid]);
+            auto [s, r] = run_oq_game(boards[i], *bridges[tid]);
             score = s; red_found = r;
         } catch (const std::exception& e) {
             fprintf(stderr, "\nERROR on board %lld: %s\n", (long long)i, e.what());
