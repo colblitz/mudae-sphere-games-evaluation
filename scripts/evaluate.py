@@ -234,7 +234,7 @@ def make_entry(result: dict[str, Any], strategy_path: str) -> dict[str, Any]:
                 "avg_clicks", "stdev_clicks", "avg_ship_clicks", "stdev_ship_clicks",
                 "perfect_rate", "all_ships_rate", "loss_5050_rate",
                 "n_games", "n_boards", "aggregate_ev", "seed",
-                "games_per_s", "harness_elapsed_s"):
+                "games_per_cpu_s", "harness_elapsed_s"):
         if key in result:
             entry[key] = result[key]
     return entry
@@ -309,12 +309,12 @@ def _fmt_f(v: Any, d: int = 2) -> str:
 
 def render_oh_table(top5: list[dict]) -> str:
     lines = [
-        "| Rank | Strategy | EV | Stdev | OC Rate | Games/s | Commit | Date |",
-        "|------|----------|----|-------|---------|---------|--------|------|",
+        "| Rank | Strategy | EV | Stdev | OC Rate | Games/CPU-s | Commit | Date |",
+        "|------|----------|----|-------|---------|-------------|--------|------|",
     ]
     for i, e in enumerate(top5, 1):
         fname = Path(e.get("filename", "")).name
-        gps = _fmt_f(e.get("games_per_s"), 0) if e.get("games_per_s") is not None else "—"
+        gps = _fmt_f(e.get("games_per_cpu_s"), 0) if e.get("games_per_cpu_s") is not None else "—"
         lines.append(
             f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} | {_fmt_f(e.get('stdev'))} "
             f"| {_fmt_pct(e.get('oc_rate', '—'))} | {gps} | `{e.get('commit','?')}` | {e.get('date','?')} |"
@@ -325,12 +325,12 @@ def render_oh_table(top5: list[dict]) -> str:
 def render_oc_oq_table(top5: list[dict], game: str) -> str:
     label = "Red Rate"
     lines = [
-        f"| Rank | Strategy | EV | Stdev | {label} | Games/s | Commit | Date |",
-        f"|------|----------|----|-------|{'-------' if len(label) < 9 else '-' * len(label)}|---------|--------|------|",
+        f"| Rank | Strategy | EV | Stdev | {label} | Games/CPU-s | Commit | Date |",
+        f"|------|----------|----|-------|{'-------' if len(label) < 9 else '-' * len(label)}|-------------|--------|------|",
     ]
     for i, e in enumerate(top5, 1):
         fname = Path(e.get("filename", "")).name
-        gps = _fmt_f(e.get("games_per_s"), 0) if e.get("games_per_s") is not None else "—"
+        gps = _fmt_f(e.get("games_per_cpu_s"), 0) if e.get("games_per_cpu_s") is not None else "—"
         lines.append(
             f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} | {_fmt_f(e.get('stdev'))} "
             f"| {_fmt_pct(e.get('red_rate', '—'))} | {gps} | `{e.get('commit','?')}` | {e.get('date','?')} |"
@@ -344,12 +344,12 @@ def render_ot_tables(lb: dict[str, Any]) -> str:
     # Aggregate
     sections.append("**Aggregate (board-count weighted EV across all variants)**\n")
     agg_lines = [
-        "| Rank | Strategy | Agg EV | Games/s | Commit | Date |",
-        "|------|----------|--------|---------|--------|------|",
+        "| Rank | Strategy | Agg EV | Games/CPU-s | Commit | Date |",
+        "|------|----------|--------|-------------|--------|------|",
     ]
     for i, e in enumerate(lb.get("top5", []), 1):
         fname = Path(e.get("filename", "")).name
-        gps = _fmt_f(e.get("games_per_s"), 0) if e.get("games_per_s") is not None else "—"
+        gps = _fmt_f(e.get("games_per_cpu_s"), 0) if e.get("games_per_cpu_s") is not None else "—"
         agg_lines.append(
             f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} | {gps} "
             f"| `{e.get('commit','?')}` | {e.get('date','?')} |"
@@ -364,12 +364,12 @@ def render_ot_tables(lb: dict[str, Any]) -> str:
         top5 = vdata.get("top5", [])
         v_lines = [
             f"**{nc}-color variant**\n",
-            "| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Games/s | Commit | Date |",
-            "|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|---------|--------|------|",
+            "| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Games/CPU-s | Commit | Date |",
+            "|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|-------------|--------|------|",
         ]
         for i, e in enumerate(top5, 1):
             fname = Path(e.get("filename", "")).name
-            gps = _fmt_f(e.get("games_per_s"), 0) if e.get("games_per_s") is not None else "—"
+            gps = _fmt_f(e.get("games_per_cpu_s"), 0) if e.get("games_per_cpu_s") is not None else "—"
             v_lines.append(
                 f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} | {_fmt_f(e.get('stdev_ev','—'))} "
                 f"| {_fmt_pct(e.get('perfect_rate','—'))} | {_fmt_pct(e.get('all_ships_rate','—'))} "
@@ -651,8 +651,11 @@ def main() -> None:
         render_trace(args.game, trace_json)
         total_elapsed = time.perf_counter() - t_start
         n_traced = len(trace_json)
+        n_threads_trace = args.threads if args.threads is not None else os.cpu_count() or 1
+        cpu_s_trace = trace_elapsed * n_threads_trace
         print(f"--- Timing ---")
-        print(f"  Harness run:   {trace_elapsed:.2f} s  ({n_traced / trace_elapsed:,.0f} games/s)")
+        print(f"  Harness run:   {trace_elapsed:.2f} s  wall  ×{n_threads_trace} threads"
+              f"  →  {cpu_s_trace:.2f} CPU-s  ({n_traced / cpu_s_trace:,.0f} games/CPU-s)")
         print(f"  Total elapsed: {total_elapsed:.2f} s")
         return
 
@@ -677,10 +680,13 @@ def main() -> None:
         n_games_run = sum(v.get("n_boards", 0) for v in result["variants"])
     elif "n_boards" in result:
         n_games_run = result["n_boards"]
+    n_threads_run = args.threads if args.threads is not None else os.cpu_count() or 1
     print("\n--- Timing ---")
     if n_games_run:
-        games_per_sec = n_games_run / harness_elapsed
-        print(f"  Harness run:   {harness_elapsed:.2f} s  ({games_per_sec:,.0f} games/s,  {n_games_run:,} games)")
+        cpu_seconds = harness_elapsed * n_threads_run
+        games_per_cpu_s = n_games_run / cpu_seconds
+        print(f"  Harness run:   {harness_elapsed:.2f} s  wall  ×{n_threads_run} threads"
+              f"  →  {cpu_seconds:.2f} CPU-s  ({games_per_cpu_s:,.0f} games/CPU-s,  {n_games_run:,} games)")
     else:
         print(f"  Harness run:   {harness_elapsed:.2f} s")
     print(f"  Total elapsed: {total_elapsed:.2f} s")
@@ -755,8 +761,10 @@ def main() -> None:
     if args.game == "ot":
         run_params["n_colors"] = args.n_colors
     run_params["harness_elapsed_s"] = round(harness_elapsed, 3)
+    run_params["n_threads"] = n_threads_run
     if n_games_run:
-        run_params["games_per_s"] = round(n_games_run / harness_elapsed, 1)
+        cpu_s = harness_elapsed * n_threads_run
+        run_params["games_per_cpu_s"] = round(n_games_run / cpu_s, 1)
 
     artifact_path = write_scores_artifact(
         args.game, result, args.strategy, commit_for_entry, run_params
@@ -775,7 +783,7 @@ def main() -> None:
                     "n_games", "n_boards", "aggregate_ev", "seed"):
             if key in res:
                 entry[key] = res[key]
-        for key in ("games_per_s", "harness_elapsed_s"):
+        for key in ("games_per_cpu_s", "harness_elapsed_s", "n_threads"):
             if key in run_params:
                 entry[key] = run_params[key]
         return entry
