@@ -410,23 +410,27 @@ static double otRolloutValue(
                 bool graceOn = (pb0 + k >= 3) && (c < G);
 
                 // Colored outcome
+                // Force left-to-right evaluation (p*pC first, then *cVal) to
+                // match JS: `ev += p * pC * cVal` evaluates as (p*pC)*cVal.
                 if (pC > 1e-14) {
-                    ev += p * pC * cVal;
+                    volatile double ppC = p * pC;
+                    ev += ppC * cVal;
                     int nc = (c < G) ? c + 1 : G;
-                    dpB[k * DP_G + nc] += p * pC;
+                    dpB[k * DP_G + nc] += ppC;
                     alive = true;
                 }
 
                 // Blue outcome
                 if (pB > 1e-14) {
-                    ev += p * pB * OT_VAL_BLUE;
+                    volatile double ppB = p * pB;
+                    ev += ppB * OT_VAL_BLUE;
                     if (graceOn) {
-                        dpB[k * DP_G + c] += p * pB;
+                        dpB[k * DP_G + c] += ppB;
                         alive = true;
                     } else {
                         int nk = k + 1;
                         if (nk < budget) {
-                            dpB[nk * DP_G + c] += p * pB;
+                            dpB[nk * DP_G + c] += ppB;
                             alive = true;
                         }
                     }
