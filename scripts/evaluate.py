@@ -568,6 +568,8 @@ def main() -> None:
                         help="Trace mode: print per-game boards and moves instead of aggregate stats")
     parser.add_argument("--n",               type=int, default=20,
                         help="(trace) number of games to sample  default: 20")
+    parser.add_argument("--yes",             action="store_true",
+                        help="automatically commit the result without prompting")
     args = parser.parse_args()
 
     strategy_path = Path(args.strategy)
@@ -674,17 +676,20 @@ def main() -> None:
         print("\n*** This result would enter the top 5 leaderboard! ***")
 
     # ------------------------------------------------------------------
-    # Prompt — always ask whether to commit after every run
+    # Prompt — always ask whether to commit after every run (skip if --yes)
     # ------------------------------------------------------------------
-    try:
-        answer = input("\nCommit this result? [y/N] ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        # Non-interactive environment or user pressed Ctrl-C — skip commit.
-        print()
-        return
+    if args.yes:
+        print("\nCommit this result? [y/N] y  (--yes)")
+    else:
+        try:
+            answer = input("\nCommit this result? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            # Non-interactive environment or user pressed Ctrl-C — skip commit.
+            print()
+            return
 
-    if answer != "y":
-        return
+        if answer != "y":
+            return
 
     strat_short = strategy_path.name
 
