@@ -722,6 +722,8 @@ def main() -> None:
     )
 
     # Use the strategy commit hash in the leaderboard entry (not the scores commit).
+    global make_entry  # noqa: PLW0603
+
     def _make_entry_with_hash(res: dict[str, Any], spath: str) -> dict[str, Any]:
         entry: dict[str, Any] = {
             "filename": spath,
@@ -735,8 +737,6 @@ def main() -> None:
             if key in res:
                 entry[key] = res[key]
         return entry
-
-    global make_entry  # noqa: PLW0603
     _original_make_entry = make_entry
     make_entry = _make_entry_with_hash  # type: ignore[assignment]
 
