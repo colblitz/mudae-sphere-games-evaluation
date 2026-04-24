@@ -188,12 +188,58 @@ static std::vector<char> getActiveShips(
 // Heatmap — per-cell distribution over color letters (and '?' for unknown rare)
 // ---------------------------------------------------------------------------
 
-// Use std::map (sorted keys) so iteration order is deterministic.
-// unordered_map iteration order is hash-dependent and varies between cells,
-// causing the Pass 4 normalisation sum to accumulate in different orders for
-// structurally identical cells, producing 1-ULP P(blue) differences that flip
-// tie-breaking vs JS (which iterates Object keys in insertion order).
-using Heatmap = std::array<std::map<char, double>, 25>;
+// InsertionMap: a tiny ordered map that preserves key insertion order, exactly
+// matching the JS Object key-iteration semantics used in getDeductions().
+//
+// JS Object iterates keys in insertion order; std::map iterates in ASCII order.
+// Because IEEE-754 double addition is not commutative, a different summation
+// order in Pass 4 (normalisation) produces ≥1-ULP differences in P(blue) that
+// can flip which cell the strategy selects when two candidates are tied.
+// Using InsertionMap makes the C++ summation order identical to JS.
+//
+// The heatmap has at most ~10 distinct keys per cell; linear search is fine.
+struct InsertionMap {
+    std::vector<std::pair<char, double>> entries;
+
+    // Return reference to value for key, inserting with value 0.0 if absent.
+    double& operator[](char k) {
+        for (auto& e : entries) if (e.first == k) return e.second;
+        entries.push_back({k, 0.0});
+        return entries.back().second;
+    }
+
+    // Return value for key, or 0.0 if absent (non-inserting).
+    double get(char k) const {
+        for (const auto& e : entries) if (e.first == k) return e.second;
+        return 0.0;
+    }
+
+    bool contains(char k) const {
+        for (const auto& e : entries) if (e.first == k) return true;
+        return false;
+    }
+
+    void clear() { entries.clear(); }
+
+    // Assign a single-entry map (mirrors JS: heatmap[idx] = { [color]: 1 })
+    void assign_single(char k, double v) {
+        entries.clear();
+        entries.push_back({k, v});
+    }
+
+    // Divide all values by total (in-place normalisation)
+    void divide_all(double total) {
+        for (auto& e : entries) e.second /= total;
+    }
+
+    double sum() const {
+        double t = 0.0;
+        for (const auto& e : entries) t += e.second;
+        return t;
+    }
+};
+
+using Heatmap = std::array<InsertionMap, 25>;
 
 // ---------------------------------------------------------------------------
 // getDeductions — direct port of getDeductions() from solver.html
@@ -284,7 +330,7 @@ static DeductionResult getDeductions(
                     if (inAll && virtualRevealed.find(idx) == virtualRevealed.end()) {
                         virtualRevealed[idx] = color;
                         certain[idx] = color;
-                        heatmap[idx] = { { color, 1.0 } };
+                        heatmap[idx].assign_single(color, 1.0);
                         foundNewCertainty = true;
                     }
                 }
@@ -388,13 +434,12 @@ static DeductionResult getDeductions(
 
     for (int i = 0; i < 25; ++i) {
         if (revealedMap.count(i) || certain.count(i)) continue;
-        heatmap[i]['B'] = blueWeight;
-        double total = 0;
-        for (const auto& kv : heatmap[i]) total += kv.second;
+        heatmap[i]['B'] = blueWeight;  // InsertionMap: appends B if not present, updates if present
+        double total = heatmap[i].sum();
         if (total > 0) {
-            for (auto& kv : heatmap[i]) kv.second /= total;
+            heatmap[i].divide_all(total);
         } else {
-            heatmap[i] = { { 'B', 1.0 } };
+            heatmap[i].assign_single('B', 1.0);
         }
     }
 
@@ -467,8 +512,7 @@ public:
         if (!isHuntingBlue) {
             for (int idx : available) {
                 if (!certain.count(idx)) {
-                    auto it = heatmap[idx].find('B');
-                    double bp = (it != heatmap[idx].end()) ? it->second : 0.0;
+                    double bp = heatmap[idx].get('B');
                     if (bp < 0.001) {
                         out.row = idx / 5;
                         out.col = idx % 5;
@@ -486,16 +530,14 @@ public:
                 // Highest blue probability
                 double maxBlue = -1.0;
                 for (int idx : available) {
-                    auto it = heatmap[idx].find('B');
-                    double bp = (it != heatmap[idx].end()) ? it->second : 0.0;
+                    double bp = heatmap[idx].get('B');
                     if (bp > maxBlue) { maxBlue = bp; targetIdx = idx; }
                 }
             } else {
                 // Lowest blue probability
                 double minBlue = std::numeric_limits<double>::infinity();
                 for (int idx : available) {
-                    auto it = heatmap[idx].find('B');
-                    double bp = (it != heatmap[idx].end()) ? it->second : 0.0;
+                    double bp = heatmap[idx].get('B');
                     if (bp < minBlue) { minBlue = bp; targetIdx = idx; }
                 }
             }
