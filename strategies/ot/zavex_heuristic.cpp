@@ -36,6 +36,56 @@
  * Tuned constants:
  *   LAMBDA_FISH = 300
  *   LAMBDA_GINI = 250
+ *
+ * -------------------------------------------------------------------------
+ * C++ port notes — differences from the JS reference implementation
+ * -------------------------------------------------------------------------
+ *
+ * This file is a faithful C++ port of zavex_heuristic.js.  The algorithm,
+ * constants, data tables, and decision tree are identical.  The following
+ * notes document every deliberate divergence from the JS source.
+ *
+ * 1. InsertionOrderCounts (exactPerCellProbs)
+ *    JS uses a plain object for counts[c] inside the backtracker:
+ *      counts[c][name] = (counts[c][name] || 0) + 1;
+ *    Keys accumulate in first-cover order — the order each ship first covers
+ *    cell c during the backtrack traversal.  Object.entries(counts[c]) then
+ *    returns them in that order, so shipTotal = Σ(cnt/total) is summed in
+ *    first-cover order and d[BLUE] = 1 - shipTotal is bit-identical to JS.
+ *
+ *    std::map<string,long> would iterate alphabetically instead, producing
+ *    1-ULP differences in d[BLUE] that flip min-P(blue) comparisons in the
+ *    danger zone.  We use InsertionOrderCounts (vector<pair<string,long>>)
+ *    to reproduce the JS insertion-order semantics exactly.
+ *
+ * 2. stable_sort in exactPerCellProbs
+ *    JS Array.sort() has been stable since ES2019.  std::sort is not stable.
+ *    We use std::stable_sort when sorting ships by valid-placement count so
+ *    that ties preserve ships-list order, matching JS behaviour.
+ *
+ * 3. cellEV and giniImpurity iterate *ships then Blue
+ *    Both JS functions iterate Object.entries/Object.values(d) in d's
+ *    insertion order.  For the approx path (perCellProbs) d is built by
+ *    iterating ships then appending Blue, so iterating *ships + Blue here
+ *    produces bit-identical results.  For the exact path d is in first-cover
+ *    order (see note 1), so cellEV/giniImpurity differ from JS by at most
+ *    1 ULP; this only affects harmless tie-breaks between equivalent moves.
+ *
+ * 4. WASM endgame solver omitted
+ *    The original page uses a WASM C solver for exact enumeration that can
+ *    handle millions of boards in ~7 ms.  Without WASM the JS port falls back
+ *    to a JS backtracker with budget=5000 before switching to the independence
+ *    approximation.  This C++ port uses the same budget=5000 backtracker.
+ *
+ * 5. MctsBook uses std::unordered_map
+ *    Book lookup is a single key-equality test; iteration order is never
+ *    used.  unordered_map is fine here and is faster than std::map.
+ *
+ * 6. Board parsing via minimal strstr loop
+ *    The JS port receives the board as a JS array.  The C++ port receives
+ *    board_json as a JSON string and parses it with a simple strstr loop.
+ *    The field order emitted by the harness is always row/col/color/clicked,
+ *    so the parsing is correct for all harness-generated input.
  */
 
 #include <algorithm>
@@ -175,12 +225,10 @@ static const std::vector<int>& PLACEMENTS(int size) {
 // Indexed by nShips (5,6,7), then cell 0..24.
 // ---------------------------------------------------------------------------
 
-// Use std::map (sorted string keys) so all iterations over CellProb are in
-// deterministic key order.  unordered_map iterates in hash order, which varies
-// between cells that have the same keys inserted in a different order, causing
-// cellEV / shipTotal sums to accumulate in different orders and produce 1-ULP
-// differences that flip tie-breaking vs JS (which uses insertion-order iteration
-// over Object keys).
+// CellProb stores per-color probabilities for one cell.
+// std::map gives O(log n) keyed lookup; iteration order is alphabetical but
+// we never rely on that — cellEV and giniImpurity drive their own iteration
+// order via the ships parameter to match JS Object.entries insertion order.
 using CellProb = std::map<std::string, double>;
 using Turn0ProbEntry = std::vector<CellProb>;
 
@@ -635,6 +683,32 @@ struct ExactResult {
     bool aborted;
 };
 
+// InsertionOrderCounts — preserves the order in which ship names are first
+// inserted, mirroring JS plain-object insertion order for counts[c].
+//
+// JS exactPerCellProbs uses counts[c] as a plain object:
+//   counts[c][name] = (counts[c][name] || 0) + 1;
+// Object properties accumulate in insertion order (the first board that covers
+// cell c by ship X determines X's position in counts[c]).  When the output loop
+// does `for (const [color, cnt] of Object.entries(counts[c]))` it therefore
+// iterates in that first-cover order.
+//
+// Using std::map here would iterate alphabetically instead — a different
+// summation order for shipTotal = Σ(cnt/total), causing 1-ULP differences in
+// d[BLUE] = 1 - shipTotal that flip min-P(blue) comparisons in the danger zone.
+struct InsertionOrderCounts {
+    // Pairs in insertion order; at most nShips entries per cell.
+    std::vector<std::pair<std::string, long>> entries;
+
+    // Increment count for `name`; inserts at the end on first access.
+    void inc(const std::string& name) {
+        for (auto& kv : entries) {
+            if (kv.first == name) { ++kv.second; return; }
+        }
+        entries.push_back({ name, 1L });
+    }
+};
+
 static ExactResult exactPerCellProbs(
     const std::map<int, std::string>& revealed,
     const ShipList& ships,
@@ -646,10 +720,11 @@ static ExactResult exactPerCellProbs(
 
     int nShips = (int)ships.size();
 
-    // Sort ships by number of valid placements ascending (tightest constraint first)
+    // Sort ships by number of valid placements ascending (tightest constraint first).
+    // JS Array.sort() is stable; use stable_sort to match tie-breaking behaviour.
     std::vector<int> order(nShips);
     for (int i = 0; i < nShips; ++i) order[i] = i;
-    std::sort(order.begin(), order.end(), [&ships, &valid](int a, int b) {
+    std::stable_sort(order.begin(), order.end(), [&ships, &valid](int a, int b) {
         return valid[ships[a].first].size() < valid[ships[b].first].size();
     });
 
@@ -661,9 +736,9 @@ static ExactResult exactPerCellProbs(
     }
 
     std::vector<int> assignment(nShips, 0);
-    // Use std::map so iteration order in the output loop is deterministic
-    // (matching JS Object.entries insertion-order, which is ship-size-sort order).
-    std::vector<std::map<std::string, long>> counts(25);
+    // Use InsertionOrderCounts instead of std::map so that Object.entries(counts[c])
+    // iteration order (= first-cover order during backtracking) is reproduced exactly.
+    std::vector<InsertionOrderCounts> counts(25);
     long total   = 0;
     bool aborted = false;
 
@@ -676,8 +751,7 @@ static ExactResult exactPerCellProbs(
                 int m = assignment[i];
                 const std::string& name = shipNames[i];
                 for (int b = m; b; b &= b-1) {
-                    int c = __builtin_ctz(b);
-                    counts[c][name]++;
+                    counts[__builtin_ctz(b)].inc(name);
                 }
             }
             return;
@@ -698,7 +772,10 @@ static ExactResult exactPerCellProbs(
         if (revealed.count(c)) { out[c] = {}; continue; }
         CellProb d;
         double shipTotal = 0;
-        for (const auto& kv : counts[c]) {
+        // Iterate in insertion order — mirrors JS Object.entries(counts[c]).
+        // The summation order determines d[BLUE] = 1 - shipTotal via floating-point
+        // accumulation, so this must match JS exactly.
+        for (const auto& kv : counts[c].entries) {
             d[kv.first] = (double)kv.second / (double)total;
             shipTotal   += d[kv.first];
         }
@@ -754,13 +831,21 @@ static ProbResult maybeExactProbs(
 // cellEV — expected value of clicking a cell
 // ---------------------------------------------------------------------------
 //
-// Iteration order matters for floating-point reproducibility.  JS builds the
-// CellProb object by inserting ship keys in shipNames order (sorted ascending
-// by placement count) then appending Blue last.  Object.entries() returns
-// those keys in insertion order.
+// JS: for (const [col, p] of Object.entries(d)) s += p * (vals[col] || 0)
+// Object.entries(d) returns keys in d's insertion order.
 //
-// To match that order exactly we iterate the ships list first (in the order
-// provided by the caller, which mirrors the JS shipNames ordering), then Blue.
+// approx path (perCellProbs): d is built by iterating ships list then Blue,
+//   so insertion order == ships-list + Blue.  Iterating *ships then Blue here
+//   produces bit-identical sums.
+//
+// exact path (exactPerCellProbs): d is populated from InsertionOrderCounts in
+//   first-cover backtrack order, which is NOT ships-list order in general.
+//   cellEV therefore accumulates in a different order than JS for this path,
+//   causing at most 1-ULP differences in the final score.  Score-diverging
+//   decisions on this path are driven by P(blue) comparisons (danger zone,
+//   fishing), which are fixed by InsertionOrderCounts — the 1-ULP cellEV
+//   delta only ever affects harmless tie-breaks between equivalent moves.
+//
 // The extra `ships` parameter is threaded through all callers below.
 
 static double cellEV(const CellProb& d,
@@ -788,10 +873,22 @@ static double cellEV(const CellProb& d,
 // ---------------------------------------------------------------------------
 // giniImpurity — 1 − Σ P(outcome)²
 // ---------------------------------------------------------------------------
+//
+// JS: for (const p of Object.values(d)) s += p * p  (insertion order)
+// We iterate ships then Blue, matching cellEV and the JS insertion order for
+// the approx path.  Sum-of-squares is order-independent mathematically, but
+// consistent iteration avoids last-bit divergence in the default-path score.
 
-static double giniImpurity(const CellProb& d) {
+static double giniImpurity(const CellProb& d, const ShipList& ships) {
     double s = 0;
-    for (const auto& kv : d) s += kv.second * kv.second;
+    for (const auto& sp : ships) {
+        auto it = d.find(sp.first);
+        if (it != d.end()) s += it->second * it->second;
+    }
+    {
+        auto it = d.find(BLUE);
+        if (it != d.end()) s += it->second * it->second;
+    }
     return 1.0 - s;
 }
 
@@ -963,7 +1060,7 @@ static int getBestMove(
     {
         int best = cand[0]; double bestScore = -1e18;
         for (int c : cand) {
-            double score = cellEV(slotProbs[c], vals, *ships) + LAMBDA_GINI * giniImpurity(slotProbs[c]);
+            double score = cellEV(slotProbs[c], vals, *ships) + LAMBDA_GINI * giniImpurity(slotProbs[c], *ships);
             if (score > bestScore) { bestScore = score; best = c; }
         }
         return best;
