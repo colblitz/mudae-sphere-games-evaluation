@@ -163,6 +163,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | Rank | Strategy | EV | Stdev | Red Rate | Games/s | Commit | Date |
 |------|----------|----|-------|-------|---------|--------|------|
 | 1 | `kelinimo_adaptive_ev.js` | 328.48 | 58.10 | 99.9% | 23445 | `979c4a3` | 2026-04-23 |
+| 2 | `svessinn_solver.js` | 315.14 | 67.84 | 98.1% | 22322 | `e27d1e5` | 2026-04-23 |
 
 ### /sphere quest (oq)
 

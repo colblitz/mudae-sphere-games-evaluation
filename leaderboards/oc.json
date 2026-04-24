@@ -13,6 +13,17 @@
       "n_boards": 16800,
       "games_per_s": 23445.1,
       "harness_elapsed_s": 0.717
+    },
+    {
+      "filename": "strategies/oc/svessinn_solver.js",
+      "commit": "e27d1e5",
+      "date": "2026-04-23",
+      "ev": 315.1411,
+      "stdev": 67.8421,
+      "red_rate": 0.9814,
+      "n_boards": 16800,
+      "games_per_s": 22322.5,
+      "harness_elapsed_s": 0.753
     }
   ]
 }
