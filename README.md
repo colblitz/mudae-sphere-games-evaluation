@@ -170,6 +170,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | Rank | Strategy | EV | Stdev | Red Rate | Games/s | Commit | Date |
 |------|----------|----|-------|-------|---------|--------|------|
 | 1 | `zavex_book_heuristic.js` | 350.86 | 44.04 | 99.0% | 4085 | `60a6ef8` | 2026-04-23 |
+| 2 | `kelinimo_adaptive_ev.js` | 348.03 | 50.85 | 96.2% | 944 | `1b9f1ac` | 2026-04-23 |
 
 ### /sphere trace (ot)
 
