@@ -1,34 +1,6 @@
 {
   "game": "oc",
   "metric": "ev",
-  "updated": "2026-04-23",
-  "top5": [
-    {
-      "filename": "kelinimo_adaptive_ev.js",
-      "commit": "d1b0cd9",
-      "date": "2026-04-23",
-      "ev": 328.4821,
-      "stdev": 58.105,
-      "red_rate": 0.9988,
-      "n_boards": 16800
-    },
-    {
-      "filename": "svessinn_solver.js",
-      "commit": "2c8558c",
-      "date": "2026-04-23",
-      "ev": 315.1411,
-      "stdev": 67.8421,
-      "red_rate": 0.9814,
-      "n_boards": 16800
-    },
-    {
-      "filename": "global_state.cpp",
-      "commit": "312108f",
-      "date": "2026-04-21",
-      "ev": 64.5045,
-      "stdev": 53.1006,
-      "red_rate": 0.1107,
-      "n_boards": 16800
-    }
-  ]
+  "updated": "",
+  "top5": []
 }

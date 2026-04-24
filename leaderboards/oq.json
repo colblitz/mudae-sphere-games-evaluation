@@ -1,43 +1,6 @@
 {
   "game": "oq",
   "metric": "ev",
-  "updated": "2026-04-23",
-  "top5": [
-    {
-      "filename": "zavex_book_heuristic.js",
-      "commit": "fc38394",
-      "date": "2026-04-23",
-      "ev": 350.8617,
-      "stdev": 44.0388,
-      "red_rate": 0.9896,
-      "n_boards": 12650
-    },
-    {
-      "filename": "kelinimo_adaptive_ev.js",
-      "commit": "6d763f1",
-      "date": "2026-04-23",
-      "ev": 348.032,
-      "stdev": 50.8498,
-      "red_rate": 0.962,
-      "n_boards": 12650
-    },
-    {
-      "filename": "svessinn_solver.js",
-      "commit": "8f5127f",
-      "date": "2026-04-23",
-      "ev": 301.5296,
-      "stdev": 79.9497,
-      "red_rate": 0.7189,
-      "n_boards": 12650
-    },
-    {
-      "filename": "stateful.js",
-      "commit": "575db95",
-      "date": "2026-04-21",
-      "ev": 13.6739,
-      "stdev": 7.5191,
-      "red_rate": 0.0,
-      "n_boards": 12650
-    }
-  ]
+  "updated": "",
+  "top5": []
 }
