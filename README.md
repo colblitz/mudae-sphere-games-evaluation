@@ -154,54 +154,54 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 <!-- LEADERBOARD_START -->
 ### /sphere harvest (oh)
 
-| Rank | Strategy | EV | Stdev | OC Rate | Commit | Date |
-|------|----------|----|-------|---------|--------|------|
-| 1 | `random_clicks.py` | 117.63 | 224.46 | 4.1% | `e5b8664` | 2026-04-21 |
+| Rank | Strategy | EV | Stdev | OC Rate | Games/s | Commit | Date |
+|------|----------|----|-------|---------|---------|--------|------|
+| 1 | `random_clicks.py` | 117.63 | 224.46 | 4.1% | — | `e5b8664` | 2026-04-21 |
 
 ### /sphere chest (oc)
 
-| Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
-|------|----------|----|-------|-------|--------|------|
+| Rank | Strategy | EV | Stdev | Red Rate | Games/s | Commit | Date |
+|------|----------|----|-------|-------|---------|--------|------|
 
 ### /sphere quest (oq)
 
-| Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
-|------|----------|----|-------|-------|--------|------|
+| Rank | Strategy | EV | Stdev | Red Rate | Games/s | Commit | Date |
+|------|----------|----|-------|-------|---------|--------|------|
 
 ### /sphere trace (ot)
 
 **Aggregate (board-count weighted EV across all variants)**
 
-| Rank | Strategy | Agg EV | Commit | Date |
-|------|----------|--------|--------|------|
-| 1 | `random_clicks.cpp` | 688.37 | `9cf69e2` | 2026-04-21 |
+| Rank | Strategy | Agg EV | Games/s | Commit | Date |
+|------|----------|--------|---------|--------|------|
+| 1 | `random_clicks.cpp` | 688.37 | — | `9cf69e2` | 2026-04-21 |
 
 <details>
 <summary>Per-color variant breakdown</summary>
 
 **6-color variant**
 
-| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
-|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
-| 1 | `random_clicks.cpp` | 270.39 | — | 0.0% | 16.0% | 95.7% | 10.69 | — | — | — | `9cf69e2` | 2026-04-21 |
+| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Games/s | Commit | Date |
+|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|---------|--------|------|
+| 1 | `random_clicks.cpp` | 270.39 | — | 0.0% | 16.0% | 95.7% | 10.69 | — | — | — | — | `9cf69e2` | 2026-04-21 |
 
 **7-color variant**
 
-| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
-|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
-| 1 | `random_clicks.cpp` | 349.70 | — | 0.0% | 11.8% | 84.8% | 10.75 | — | — | — | `9cf69e2` | 2026-04-21 |
+| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Games/s | Commit | Date |
+|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|---------|--------|------|
+| 1 | `random_clicks.cpp` | 349.70 | — | 0.0% | 11.8% | 84.8% | 10.75 | — | — | — | — | `9cf69e2` | 2026-04-21 |
 
 **8-color variant**
 
-| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
-|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
-| 1 | `random_clicks.cpp` | 500.88 | — | 0.0% | 14.0% | 44.3% | 11.74 | — | — | — | `9cf69e2` | 2026-04-21 |
+| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Games/s | Commit | Date |
+|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|---------|--------|------|
+| 1 | `random_clicks.cpp` | 500.88 | — | 0.0% | 14.0% | 44.3% | 11.74 | — | — | — | — | `9cf69e2` | 2026-04-21 |
 
 **9-color variant**
 
-| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
-|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
-| 1 | `random_clicks.cpp` | 1069.13 | — | 0.1% | 20.9% | 9.9% | 13.86 | — | — | — | `9cf69e2` | 2026-04-21 |
+| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Games/s | Commit | Date |
+|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|---------|--------|------|
+| 1 | `random_clicks.cpp` | 1069.13 | — | 0.1% | 20.9% | 9.9% | 13.86 | — | — | — | — | `9cf69e2` | 2026-04-21 |
 
 </details>
 
