@@ -1,36 +1,33 @@
 #!/usr/bin/env python3
 """evaluate.py — Top-level evaluation runner.
 
-Builds the harness binary if needed, runs the evaluation, updates the
-leaderboard and README if the result enters the top 5, and optionally
-creates a pair of git commits to record the strategy and its scores.
+Builds the harness binary if needed, runs the evaluation, and prints the
+result.  After every run the script checks whether the score would change
+the leaderboard and prompts whether to commit the result.
 
-Normal usage — iterate freely, results printed only, no files changed:
+Normal usage — iterate freely, results printed:
   python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py
 
-When you're happy with your strategy and want to record it:
-  python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py --commit
-
-The --commit flow makes two commits:
+  After the run completes you will be asked whether to commit.  Answering
+  yes makes two commits:
   1. "strategy: oc my_strategy.py" — commits the strategy file so it has a
      stable hash.  Skipped if the file is already committed and unmodified.
-  2. "scores: oc my_strategy.py ev=78.43" — runs evaluation using that hash,
-     writes a scores artifact to scores/<game>/<timestamp>_<commit>_<basename>.json,
-     and updates leaderboards/<game>.json and README.md if the result enters
-     the top 5.  All changed files are bundled into this single commit.
+  2. "scores: oc my_strategy.py ev=78.43" — writes a scores artifact to
+     scores/<game>/<timestamp>_<commit>_<basename>.json and updates
+     leaderboards/<game>.json and README.md if the result enters the top 5.
+     All changed files are bundled into this single commit.
 
 Trace mode — inspect individual games:
   python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py --trace --n 20
 
   Randomly samples N games, prints the starting board (ASCII 5×5) and the
-  sequence of moves for each game.  No files are written.  --commit is
-  incompatible with --trace.  For ot, a specific --n-colors value is required.
+  sequence of moves for each game.  No files are written and no commit
+  prompt is shown.  For ot, a specific --n-colors value is required.
 
 Flags
 -----
   --game            one of: oh oc oq ot                     (required)
   --strategy        path to the strategy file (.py/.cpp/.js) (required)
-  --commit          two commits: strategy file + scoring artifacts
   --games N         (oh) number of Monte Carlo games         default: 100000
   --seed S          RNG seed (evaluation and trace mode)     default: 42
   --n-colors X      (ot) 6|7|8|9|all                        default: all
@@ -558,8 +555,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate a sphere mini-game strategy.")
     parser.add_argument("--game",            required=True, choices=GAMES)
     parser.add_argument("--strategy",        required=True)
-    parser.add_argument("--commit",          action="store_true",
-                        help="Make two commits: one for the strategy file, one for scores")
     parser.add_argument("--games",           type=int, default=100000,
                         help="(oh) number of Monte Carlo games  default: 100000")
     parser.add_argument("--seed",            type=int, default=42,
@@ -585,11 +580,6 @@ def main() -> None:
             print(f"ERROR: strategy file not found: {args.strategy}", file=sys.stderr)
             sys.exit(1)
     strategy_abs = str(strategy_path.resolve())
-
-    # --trace is incompatible with --commit
-    if args.trace and args.commit:
-        print("ERROR: --trace and --commit are incompatible.", file=sys.stderr)
-        sys.exit(1)
 
     # --trace for ot requires a specific n-colors value
     if args.trace and args.game == "ot" and args.n_colors == "all":
@@ -648,22 +638,6 @@ def main() -> None:
         return
 
     # ------------------------------------------------------------------
-    # --commit: commit 1 — the strategy file
-    # ------------------------------------------------------------------
-    strategy_commit_hash: str | None = None
-    if args.commit:
-        if git_is_clean(strategy_path.resolve()):
-            # File is already committed and unmodified — use current HEAD hash
-            strategy_commit_hash = git_short_hash()
-            print(f"[commit] Strategy file already committed (using HEAD {strategy_commit_hash})")
-        else:
-            strat_short = strategy_path.name
-            msg1 = f"strategy: {args.game} {strat_short}"
-            print(f"[commit 1/2] {msg1}")
-            strategy_commit_hash = git_commit(msg1, [strategy_path.resolve()])
-            print(f"[commit 1/2] Done — {strategy_commit_hash}")
-
-    # ------------------------------------------------------------------
     # Run evaluation
     # ------------------------------------------------------------------
     result = run_harness(args.game, strategy_abs, extra)
@@ -671,13 +645,63 @@ def main() -> None:
     print("\n--- Result ---")
     print(json.dumps(result, indent=2))
 
-    if not args.commit:
-        # Normal run: print only, no file changes.
-        return
+    # ------------------------------------------------------------------
+    # Dry-run leaderboard check — would this result change the top 5?
+    # ------------------------------------------------------------------
+    lb_dry = load_leaderboard(args.game)
+    _would_change = False
+    if args.game == "ot":
+        # Check aggregate top5
+        agg_entry_dry = make_entry(result, args.strategy)
+        agg_entry_dry["ev"] = result.get("aggregate_ev", 0.0)
+        _, _would_change = update_leaderboard_top5(lb_dry.get("top5", []), agg_entry_dry)
+        if not _would_change:
+            for vr in result.get("variants", []):
+                nc = vr["n_colors"]
+                key = str(nc)
+                vdata = lb_dry.get("by_variant", {}).get(key, {})
+                v_entry_dry = {**make_entry(result, args.strategy), **vr}
+                v_entry_dry["ev"] = vr.get("ev", 0.0)
+                _, vch = update_leaderboard_top5(vdata.get("top5", []), v_entry_dry)
+                if vch:
+                    _would_change = True
+                    break
+    else:
+        entry_dry = make_entry(result, args.strategy)
+        _, _would_change = update_leaderboard_top5(lb_dry.get("top5", []), entry_dry)
+
+    if _would_change:
+        print("\n*** This result would enter the top 5 leaderboard! ***")
 
     # ------------------------------------------------------------------
-    # --commit: write scores artifact, update leaderboard + README, commit 2
+    # Prompt — always ask whether to commit after every run
     # ------------------------------------------------------------------
+    try:
+        answer = input("\nCommit this result? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        # Non-interactive environment or user pressed Ctrl-C — skip commit.
+        print()
+        return
+
+    if answer != "y":
+        return
+
+    strat_short = strategy_path.name
+
+    # ------------------------------------------------------------------
+    # Commit 1 — the strategy file
+    # ------------------------------------------------------------------
+    strategy_commit_hash: str | None = None
+    if git_is_clean(strategy_path.resolve()):
+        # File is already committed and unmodified — use current HEAD hash
+        strategy_commit_hash = git_short_hash()
+        print(f"[commit] Strategy file already committed (using HEAD {strategy_commit_hash})")
+    else:
+        msg1 = f"strategy: {args.game} {strat_short}"
+        print(f"[commit 1/2] {msg1}")
+        strategy_commit_hash = git_commit(msg1, [strategy_path.resolve()])
+        print(f"[commit 1/2] Done — {strategy_commit_hash}")
+
     commit_for_entry = strategy_commit_hash or git_short_hash()
 
     # Collect run parameters to embed in the artifact alongside harness stats.
@@ -722,7 +746,6 @@ def main() -> None:
         print("[leaderboard] Result did not enter top 5 — leaderboard unchanged.")
 
     ev = result.get("ev") or result.get("aggregate_ev", 0.0)
-    strat_short = strategy_path.name
     lb_note = " (leaderboard updated)" if lb_changed else ""
     msg2 = f"scores: {args.game} {strat_short} ev={ev:.2f}{lb_note}"
 

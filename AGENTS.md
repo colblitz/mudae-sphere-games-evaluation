@@ -115,21 +115,24 @@ C++ strategies require significant boilerplate (extern "C" exports, JSON parsing
 
 ## Running and Submitting
 
-**Iterate freely — no side effects:**
+**Run the evaluator:**
 ```bash
 python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py
 ```
-Prints EV, stdev, and game-specific rates. No files are written or committed.
+Prints EV, stdev, and game-specific rates.  After the run completes, the
+script checks whether the score would enter the top 5 leaderboard and prompts:
 
-**Record a result when satisfied:**
-```bash
-python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py --commit
 ```
-Makes two automatic git commits:
+*** This result would enter the top 5 leaderboard! ***
+
+Commit this result? [y/N]
+```
+
+Answering `y` makes two automatic git commits:
 1. `strategy: oc my_strategy.py` — commits the strategy file (skipped if already committed and unmodified).
 2. `scores: oc my_strategy.py ev=78.43` — writes a scores artifact to `scores/<game>/<timestamp>_<commit>_<basename>.json` and commits it. If the result enters the top 5, the leaderboard and README are updated and included in the same commit.
 
-The scores artifact records the timestamp, strategy commit hash, filename, all harness stats, and run parameters. It is always written on `--commit` regardless of leaderboard placement.
+The scores artifact records the timestamp, strategy commit hash, filename, all harness stats, and run parameters. The prompt appears after every run; the top-5 notice only appears when the score would change the leaderboard.
 
 See the README for the full list of `evaluate.py` flags (`--games`, `--seed`, `--n-colors`, `--threads`, etc.).
 
