@@ -1,6 +1,18 @@
 {
   "game": "oc",
   "metric": "ev",
-  "updated": "",
-  "top5": []
+  "updated": "2026-04-23",
+  "top5": [
+    {
+      "filename": "strategies/oc/kelinimo_adaptive_ev.js",
+      "commit": "979c4a3",
+      "date": "2026-04-23",
+      "ev": 328.4821,
+      "stdev": 58.105,
+      "red_rate": 0.9988,
+      "n_boards": 16800,
+      "games_per_s": 23445.1,
+      "harness_elapsed_s": 0.717
+    }
+  ]
 }
