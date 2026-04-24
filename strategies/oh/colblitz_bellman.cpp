@@ -58,6 +58,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "../../interface/data.h"
 #include "../../interface/strategy.h"
 
 using namespace sphere;
@@ -220,7 +221,7 @@ public:
         build_compact_index();
         compute_ev_covered();
 
-        std::string data_dir = std::string(REPO_ROOT) + "/data";
+        std::string data_dir = sphere::data::detail::data_dir().string();
         std::string compact_path = data_dir + "/harvest_compact_base_20260423_143426.bin";
         std::string policy_path  = data_dir + "/harvest_policy_20260423_143426.bin";
 

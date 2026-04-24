@@ -645,7 +645,9 @@ inline std::unique_ptr<StrategyBridge> StrategyBridge::load(const std::string& p
         std::string cmd =
             "g++ -O2 -march=native -std=c++17 -shared -fPIC"
             " -I" + std::string(REPO_ROOT) + "/interface"
-            " -o " + so + " " + path;
+            " -DREPO_ROOT=\\\"" + std::string(REPO_ROOT) + "\\\""
+            " -o " + so + " " + path
+            + " -llzma";
         fprintf(stderr, "[harness] compiling %s ...\n", path.c_str());
         int rc = system(cmd.c_str());
         if (rc != 0)
