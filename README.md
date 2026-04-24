@@ -23,20 +23,21 @@ Submit a strategy, run the evaluator, and see how it compares against others on 
 
 1. Create a file in `strategies/<game>/` (e.g. `strategies/oc/my_strategy.py`).
 2. Subclass the appropriate ABC from `interface/strategy.py` (Python), inherit from the base class in `interface/strategy.h` (C++), or extend the class in `interface/strategy.js` (JS).
-3. Implement `next_click`. Optionally implement `init_run` and `init_payload`.
-4. Iterate freely — run the evaluator as many times as you like. Results are printed only; no files are changed.
+3. Implement `next_click`. Optionally implement `init_evaluation_run` and `init_game_payload`.
+4. Iterate freely — run the evaluator as many times as you like. After each run, the script prints EV and stats then asks:
    ```bash
    python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py
    ```
-5. When you're satisfied with your strategy, record it with `--commit`:
-   ```bash
-   python scripts/evaluate.py --game oc --strategy strategies/oc/my_strategy.py --commit
    ```
-   This makes **two commits** automatically:
+   Commit this result? [y/N]
+   ```
+5. Answer `y` to record the result. This makes **two commits** automatically:
    - **Commit 1** — `strategy: oc my_strategy.py` — commits the strategy file so it has a stable hash. Skipped if the file is already committed and unmodified.
-   - **Commit 2** — `scores: oc my_strategy.py ev=78.43` — runs evaluation, writes a scores artifact to `scores/oc/<timestamp>_<commit>_<basename>.json`, and commits it. If the result enters the top 5, `leaderboards/oc.json` and `README.md` are also updated and included in the same commit.
+   - **Commit 2** — `scores: oc my_strategy.py ev=78.43` — writes a scores artifact to `scores/oc/<timestamp>_<commit>_<basename>.json` and commits it. If the result enters the top 5, `leaderboards/oc.json` and `README.md` are also updated and included in the same commit.
 
-   The scores artifact records the timestamp, strategy commit hash, filename, all harness stats, and run parameters. It is always written on `--commit` regardless of leaderboard placement.
+   The scores artifact records the timestamp, strategy commit hash, filename, all harness stats, and run parameters. It is always written when you commit regardless of leaderboard placement.
+
+   Use `--yes` to skip the interactive prompt (e.g. in CI).
 
 The evaluator builds the harness binary automatically if it is not already built or is out of date. For C++ strategies, it also compiles your `.cpp` to a `.so` automatically.
 
@@ -66,7 +67,7 @@ The harness calls `init_evaluation_run()` once before all games begin (use it fo
 
 | Game | `meta` keys |
 |------|-------------|
-| oh | `clicks_left` (int), `max_clicks` (int, always 5) |
+| oh | `clicks_left` (int), `max_clicks` (int, always 5), `game_seed` (int) |
 | oc | `clicks_left` (int), `max_clicks` (int, always 5) |
 | oq | `clicks_left` (int), `max_clicks` (int, always 7), `purples_found` (int) |
 | ot | `n_colors` (int), `ships_hit` (int), `blues_used` (int), `max_clicks` (int, always 4) |
@@ -148,7 +149,7 @@ register(new MyOCStrategy());
 
 ## Leaderboards
 
-The top 5 strategies per game, ranked by expected value (EV). Updated automatically by `scripts/evaluate.py --commit`.
+The top 5 strategies per game, ranked by expected value (EV). Updated automatically when you commit a run via the post-run prompt.
 
 <!-- LEADERBOARD_START -->
 ### /sphere harvest (oh)
@@ -245,17 +246,33 @@ make generate-boards   # Rebuild board files from scratch
 make clean             # Remove compiled binaries and strategy .so files
 ```
 
+### compare_strategies.py
+
+Compares two strategy implementations move-by-move to verify they produce identical decisions (useful when porting a strategy from JS to C++):
+
+```bash
+python scripts/compare_strategies.py \
+    --game ot \
+    --strategy-a strategies/ot/kelinimo_expectimax.js \
+    --strategy-b strategies/ot/kelinimo_expectimax.cpp \
+    --n-colors 6 --seed 42 --n 200
+```
+
+Runs both strategies in trace mode with the same seed and diffs move sequences game-by-game. Exits 0 if all games match, 1 if any mismatch. Use `--verbose` to print every game's moves, `--show-board` to print the board on mismatches.
+
 ### evaluate.py flags
 
 ```
 --game            oh | oc | oq | ot                      (required)
 --strategy        path to strategy file                  (required)
---commit          two commits: strategy file + scoring artifacts
 --games N         (oh) number of Monte Carlo games        default: 100000
---seed S          (oh) RNG seed                          default: 42
+--seed S          RNG seed (evaluation and trace mode)   default: 42
 --n-colors X      (ot) 6|7|8|9|all                       default: all
 --threads N       parallel threads                        default: all cores
 --boards-dir      override boards directory
+--yes             auto-accept the post-run commit prompt (non-interactive)
+--trace           print per-game boards and move sequences
+--n N             (trace) number of games to sample       default: 20
 ```
 
 ---
@@ -300,7 +317,7 @@ Files added with `git add -f` are tracked normally once committed — no further
 
 ### Auto-download helper
 
-`interface/data` provides a `fetch()` function in all three languages. Call it in `init_evaluation_run` (or `initEvaluationRun` for JS/C++). The file is downloaded once to `data/`, its SHA-256 is verified, and it is reused on every subsequent run. If the file is already present with a matching hash, no download occurs.
+`interface/data` provides a `fetch()` function in Python and C++, and both `fetch()` (async) and `fetchSync()` (synchronous) in JavaScript. Call it in `init_evaluation_run` / `initEvaluationRun`. For JavaScript, always use `fetchSync` — the protocol loop does not `await` `initEvaluationRun`. The file is downloaded once to `data/`, its SHA-256 is verified, and it is reused on every subsequent run. If the file is already present with a matching hash, no download occurs.
 
 See `strategies/oh/load_data.py` (and `.cpp`, `.js`) for a complete working example.
 
@@ -324,11 +341,12 @@ class MyOHStrategy(OHStrategy):
 **JavaScript:**
 
 ```js
-const { fetch: fetchData } = require("../../interface/data.js");
+const { fetchSync } = require("../../interface/data.js");
 
 class MyOHStrategy extends OHStrategy {
-  async initEvaluationRun() {
-    const filePath = await fetchData({
+  initEvaluationRun() {
+    // Use fetchSync (not async fetch) — the protocol loop does not await initEvaluationRun.
+    const filePath = fetchSync({
       url: "https://...",
       sha256: "<hex sha256>",
       filename: "my_lut.bin.lzma",

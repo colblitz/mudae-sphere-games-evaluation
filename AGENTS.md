@@ -14,7 +14,7 @@ This repo is a competitive evaluation framework for four Mudae `/sphere` mini-ga
 | `interface/data.{py,h,js}` | Read-only — external data file helper |
 | `data/<small_file>` | Commit small data files here with `git add -f` |
 
-Do **not** modify `boards/`, `leaderboards/`, `scores/`, or `README.md` (the last is owned by `scripts/evaluate.py --commit`). Contributors shouldn't normally need to edit `harness/` or `scripts/` — if you think you've found a bug there, flag it rather than patching it unilaterally.
+Do **not** modify `boards/`, `leaderboards/`, `scores/`, or `README.md` (the last is managed automatically by the post-run commit prompt in `scripts/evaluate.py`). Contributors shouldn't normally need to edit `harness/` or `scripts/` — if you think you've found a bug there, flag it rather than patching it unilaterally.
 
 ---
 
@@ -93,8 +93,8 @@ C++ strategies require significant boilerplate (extern "C" exports, JSON parsing
 
 **Logic errors:**
 
-- **Returning an already-revealed cell.** Build a set of `(row, col)` from `revealed` and exclude those. The harness behavior on duplicate clicks is not guaranteed.
-- **Misreading `revealed`.** It contains *all* cells revealed so far this game, not just new ones from the last click. If you want only the delta, diff against your previous state.
+- **Returning an already-clicked cell.** Check `board[row*5+col].clicked` (or `board[row*5+col]["clicked"]` in Python/JS) and exclude those cells. The harness behavior on duplicate clicks is not guaranteed.
+- **Misreading `board`.** The full 25-cell board is passed on every call; every cell has its current `color` and `clicked` state. If you want only the delta since your last click, diff `board` against your saved `game_state` from the previous call.
 - **Purple clicks are free in `oh` and `oq`.** A purple cell does not decrement `clicks_left`. If you see a purple, click it — it costs nothing. Do not skip it to "save" a click.
 - **Treating `init_evaluation_run` output as per-game state.** `run_state` is shared across all games. Mutating it inside `next_click` will corrupt subsequent games. Per-game bookkeeping goes in `game_state` (returned from `init_game_payload`).
 - **Assuming `game_seed` is always available in `meta`.** The `game_seed` key only exists for `oh`. Referencing it in `oc`, `oq`, or `ot` strategies will raise a `KeyError`/undefined.
@@ -110,6 +110,12 @@ C++ strategies require significant boilerplate (extern "C" exports, JSON parsing
 
 - **Not resetting per-game state in `init_game_payload`.** The bridge calls `init_game_payload` before every game to reset game state. For Python/JS, per-game data should be returned from `init_game_payload` (not carried on `self`/`this`), or explicitly reset there. For C++, reset per-game member variables inside `init_game_payload`. Failure to reset will leak state across games and produce wrong results (while appearing to work on game 1).
 - **Treating `init_evaluation_run` output as mutable.** `run_state` is shared read-only across all games. Mutating it inside `next_click` will corrupt subsequent games. Per-game bookkeeping goes in `game_state` (returned from `init_game_payload`).
+
+**C++ porting pitfalls (when porting from JS):**
+
+- **`std::map` vs. JS object key iteration order.** `std::map` iterates keys in sorted order; JS objects iterate in insertion order. If your DP or frequency table iterates over a map and the order affects the result (e.g. tiebreaking, floating-point accumulation), using `std::map` will silently produce different choices than the JS original. Use an insertion-ordered structure (e.g. `std::vector<std::pair<K,V>>`) wherever the JS code relies on object key order.
+- **FMA and floating-point divergence.** GCC may emit fused multiply-add (FMA) instructions, which produce slightly different IEEE 754 results than JS's strict left-to-right evaluation. When porting a strategy that uses floating-point DP, add `#pragma GCC optimize("fp-contract=off")` at the top of the file (or compile with `-ffp-contract=off`) to disable FMA and match JS rounding behavior.
+- **Verify parity with `compare_strategies.py` before submitting.** After porting, run `scripts/compare_strategies.py --game <game> --strategy-a <original.js> --strategy-b <port.cpp>` to confirm both strategies make identical move choices on the same boards. Any divergence points to one of the issues above.
 
 ---
 
@@ -175,11 +181,12 @@ class MyOHStrategy(OHStrategy):
 ### JavaScript
 
 ```js
-const { fetch: fetchData } = require("../../interface/data.js");
+const { fetchSync } = require("../../interface/data.js");
 
 class MyOHStrategy extends OHStrategy {
-  async initEvaluationRun() {
-    const filePath = await fetchData({
+  initEvaluationRun() {
+    // Use fetchSync (not async fetch) — the protocol loop does not await initEvaluationRun.
+    const filePath = fetchSync({
       url: "https://...",
       sha256: "<hex sha256>",
       filename: "oh_harvest_lut.bin.lzma",
