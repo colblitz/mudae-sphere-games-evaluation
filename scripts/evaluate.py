@@ -45,6 +45,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -90,7 +91,7 @@ def build_harness(game: str) -> Path:
 # Run harness
 # ---------------------------------------------------------------------------
 
-def run_harness(game: str, strategy: str, extra_args: list[str]) -> dict[str, Any]:
+def run_harness(game: str, strategy: str, extra_args: list[str]) -> tuple[dict[str, Any], float]:
     binary = build_harness(game)
     cmd = [str(binary), "--strategy", strategy] + extra_args
 
@@ -99,6 +100,7 @@ def run_harness(game: str, strategy: str, extra_args: list[str]) -> dict[str, An
         cmd += ["--boards-dir", str(REPO_ROOT / "boards")]
 
     print(f"[run] {' '.join(cmd)}")
+    t0 = time.perf_counter()
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=None, text=True,
                             bufsize=1)
 
@@ -116,13 +118,14 @@ def run_harness(game: str, strategy: str, extra_args: list[str]) -> dict[str, An
                 sys.exit(1)
 
     proc.wait()
+    harness_elapsed = time.perf_counter() - t0
     if proc.returncode != 0:
         print(f"ERROR: harness exited with code {proc.returncode}", file=sys.stderr)
         sys.exit(1)
     if result_json is None:
         print("ERROR: harness did not emit RESULT_JSON", file=sys.stderr)
         sys.exit(1)
-    return result_json
+    return result_json, harness_elapsed
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +233,8 @@ def make_entry(result: dict[str, Any], strategy_path: str) -> dict[str, Any]:
     for key in ("ev", "stdev", "stdev_ev", "red_rate", "oc_rate",
                 "avg_clicks", "stdev_clicks", "avg_ship_clicks", "stdev_ship_clicks",
                 "perfect_rate", "all_ships_rate", "loss_5050_rate",
-                "n_games", "n_boards", "aggregate_ev", "seed"):
+                "n_games", "n_boards", "aggregate_ev", "seed",
+                "games_per_s", "harness_elapsed_s"):
         if key in result:
             entry[key] = result[key]
     return entry
@@ -583,6 +587,7 @@ def main() -> None:
             print(f"ERROR: strategy file not found: {args.strategy}", file=sys.stderr)
             sys.exit(1)
     strategy_abs = str(strategy_path.resolve())
+    t_start = time.perf_counter()
 
     # --trace for ot requires a specific n-colors value
     if args.trace and args.game == "ot" and args.n_colors == "all":
@@ -617,6 +622,7 @@ def main() -> None:
         if "--boards-dir" not in " ".join(trace_extra):
             cmd += ["--boards-dir", str(REPO_ROOT / "boards")]
         print(f"[run] {' '.join(cmd)}")
+        t0_trace = time.perf_counter()
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=None, text=True, bufsize=1)
         trace_json: list[Any] | None = None
         assert proc.stdout is not None
@@ -631,6 +637,7 @@ def main() -> None:
             else:
                 print(line, flush=True)
         proc.wait()
+        trace_elapsed = time.perf_counter() - t0_trace
         if proc.returncode != 0:
             print(f"ERROR: harness exited with code {proc.returncode}", file=sys.stderr)
             sys.exit(1)
@@ -638,15 +645,41 @@ def main() -> None:
             print("ERROR: harness did not emit TRACE_JSON", file=sys.stderr)
             sys.exit(1)
         render_trace(args.game, trace_json)
+        total_elapsed = time.perf_counter() - t_start
+        n_traced = len(trace_json)
+        print(f"--- Timing ---")
+        print(f"  Harness run:   {trace_elapsed:.2f} s  ({n_traced / trace_elapsed:,.0f} games/s)")
+        print(f"  Total elapsed: {total_elapsed:.2f} s")
         return
 
     # ------------------------------------------------------------------
     # Run evaluation
     # ------------------------------------------------------------------
-    result = run_harness(args.game, strategy_abs, extra)
+    result, harness_elapsed = run_harness(args.game, strategy_abs, extra)
 
     print("\n--- Result ---")
     print(json.dumps(result, indent=2))
+
+    # ------------------------------------------------------------------
+    # Timing summary
+    # ------------------------------------------------------------------
+    total_elapsed = time.perf_counter() - t_start
+    # Determine game count: oh uses n_games, board-based games use n_boards.
+    # For ot with multiple variants, sum n_boards across variants if present.
+    n_games_run: int = 0
+    if "n_games" in result:
+        n_games_run = result["n_games"]
+    elif "variants" in result:
+        n_games_run = sum(v.get("n_boards", 0) for v in result["variants"])
+    elif "n_boards" in result:
+        n_games_run = result["n_boards"]
+    print("\n--- Timing ---")
+    if n_games_run:
+        games_per_sec = n_games_run / harness_elapsed
+        print(f"  Harness run:   {harness_elapsed:.2f} s  ({games_per_sec:,.0f} games/s,  {n_games_run:,} games)")
+    else:
+        print(f"  Harness run:   {harness_elapsed:.2f} s")
+    print(f"  Total elapsed: {total_elapsed:.2f} s")
 
     # ------------------------------------------------------------------
     # Dry-run leaderboard check — would this result change the top 5?
@@ -717,6 +750,9 @@ def main() -> None:
         run_params["seed"] = args.seed
     if args.game == "ot":
         run_params["n_colors"] = args.n_colors
+    run_params["harness_elapsed_s"] = round(harness_elapsed, 3)
+    if n_games_run:
+        run_params["games_per_s"] = round(n_games_run / harness_elapsed, 1)
 
     artifact_path = write_scores_artifact(
         args.game, result, args.strategy, commit_for_entry, run_params
@@ -735,6 +771,9 @@ def main() -> None:
                     "n_games", "n_boards", "aggregate_ev", "seed"):
             if key in res:
                 entry[key] = res[key]
+        for key in ("games_per_s", "harness_elapsed_s"):
+            if key in run_params:
+                entry[key] = run_params[key]
         return entry
     _original_make_entry = make_entry
     make_entry = _make_entry_with_hash  # type: ignore[assignment]
