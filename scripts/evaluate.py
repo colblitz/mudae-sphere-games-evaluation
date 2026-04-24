@@ -552,6 +552,7 @@ def render_trace(game: str, traces: list[dict[str, Any]]) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    global make_entry  # noqa: PLW0603
     parser = argparse.ArgumentParser(description="Evaluate a sphere mini-game strategy.")
     parser.add_argument("--game",            required=True, choices=GAMES)
     parser.add_argument("--strategy",        required=True)
@@ -722,8 +723,6 @@ def main() -> None:
     )
 
     # Use the strategy commit hash in the leaderboard entry (not the scores commit).
-    global make_entry  # noqa: PLW0603
-
     def _make_entry_with_hash(res: dict[str, Any], spath: str) -> dict[str, Any]:
         entry: dict[str, Any] = {
             "filename": spath,
