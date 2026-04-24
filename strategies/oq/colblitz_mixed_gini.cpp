@@ -1,5 +1,5 @@
 /**
- * cortana_mixed.cpp — C++ port of the MIXED(alpha=1.0, beta=0.1) heuristic
+ * colblitz_mixed_gini.cpp — C++ port of the MIXED(alpha=1.0, beta=0.1) heuristic
  *                     for /sphere quest (oq).
  *
  * Ported from:
