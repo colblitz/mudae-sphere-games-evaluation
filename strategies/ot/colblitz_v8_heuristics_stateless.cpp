@@ -48,6 +48,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <numeric>
 #include <string>
 #include <unordered_map>
@@ -689,17 +690,79 @@ static int jsonGetInt(const char* json, const char* key, int def = 0) {
 }
 
 // ---------------------------------------------------------------------------
+// Process-wide board + weight cache.
+//
+// Board files are large (up to ~870 K rows × 8 int32s ≈ 27 MB per variant)
+// and slow to decompress (xzcat).  When the tree-walk evaluator initialises
+// N bridge instances in sequence, without this cache each instance runs 4
+// xzcat calls — 20 threads × 4 files = 80 xzcat processes.
+//
+// The cache loads each file exactly once (on the first init_evaluation_run
+// call) and shares the immutable data across all instances.  Subsequent
+// init_evaluation_run calls on any instance are near-zero cost.
+// ---------------------------------------------------------------------------
+
+struct BoardCache {
+    BoardSet boards[4];       // indexed by n_rare - 2
+    bool     loaded[4] = {};
+
+    std::array<double, V8_N_WEIGHTS> weights[4];
+    bool                              weightsLoaded[4] = {};
+};
+
+static BoardCache&   g_board_cache() {
+    static BoardCache cache;
+    return cache;
+}
+static std::once_flag g_board_cache_flag;
+
+static void load_board_cache() {
+    BoardCache& c = g_board_cache();
+    for (int n_colors = 6; n_colors <= 9; ++n_colors) {
+        int n_rare = n_colors - 4;
+        int idx    = n_rare - 2;
+        int fields = 3 + n_rare;
+        std::string path = repoPath(
+            "data/sphere_trace_boards_" + std::to_string(n_rare) + ".bin.lzma");
+        std::vector<int32_t> raw;
+        if (loadLzma(path, raw, fields) && !raw.empty()) {
+            int n = (int)(raw.size() / fields);
+            c.boards[idx].data   = std::move(raw);
+            c.boards[idx].n      = n;
+            c.boards[idx].fields = fields;
+            c.loaded[idx]        = true;
+        }
+    }
+    std::string wpath = repoPath("data/trace_v8_weights.json");
+    FILE* fp = fopen(wpath.c_str(), "r");
+    if (fp) {
+        fseek(fp, 0, SEEK_END);
+        long sz = ftell(fp);
+        rewind(fp);
+        std::string json(sz, '\0');
+        if (fread(&json[0], 1, sz, fp) != (size_t)sz) json.clear();
+        fclose(fp);
+        for (int n_colors = 6; n_colors <= 9; ++n_colors) {
+            int idx = n_colors - 4 - 2;
+            if (extractWeights(json, n_colors, c.weights[idx]))
+                c.weightsLoaded[idx] = true;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Strategy class — stateless, index-based filtering version
 // ---------------------------------------------------------------------------
 
 class ColblitzV8StatelessOTStrategy : public OTStrategy {
 public:
     // -----------------------------------------------------------------------
-    // Run-level state (loaded once, never mutated after init_evaluation_run)
+    // Run-level state: pointers into the process-wide board cache.
+    // The cache owns the data; these are non-owning views.
     // -----------------------------------------------------------------------
 
-    BoardSet fullBoards_[4];           // indexed by n_rare - 2
-    bool     boardsLoaded_[4] = {};
+    const BoardSet* fullBoards_[4]  = {};  // indexed by n_rare - 2
+    bool            boardsLoaded_[4] = {};
 
     // -----------------------------------------------------------------------
     // Incremental delta cache (one slot per board variant, per instance).
@@ -729,7 +792,7 @@ public:
     // -----------------------------------------------------------------------
 
     void init_evaluation_run() override {
-        // Reset incremental cache (safe to call multiple times).
+        // Reset incremental delta cache (safe to call multiple times).
         for (int i = 0; i < 4; ++i) {
             cache_valid_[i]    = false;
             cache_revealed_[i] = 0;
@@ -737,34 +800,18 @@ public:
             cache_sv_[i].clear();
         }
 
-        for (int n_colors = 6; n_colors <= 9; ++n_colors) {
-            int n_rare = n_colors - 4;
-            int idx    = n_rare - 2;
-            int fields = 3 + n_rare;
-            std::string path = repoPath(
-                "data/sphere_trace_boards_" + std::to_string(n_rare) + ".bin.lzma");
-            std::vector<int32_t> raw;
-            if (loadLzma(path, raw, fields) && !raw.empty()) {
-                int n = (int)(raw.size() / fields);
-                fullBoards_[idx].data   = std::move(raw);
-                fullBoards_[idx].n      = n;
-                fullBoards_[idx].fields = fields;
-                boardsLoaded_[idx]      = true;
-            }
-        }
-        std::string wpath = repoPath("data/trace_v8_weights.json");
-        FILE* fp = fopen(wpath.c_str(), "r");
-        if (fp) {
-            fseek(fp, 0, SEEK_END);
-            long sz = ftell(fp);
-            rewind(fp);
-            std::string json(sz, '\0');
-            if (fread(&json[0], 1, sz, fp) != (size_t)sz) json.clear();
-            fclose(fp);
-            for (int n_colors = 6; n_colors <= 9; ++n_colors) {
-                int idx = n_colors - 4 - 2;
-                if (extractWeights(json, n_colors, weights_[idx]))
-                    weightsLoaded_[idx] = true;
+        // Load board data and weights into the process-wide cache exactly once.
+        // All subsequent instances share the same data without re-decompressing.
+        std::call_once(g_board_cache_flag, load_board_cache);
+
+        // Point this instance's views at the shared cache.
+        const BoardCache& c = g_board_cache();
+        for (int i = 0; i < 4; ++i) {
+            fullBoards_[i]    = c.loaded[i] ? &c.boards[i] : nullptr;
+            boardsLoaded_[i]  = c.loaded[i];
+            if (c.weightsLoaded[i]) {
+                weights_[i]        = c.weights[i];
+                weightsLoaded_[i]  = true;
             }
         }
     }
@@ -822,7 +869,7 @@ public:
             return;
         }
 
-        const BoardSet& fbs = fullBoards_[bs_idx];
+        const BoardSet& fbs = *fullBoards_[bs_idx];
 
         // Working surviving index list and rareColorGroups for this call.
         std::vector<int> sv;
@@ -840,7 +887,7 @@ public:
             // rareColorGroups stays empty.
         } else if (is_superset) {
             // Parent→child: start from cached sv and apply only the delta reveals.
-            sv             = cache_sv_[bs_idx];
+            sv              = cache_sv_[bs_idx];
             rareColorGroups = cache_rare_[bs_idx];
 
             uint32_t delta_mask = revealed_mask & ~cached;
@@ -889,6 +936,93 @@ public:
         out.row = chosen / GRID;
         out.col = chosen % GRID;
     }
+
+    // -----------------------------------------------------------------------
+    // next_click_with_sv — sv-aware variant for the tree-walk harness.
+    //
+    // Receives the pre-filtered full-population surviving board index list
+    // directly from the harness, skipping the strategy's own filtering step
+    // entirely.  The harness maintains the correct sv as it descends and
+    // backtracks the tree, so filtering is never redundant here.
+    //
+    // The board argument is still parsed to extract rareColorGroups (needed
+    // for scoring terms that track which var-rare colors have been identified),
+    // but no filter functions are called.
+    // -----------------------------------------------------------------------
+
+    void next_click_with_sv(const std::vector<Cell>& board,
+                             const std::string& meta_json,
+                             const int* sv_ptr, int sv_len,
+                             ClickResult& out)
+    {
+        int ships_hit  = jsonGetInt(meta_json.c_str(), "\"ships_hit\"",  0);
+        int blues_used = jsonGetInt(meta_json.c_str(), "\"blues_used\"", 0);
+        int n_colors   = jsonGetInt(meta_json.c_str(), "\"n_colors\"",   6);
+        int n_rare     = n_colors - 4;
+        int bs_idx     = n_rare - 2;
+
+        // Build unclicked list and reveals (for rareColorGroups only — no filtering).
+        std::vector<int> unclicked;
+        unclicked.reserve(25);
+        std::vector<std::pair<int, std::string>> reveals;
+        reveals.reserve(25);
+
+        for (const Cell& c : board) {
+            int idx = c.row * GRID + c.col;
+            if (c.clicked) {
+                reveals.push_back({idx, c.color});
+            } else {
+                unclicked.push_back(idx);
+            }
+        }
+
+        std::sort(reveals.begin(), reveals.end(),
+                  [](const auto& a, const auto& b){ return a.first < b.first; });
+        std::sort(unclicked.begin(), unclicked.end());
+
+        if (unclicked.empty()) { out.row = 0; out.col = 0; return; }
+
+        if (!boardsLoaded_[bs_idx] || sv_len == 0) {
+            out.row = unclicked[0] / GRID;
+            out.col = unclicked[0] % GRID;
+            return;
+        }
+
+        const BoardSet& fbs = *fullBoards_[bs_idx];
+
+        // Use the provided sv directly — no filtering needed.
+        std::vector<int> sv(sv_ptr, sv_ptr + sv_len);
+
+        // Reconstruct rareColorGroups from revealed var-rare cells.
+        // This is needed by scoring terms (rare_id) but does not modify sv.
+        std::unordered_map<std::string, int32_t> rareColorGroups;
+        for (const auto& [cidx, color] : reveals) {
+            if (color == "spL" || color == "spD" || color == "spR" || color == "spW") {
+                int32_t bit = (int32_t)(1 << cidx);
+                rareColorGroups[color] |= bit;
+            }
+        }
+
+        int chosen = -1;
+
+        if (ships_hit < SHIPS_HIT_THRESHOLD) {
+            if (weightsLoaded_[bs_idx]) {
+                chosen = pickPhase1CellV8Idx(fbs, sv, unclicked, n_rare,
+                                              ships_hit, blues_used,
+                                              rareColorGroups, weights_[bs_idx]);
+            } else {
+                chosen = pickPhase1CellPhaseDIdx(fbs, sv, unclicked, n_rare, ships_hit);
+            }
+        } else {
+            std::vector<int32_t> occ_sv;
+            computeOccIdx(fbs, sv, occ_sv);
+            chosen = pickSafeP2CellIdx(fbs, sv, occ_sv, unclicked);
+        }
+
+        if (chosen < 0) chosen = unclicked[0];
+        out.row = chosen / GRID;
+        out.col = chosen % GRID;
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -907,13 +1041,8 @@ extern "C" void strategy_init_game_payload(void* inst, const char* meta_json) {
         meta_json ? meta_json : "{}");
 }
 
-extern "C" const char* strategy_next_click(void* inst,
-                                            const char* board_json,
-                                            const char* meta_json)
-{
-    thread_local static std::string buf;
-    auto* s = static_cast<ColblitzV8StatelessOTStrategy*>(inst);
-
+// Shared board JSON parser used by both next_click exports.
+static std::vector<Cell> parse_board_json(const char* board_json) {
     std::vector<Cell> brd;
     brd.reserve(25);
     const char* p = board_json;
@@ -935,9 +1064,35 @@ extern "C" const char* strategy_next_click(void* inst,
         brd.push_back(c);
         p += 6;
     }
+    return brd;
+}
 
+extern "C" const char* strategy_next_click(void* inst,
+                                            const char* board_json,
+                                            const char* meta_json)
+{
+    thread_local static std::string buf;
+    auto* s = static_cast<ColblitzV8StatelessOTStrategy*>(inst);
+    std::vector<Cell> brd = parse_board_json(board_json ? board_json : "[]");
     ClickResult out;
     s->next_click(brd, meta_json ? meta_json : "{}", out);
+    buf = "{\"row\":" + std::to_string(out.row) + ",\"col\":" + std::to_string(out.col) + "}";
+    return buf.c_str();
+}
+
+// sv-aware variant: receives the pre-filtered full-population surviving board
+// index list from the tree-walk harness.  Skips all internal filtering.
+extern "C" const char* strategy_next_click_sv(void* inst,
+                                               const char* board_json,
+                                               const char* meta_json,
+                                               const int*  sv_ptr,
+                                               int         sv_len)
+{
+    thread_local static std::string buf;
+    auto* s = static_cast<ColblitzV8StatelessOTStrategy*>(inst);
+    std::vector<Cell> brd = parse_board_json(board_json ? board_json : "[]");
+    ClickResult out;
+    s->next_click_with_sv(brd, meta_json ? meta_json : "{}", sv_ptr, sv_len, out);
     buf = "{\"row\":" + std::to_string(out.row) + ",\"col\":" + std::to_string(out.col) + "}";
     return buf.c_str();
 }

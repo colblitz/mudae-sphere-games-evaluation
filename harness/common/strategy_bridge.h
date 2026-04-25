@@ -87,8 +87,13 @@ public:
     virtual void init_game_payload(const std::string& meta_json) = 0;
 
     // Called once per click decision.  Updates game_state internally.
+    // full_sv: full-population surviving board indices for this tree node.
+    // Strategies that export strategy_next_click_sv will receive this directly
+    // and skip their own board filtering.  Strategies that do not export it
+    // receive an empty vector and perform filtering themselves as before.
     virtual Click next_click(const std::vector<Cell>& board,
-                             const std::string&        meta_json) = 0;
+                             const std::string&        meta_json,
+                             const std::vector<int>&   full_sv = {}) = 0;
 
     // Factory: detects language from extension and constructs the right bridge.
     // game_name is one of "oh", "oc", "oq", "ot" (used to find the ABC class).
@@ -222,7 +227,8 @@ public:
     }
 
     Click next_click(const std::vector<Cell>& board,
-                     const std::string&        meta_json) override {
+                     const std::string&        meta_json,
+                     const std::vector<int>&   /*full_sv*/ = {}) override {
         PyGILState_STATE gstate = PyGILState_Ensure();
         PyObject* rev        = cells_to_py(board);
         PyObject* meta       = json_to_py(meta_json);
@@ -326,10 +332,22 @@ using DestroyFn = void (*)(void*);
 //                                               const char* meta);
 // strategy_next_click must return a pointer that remains valid until the next
 // call (use static/thread_local storage in the .so).
+//
+// Optional sv-aware variant (for strategies that want the pre-filtered
+// surviving board index list from the tree-walk harness):
+//   extern "C" const char* strategy_next_click_sv(void*, const char* board_json,
+//                                                  const char* meta,
+//                                                  const int*  sv_ptr,
+//                                                  int         sv_len);
+// If this symbol is present the harness will call it instead of
+// strategy_next_click, passing the full-population surviving board indices
+// so the strategy can skip its own filtering step.
 
-using InitRunFn     = void        (*)(void*);
-using InitPayloadFn = void        (*)(void*, const char*);
-using NextClickFn   = const char* (*)(void*, const char*, const char*);
+using InitRunFn       = void        (*)(void*);
+using InitPayloadFn   = void        (*)(void*, const char*);
+using NextClickFn     = const char* (*)(void*, const char*, const char*);
+using NextClickSvFn   = const char* (*)(void*, const char*, const char*,
+                                        const int*, int);
 
 class CppBridge : public StrategyBridge {
 public:
@@ -347,6 +365,8 @@ public:
             dlclose(handle_);
             throw std::runtime_error("CppBridge: missing required export(s) in " + so_path);
         }
+        // Optional: sv-aware variant that receives the pre-filtered board index list.
+        nc_sv_fn_ = reinterpret_cast<NextClickSvFn>(dlsym(handle_, "strategy_next_click_sv"));
         instance_ = create_fn_();
     }
 
@@ -364,21 +384,29 @@ public:
     }
 
     Click next_click(const std::vector<Cell>& board,
-                     const std::string&        meta_json) override {
+                     const std::string&        meta_json,
+                     const std::vector<int>&   full_sv = {}) override {
         std::string rev_json = cells_to_json(board);
-        const char* r = nc_fn_(instance_, rev_json.c_str(), meta_json.c_str());
+        const char* r;
+        if (nc_sv_fn_ && !full_sv.empty()) {
+            r = nc_sv_fn_(instance_, rev_json.c_str(), meta_json.c_str(),
+                          full_sv.data(), (int)full_sv.size());
+        } else {
+            r = nc_fn_(instance_, rev_json.c_str(), meta_json.c_str());
+        }
         if (!r) return {0, 0};
         return json_parse_click(r);
     }
 
 private:
-    void*         handle_     = nullptr;
-    void*         instance_   = nullptr;
-    CreateFn      create_fn_  = nullptr;
-    DestroyFn     destroy_fn_ = nullptr;
-    InitRunFn     ir_fn_      = nullptr;
-    InitPayloadFn ip_fn_      = nullptr;
-    NextClickFn   nc_fn_      = nullptr;
+    void*           handle_     = nullptr;
+    void*           instance_   = nullptr;
+    CreateFn        create_fn_  = nullptr;
+    DestroyFn       destroy_fn_ = nullptr;
+    InitRunFn       ir_fn_      = nullptr;
+    InitPayloadFn   ip_fn_      = nullptr;
+    NextClickFn     nc_fn_      = nullptr;
+    NextClickSvFn   nc_sv_fn_   = nullptr;  // optional; null if not exported
 
     static std::string cells_to_json(const std::vector<Cell>& cells) {
         std::string s = "[";
@@ -465,7 +493,8 @@ public:
     }
 
     Click next_click(const std::vector<Cell>& board,
-                     const std::string&        meta_json) override {
+                     const std::string&        meta_json,
+                     const std::vector<int>&   /*full_sv*/ = {}) override {
         std::string rev_json = cells_to_json(board);
         std::string msg = "{\"method\":\"next_click\",\"board\":" + rev_json
                         + ",\"meta\":" + meta_json + "}\n";

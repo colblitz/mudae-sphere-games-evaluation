@@ -219,14 +219,14 @@ int main(int argc, char* argv[]) {
     }
 
     // Load boards
-    printf("Loading boards from %s ...\n", boards_path.c_str());
+    print_ts(); printf("Loading boards from %s ...\n", boards_path.c_str());
     fflush(stdout);
     auto boards = load_oc_boards(boards_path);
     if (boards.empty()) {
         fprintf(stderr, "ERROR: failed to load boards from %s\n", boards_path.c_str());
         return 1;
     }
-    printf("Loaded %zu boards.\n", boards.size());
+    print_ts(); printf("Loaded %zu boards.\n", boards.size());
     fflush(stdout);
 
     // Compute per-board weights matching the DP's uniform-over-red-positions prior.
@@ -258,7 +258,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Load strategy
-    printf("Loading strategy %s ...\n", strategy_path.c_str());
+    print_ts(); printf("Loading strategy %s ...\n", strategy_path.c_str());
     fflush(stdout);
     std::unique_ptr<StrategyBridge> bridge;
     try {
@@ -272,7 +272,7 @@ int main(int argc, char* argv[]) {
     // TRACE MODE
     // ------------------------------------------------------------------
     if (trace_n > 0) {
-        printf("Trace mode: sampling %d boards (seed=%llu) ...\n",
+        print_ts(); printf("Trace mode: sampling %d boards (seed=%llu) ...\n",
                trace_n, (unsigned long long)trace_seed);
         fflush(stdout);
 
@@ -309,7 +309,7 @@ int main(int argc, char* argv[]) {
     // ------------------------------------------------------------------
     // NORMAL EVALUATION MODE
     // ------------------------------------------------------------------
-    printf("Strategy loaded. Running %zu boards (threads=%d) ...\n", boards.size(), n_threads);
+    print_ts(); printf("Strategy loaded. Running %zu boards (threads=%d) ...\n", boards.size(), n_threads);
     fflush(stdout);
 
     // Per-thread bridges and accumulators

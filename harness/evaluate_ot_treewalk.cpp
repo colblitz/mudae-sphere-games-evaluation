@@ -76,6 +76,7 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <string>
 #include <thread>
 #include <vector>
@@ -292,54 +293,92 @@ static std::string build_meta_json(int n_colors, int ships_hit, int blues_used) 
 }
 
 // ---------------------------------------------------------------------------
-// tree_walk — recursive exact EV computation over a board subset
+// WalkContext — values that are constant for an entire tree-walk variant.
+// Passed by const-ref into tree_walk to avoid repeating them in every
+// recursive call.
+// ---------------------------------------------------------------------------
+
+struct WalkContext {
+    const FlatBoardSet& fbs;
+    int                 total_ship_cells;
+    int                 n_colors;
+    StrategyBridge&     bridge;
+    ProgressSlot&       progress;
+};
+
+// ---------------------------------------------------------------------------
+// filter_full_sv — apply one reveal to the full-population surviving index
+// list.  Keeps only boards where cell `cell` has detailed color `dc`.
 //
-// board_indices: subset of boards consistent with the click history.
-// revealed[]:    cells clicked so far (shared click history for this subtree).
+// This mirrors the strategy's applyRevealIdx logic but uses the integer dc
+// directly (which the harness already has from the tree branch) rather than
+// a color-name string, so no rareColorGroups bookkeeping is needed here.
+// The harness knows the exact dc slot at each branch; "which var-rare slot"
+// is unambiguous.
+// ---------------------------------------------------------------------------
+
+static void filter_full_sv(const FlatBoardSet& fbs,
+                            std::vector<int>&   sv,
+                            int                 cell,
+                            int                 dc)
+{
+    if (sv.empty()) return;
+    int out = 0;
+    for (int i = 0, n = (int)sv.size(); i < n; ++i)
+        if (cell_dc(fbs, sv[i], cell) == dc) sv[out++] = sv[i];
+    sv.resize(out);
+}
+
+// ---------------------------------------------------------------------------
+// tree_walk — recursive exact EV computation over a board subset.
+//
+// ctx:           constant walk-wide context (fbs, n_colors, bridge, progress,
+//                total_ship_cells).
+// board_indices: this thread's chunk of boards consistent with the click path.
+//                Used only for probability weighting (p_color = branch/total).
+//                Never passed to the strategy.
+// full_sv:       full-population surviving boards consistent with the click
+//                path (independent of chunking).  Passed to the strategy so
+//                it sees the correct board distribution regardless of which
+//                chunk this thread owns.
+// revealed[]:    cells clicked so far.
 // revealed_dc[]: detailed color at each revealed cell.
 // ships_hit:     ship cells revealed so far.
 // blues_used:    blue clicks spent so far (Extra Chance not counted).
 // game_over:     true if the game ended before reaching this node.
 // ca:            current var-rare color assignment state.
-// total_ship_cells: total ship cells on this board set.
 // ships_revealed:   ship cells revealed so far.
 // ship_hit_mask:    bitmask of distinct ships hit so far.
 // click_count:      total clicks so far.
-// bridge:           strategy instance (one per thread, never shared).
-// n_colors:         6/7/8/9.
-// progress:         per-thread progress slot; incremented at terminal nodes.
 // ---------------------------------------------------------------------------
 
 static NodeResult tree_walk(
-    const FlatBoardSet&     fbs,
+    const WalkContext&      ctx,
     const std::vector<int>& board_indices,
+    const std::vector<int>& full_sv,
     const bool              revealed[N_CELLS],
     const uint8_t           revealed_dc[N_CELLS],
     int                     ships_hit,
     int                     blues_used,
     bool                    game_over,
     ColorAssign             ca,
-    int                     total_ship_cells,
     int                     ships_revealed,
     uint32_t                ship_hit_mask,
-    int                     click_count,
-    StrategyBridge&         bridge,
-    int                     n_colors,
-    ProgressSlot&           progress)
+    int                     click_count)
 {
     int n_boards = (int)board_indices.size();
     if (n_boards == 0) return {};
 
-    int n_ships_total    = 4 + fbs.n_var;
+    int n_ships_total    = 4 + ctx.fbs.n_var;
     uint32_t all_ships_mask = (1u << n_ships_total) - 1u;
 
     // Helper: record terminal node and return result.
     auto make_terminal = [&]() -> NodeResult {
-        double perf  = (ships_revealed == total_ship_cells) ? 1.0 : 0.0;
-        double sfrac = (total_ship_cells > 0)
-            ? (double)ships_revealed / total_ship_cells : 1.0;
+        double perf  = (ships_revealed == ctx.total_ship_cells) ? 1.0 : 0.0;
+        double sfrac = (ctx.total_ship_cells > 0)
+            ? (double)ships_revealed / ctx.total_ship_cells : 1.0;
         double all_s = ((ship_hit_mask & all_ships_mask) == all_ships_mask) ? 1.0 : 0.0;
-        progress.terminals.fetch_add(1, std::memory_order_relaxed);
+        ctx.progress.terminals.fetch_add(1, std::memory_order_relaxed);
         return {
             .ev_sp      = 0.0,
             .ev_sp2     = 0.0,
@@ -362,22 +401,24 @@ static NodeResult tree_walk(
     if (unclicked.empty()) return make_terminal();
 
     // Ask the strategy which cell to click.
-    // The strategy only sees (revealed[], meta) — it has no knowledge of
-    // n_boards, the chunk size, or which thread is calling it.
+    // full_sv is the full-population surviving set — correct board distribution
+    // regardless of this thread's chunk.  board_indices (the chunk subset) is
+    // used only for probability weighting below; it is never shown to the strategy.
     std::vector<Cell> board_vec;
     build_board_vec(revealed, revealed_dc, ca, board_vec);
-    std::string meta = build_meta_json(n_colors, ships_hit, blues_used);
+    std::string meta = build_meta_json(ctx.n_colors, ships_hit, blues_used);
 
-    Click c = bridge.next_click(board_vec, meta);
-    progress.strategy_calls.fetch_add(1, std::memory_order_relaxed);
+    Click c = ctx.bridge.next_click(board_vec, meta, full_sv);
+    ctx.progress.strategy_calls.fetch_add(1, std::memory_order_relaxed);
     int cell = rc_to_idx(c.row, c.col);
     if (cell < 0 || cell >= N_CELLS || revealed[cell])
         cell = unclicked[0];  // fallback: first unclicked cell
 
-    // Partition boards by detailed color at the chosen cell
+    // Partition boards by detailed color at the chosen cell.
+    // board_indices: per-chunk (for probability), full_sv: full population (for strategy).
     std::vector<int> by_color[MAX_DC];
     for (int bi : board_indices)
-        by_color[cell_dc(fbs, bi, cell)].push_back(bi);
+        by_color[cell_dc(ctx.fbs, bi, cell)].push_back(bi);
 
     NodeResult result{};
 
@@ -394,15 +435,19 @@ static NodeResult tree_walk(
         rev2[cell]    = true;
         rev_dc2[cell] = (uint8_t)color;
 
-        int new_ships_hit   = ships_hit    + (is_ship ? 1 : 0);
-        int new_ships_rev   = ships_revealed + (is_ship ? 1 : 0);
-        int new_click_count = click_count  + 1;
+        int new_ships_hit   = ships_hit      + (is_ship ? 1 : 0);
+        int new_ships_rev   = ships_revealed  + (is_ship ? 1 : 0);
+        int new_click_count = click_count     + 1;
 
         uint32_t new_ship_hit_mask = ship_hit_mask;
         if (is_ship) {
             int ship_idx = color - 1;  // teal→0, green→1, yellow→2, spO→3, var_k→4+k
             new_ship_hit_mask |= (1u << ship_idx);
         }
+
+        // Compute the child full_sv: full-population boards surviving this reveal.
+        std::vector<int> child_full_sv = full_sv;
+        filter_full_sv(ctx.fbs, child_full_sv, cell, color);
 
         if (color == 0) {
             // ---- Blue click ----
@@ -420,27 +465,25 @@ static NodeResult tree_walk(
 
             // loss_5050: was this a near-50/50 game-ending blue?
             double extra_loss_5050 = 0.0;
-            if (new_game_over && ships_revealed < total_ship_cells) {
+            if (new_game_over && ships_revealed < ctx.total_ship_cells) {
                 double p_blue = (double)by_color[0].size() / n_boards;
                 if (p_blue > 0.25 && p_blue < 0.75)
                     extra_loss_5050 = 1.0;
             }
 
             NodeResult r = tree_walk(
-                fbs, by_color[color], rev2, rev_dc2,
+                ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                 new_ships_hit, new_blues_used, new_game_over, ca,
-                total_ship_cells, new_ships_rev, new_ship_hit_mask,
-                new_click_count, bridge, n_colors, progress);
+                new_ships_rev, new_ship_hit_mask, new_click_count);
             r.loss_5050 += extra_loss_5050;
             accumulate(result, p_color, r, (double)OT_BLUE_VALUE);
 
         } else if (color <= 4) {
             // ---- Fixed-ship click (teal/green/yellow/spO) ----
             NodeResult r = tree_walk(
-                fbs, by_color[color], rev2, rev_dc2,
+                ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                 new_ships_hit, blues_used, false, ca,
-                total_ship_cells, new_ships_rev, new_ship_hit_mask,
-                new_click_count, bridge, n_colors, progress);
+                new_ships_rev, new_ship_hit_mask, new_click_count);
             accumulate(result, p_color, r, (double)FIXED_SP[color]);
 
         } else {
@@ -449,10 +492,9 @@ static NodeResult tree_walk(
             if (ca.is_assigned(slot)) {
                 int var_c = (int)ca.color[slot];
                 NodeResult r = tree_walk(
-                    fbs, by_color[color], rev2, rev_dc2,
+                    ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                     new_ships_hit, blues_used, false, ca,
-                    total_ship_cells, new_ships_rev, new_ship_hit_mask,
-                    new_click_count, bridge, n_colors, progress);
+                    new_ships_rev, new_ship_hit_mask, new_click_count);
                 accumulate(result, p_color, r, (double)VAR_SP[var_c]);
             } else {
                 // Fan out over all possible var-rare identities (without-replacement draw)
@@ -464,10 +506,9 @@ static NodeResult tree_walk(
                     double sp_delta = (double)VAR_SP[vc];
                     ColorAssign ca2 = ca.with_assign(slot, vc);
                     NodeResult r = tree_walk(
-                        fbs, by_color[color], rev2, rev_dc2,
+                        ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                         new_ships_hit, blues_used, false, ca2,
-                        total_ship_cells, new_ships_rev, new_ship_hit_mask,
-                        new_click_count, bridge, n_colors, progress);
+                        new_ships_rev, new_ship_hit_mask, new_click_count);
                     double ev_child = r.ev_sp + sp_delta;
                     var_result.ev_sp      += wc * ev_child;
                     var_result.ev_sp2     += wc * (r.ev_sp2
@@ -635,6 +676,12 @@ static OTVariantResult evaluate_variant_treewalk(
     std::vector<std::thread> workers;
     workers.reserve(n_threads);
 
+    // full_sv at the root of each thread's walk = all boards [0..n_boards-1].
+    // This is independent of the chunk — every thread's strategy sees the full
+    // population, not just the chunk it is responsible for.
+    std::vector<int> root_full_sv(n_boards);
+    std::iota(root_full_sv.begin(), root_full_sv.end(), 0);
+
     for (int t = 0; t < n_threads; ++t) {
         workers.emplace_back([&, t]() {
             int start = chunk_start[t];
@@ -649,12 +696,13 @@ static OTVariantResult evaluate_variant_treewalk(
             uint8_t revealed_dc[N_CELLS] = {};
             ColorAssign ca(fbs.n_var);
 
+            WalkContext ctx{fbs, total_ship_cells, n_colors, *bridges[t], progress[t]};
+
             progress[t].active.store(1, std::memory_order_relaxed);
             results[t] = tree_walk(
-                fbs, indices, revealed, revealed_dc,
+                ctx, indices, root_full_sv, revealed, revealed_dc,
                 0, 0, false, ca,
-                total_ship_cells, 0, 0,
-                0, *bridges[t], n_colors, progress[t]);
+                0, 0, 0);
             progress[t].active.store(0, std::memory_order_relaxed);
         });
     }

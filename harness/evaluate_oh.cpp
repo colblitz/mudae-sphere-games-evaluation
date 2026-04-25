@@ -557,7 +557,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Load dark stats
-    printf("Loading dark stats from %s ...\n", dark_stats_path.c_str());
+    print_ts(); printf("Loading dark stats from %s ...\n", dark_stats_path.c_str());
     fflush(stdout);
     std::string dark_json = read_file(dark_stats_path);
     if (dark_json.empty()) {
@@ -571,7 +571,7 @@ int main(int argc, char* argv[]) {
     dark_dist.build(dark_rates);
 
     // Load strategy
-    printf("Loading strategy %s ...\n", strategy_path.c_str());
+    print_ts(); printf("Loading strategy %s ...\n", strategy_path.c_str());
     fflush(stdout);
     std::unique_ptr<StrategyBridge> bridge;
     try {
@@ -585,7 +585,7 @@ int main(int argc, char* argv[]) {
     // TRACE MODE
     // ------------------------------------------------------------------
     if (trace_n > 0) {
-        printf("Trace mode: sampling %d games (seed=%llu) ...\n",
+        print_ts(); printf("Trace mode: sampling %d games (seed=%llu) ...\n",
                trace_n, (unsigned long long)seed);
         fflush(stdout);
 
@@ -622,7 +622,7 @@ int main(int argc, char* argv[]) {
     // ------------------------------------------------------------------
     // NORMAL EVALUATION MODE
     // ------------------------------------------------------------------
-    printf("Strategy loaded. Running %llu games (seed=%llu, threads=%d) ...\n",
+    print_ts(); printf("Strategy loaded. Running %llu games (seed=%llu, threads=%d) ...\n",
            (unsigned long long)n_games, (unsigned long long)seed, n_threads);
     fflush(stdout);
 

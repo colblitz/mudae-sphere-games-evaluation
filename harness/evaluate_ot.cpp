@@ -55,6 +55,7 @@
 #include <array>
 #include <atomic>
 #include <cassert>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -62,6 +63,7 @@
 #include <mutex>
 #include <random>
 #include <string>
+#include <thread>
 #include <vector>
 
 #ifdef _OPENMP
@@ -469,7 +471,7 @@ static OTVariantResult evaluate_variant(
         assignments.push_back(trivial);
     }
 
-    printf("  n_colors=%d: %llu boards  (assignments_per_board=%zu, threads=%d)\n",
+    print_ts(); printf("  n_colors=%d: %llu boards  (assignments_per_board=%zu, threads=%d)\n",
            n_colors, (unsigned long long)total, assignments.size(), n_threads);
     fflush(stdout);
 
@@ -486,6 +488,9 @@ static OTVariantResult evaluate_variant(
     ProgressReporter prog(total, 2000);
 
     // Each thread gets its own strategy instance
+    print_ts(); printf("  n_colors=%d: initialising %d bridge%s ...\n",
+           n_colors, n_threads, n_threads == 1 ? "" : "s");
+    fflush(stdout);
     std::vector<std::unique_ptr<StrategyBridge>> bridges(n_threads);
     for (int t = 0; t < n_threads; ++t) {
         bridges[t] = StrategyBridge::load(strategy_path, "ot");
@@ -496,6 +501,52 @@ static OTVariantResult evaluate_variant(
         bridges[t]->init_evaluation_run();
     init_elapsed_out = std::chrono::duration<double>(
         std::chrono::steady_clock::now() - t_init0).count();
+    print_ts(); printf("  n_colors=%d: bridges ready  (%.1fs)\n",
+           n_colors, init_elapsed_out);
+    fflush(stdout);
+
+    // Background heartbeat thread: prints progress every 10s
+    std::mutex              hb_mutex;
+    std::condition_variable hb_cv;
+    std::atomic<bool>       eval_done{false};
+
+    std::thread heartbeat([&]() {
+        using namespace std::chrono;
+        auto     start          = steady_clock::now();
+        double   next_time_secs = 10.0;
+        uint64_t prev_done      = 0;
+        double   prev_elapsed   = 0.0;
+
+        std::unique_lock<std::mutex> lk(hb_mutex);
+        while (true) {
+            hb_cv.wait_for(lk, milliseconds(1000),
+                [&]{ return eval_done.load(std::memory_order_relaxed); });
+            if (eval_done.load(std::memory_order_relaxed)) break;
+
+            double elapsed = duration<double>(steady_clock::now() - start).count();
+            if (elapsed < next_time_secs) continue;
+
+            uint64_t d        = done_count.load(std::memory_order_relaxed);
+            double interval_s = elapsed - prev_elapsed;
+            double rate       = (interval_s > 0.0)
+                                ? static_cast<double>(d - prev_done) / interval_s : 0.0;
+            double pct        = 100.0 * static_cast<double>(d) / static_cast<double>(total);
+            double eta        = (rate > 0.0 && d < total)
+                                ? static_cast<double>(total - d) / rate : 0.0;
+
+            print_ts();
+            printf("  n_colors=%d:  elapsed=%.0fs  boards=%llu/%.0f  %.1f%%"
+                   "  boards/s=%.0f  eta=%.0fs\n",
+                   n_colors, elapsed,
+                   (unsigned long long)d, static_cast<double>(total),
+                   pct, rate, eta);
+            fflush(stdout);
+
+            prev_done    = d;
+            prev_elapsed = elapsed;
+            next_time_secs = elapsed + 10.0;
+        }
+    });
 
 #ifdef _OPENMP
     omp_set_num_threads(n_threads);
@@ -548,6 +599,10 @@ static OTVariantResult evaluate_variant(
         if (d % prog.interval == 0) prog.report(d, ev_acc[tid].mean);
     }
     prog.done(ev_acc[0].mean);
+
+    eval_done.store(true, std::memory_order_relaxed);
+    hb_cv.notify_all();
+    heartbeat.join();
 
     // Merge per-thread accumulators via Chan's parallel Welford algorithm
     double mean_total        = 0.0;
@@ -644,16 +699,16 @@ int main(int argc, char* argv[]) {
 
         int n_rare = nc - 4;
         std::string board_path = boards_dir + "/ot_boards_" + std::to_string(n_rare) + ".bin.lzma";
-        printf("Loading %s ...\n", board_path.c_str());
+        print_ts(); printf("Loading %s ...\n", board_path.c_str());
         fflush(stdout);
         auto boards = load_ot_boards(board_path, n_rare);
         if (boards.empty()) {
             fprintf(stderr, "ERROR: failed to load boards from %s\n", board_path.c_str());
             return 1;
         }
-        printf("Loaded %zu boards for n_colors=%d.\n", boards.size(), nc);
+        print_ts(); printf("Loaded %zu boards for n_colors=%d.\n", boards.size(), nc);
 
-        printf("Loading strategy %s ...\n", strategy_path.c_str());
+        print_ts(); printf("Loading strategy %s ...\n", strategy_path.c_str());
         fflush(stdout);
         std::unique_ptr<StrategyBridge> bridge;
         try {
@@ -673,7 +728,7 @@ int main(int argc, char* argv[]) {
             assignments.push_back(trivial);
         }
 
-        printf("Trace mode: sampling %d boards (seed=%llu, n_colors=%d) ...\n",
+        print_ts(); printf("Trace mode: sampling %d boards (seed=%llu, n_colors=%d) ...\n",
                trace_n, (unsigned long long)trace_seed, nc);
         fflush(stdout);
 
@@ -731,11 +786,11 @@ int main(int argc, char* argv[]) {
     // ------------------------------------------------------------------
     // NORMAL EVALUATION MODE
     // ------------------------------------------------------------------
-    printf("evaluate_ot  strategy=%s  threads=%d\n", strategy_path.c_str(), n_threads);
+    print_ts(); printf("evaluate_ot  strategy=%s  threads=%d\n", strategy_path.c_str(), n_threads);
     fflush(stdout);
 
     // Load strategy (used inside evaluate_variant per-thread, but we verify it loads first)
-    printf("Loading strategy %s ...\n", strategy_path.c_str());
+    print_ts(); printf("Loading strategy %s ...\n", strategy_path.c_str());
     fflush(stdout);
     {
         std::unique_ptr<StrategyBridge> probe;
@@ -760,14 +815,14 @@ int main(int argc, char* argv[]) {
     for (int nc : variants) {
         int n_rare = nc - 4;
         std::string board_path = boards_dir + "/ot_boards_" + std::to_string(n_rare) + ".bin.lzma";
-        printf("Loading %s ...\n", board_path.c_str());
+        print_ts(); printf("Loading %s ...\n", board_path.c_str());
         fflush(stdout);
         auto boards = load_ot_boards(board_path, n_rare);
         if (boards.empty()) {
             fprintf(stderr, "WARNING: could not load boards for n_colors=%d, skipping.\n", nc);
             continue;
         }
-        printf("Loaded %zu boards for n_colors=%d\n", boards.size(), nc);
+        print_ts(); printf("Loaded %zu boards for n_colors=%d\n", boards.size(), nc);
         fflush(stdout);
 
         double variant_init_elapsed = 0.0;
@@ -785,7 +840,7 @@ int main(int argc, char* argv[]) {
         auto run_end  = std::chrono::steady_clock::now();
         double run_secs = std::chrono::duration_cast<std::chrono::milliseconds>(
                               run_end - run_start).count() / 1000.0;
-        printf("  [done] total elapsed=%.1fs\n", run_secs);
+        print_ts(); printf("  [done] total elapsed=%.1fs\n", run_secs);
         fflush(stdout);
     }
 
