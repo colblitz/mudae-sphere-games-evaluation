@@ -491,6 +491,7 @@ def render_ot_tables(lb: dict[str, Any]) -> str:
         note_text = notes_path.read_text().strip()
         if note_text:
             sections.append(note_text)
+            sections.append("")  # blank line to separate blockquote from next element
 
     # Aggregate
     top5_agg = lb.get("top5", [])
