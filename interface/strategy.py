@@ -83,7 +83,7 @@ ot / trace:
     spG  green   ship of length 3
     spY  yellow  ship of length 3
     spO  orange  ship of length 2 (always present)
-    spL  light   ship of length 2 (variable rare; 6-color only)
+    spL  light   ship of length 2 (variable rare; 6-color and above)
     spD  dark    ship of length 2 (variable rare; 7-color+)
     spR  red     ship of length 2 (variable rare; 8-color+)
     spW  white   ship of length 2 (variable rare; 9-color only)

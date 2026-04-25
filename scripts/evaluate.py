@@ -51,10 +51,18 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from harness_utils import (
+    HARNESS_DIR,
+    _harness_source_mtime,
+    build_harness,
+    _COLOR_LETTER,
+    _cell_letter,
+    _render_board,
+)
+
 REPO_ROOT = Path(__file__).parent.parent.resolve()
 LEADERBOARD_DIR = REPO_ROOT / "leaderboards"
 SCORES_DIR = REPO_ROOT / "scores"
-HARNESS_DIR = REPO_ROOT / "harness"
 README_PATH = REPO_ROOT / "README.md"
 
 LEADERBOARD_SENTINEL_START = "<!-- LEADERBOARD_START -->"
@@ -178,43 +186,6 @@ def get_cpu_model() -> str:
     # Fallback
     name = platform.processor().strip()
     return name if name else "unknown"
-
-
-# ---------------------------------------------------------------------------
-# Build harness
-# ---------------------------------------------------------------------------
-
-def _harness_source_mtime(source: Path) -> float:
-    """Return the newest mtime across the given source file and all headers
-    in harness/common/, so that a header change triggers a rebuild."""
-    mtimes = [source.stat().st_mtime]
-    common_dir = HARNESS_DIR / "common"
-    if common_dir.is_dir():
-        for h in common_dir.iterdir():
-            if h.suffix in (".h", ".hpp"):
-                mtimes.append(h.stat().st_mtime)
-    return max(mtimes)
-
-
-def build_harness(game: str) -> Path:
-    binary = HARNESS_DIR / f"evaluate_{game}"
-    source = HARNESS_DIR / f"evaluate_{game}.cpp"
-    if not source.exists():
-        print(f"ERROR: harness source not found: {source}", file=sys.stderr)
-        sys.exit(1)
-    if binary.exists() and binary.stat().st_mtime >= _harness_source_mtime(source):
-        return binary  # up to date
-
-    print(f"[build] Building {binary.name} ...")
-    result = subprocess.run(
-        ["make", f"build-{game}"],
-        cwd=REPO_ROOT,
-        capture_output=False,
-    )
-    if result.returncode != 0:
-        print(f"ERROR: build failed for evaluate_{game}", file=sys.stderr)
-        sys.exit(1)
-    return binary
 
 
 def build_harness_treewalk() -> Path:
@@ -618,45 +589,6 @@ def update_readme() -> None:
 # ---------------------------------------------------------------------------
 # Trace rendering
 # ---------------------------------------------------------------------------
-
-# Single-letter color codes for ASCII board display
-_COLOR_LETTER: dict[str, str] = {
-    "spR": "R", "spO": "O", "spY": "Y", "spG": "G", "spT": "T",
-    "spB": "B", "spP": "P", "spD": "D", "spL": "L", "spW": "W",
-    "spU": "U", "chest": "C",
-    "?": "?",
-}
-
-def _cell_letter(color: str) -> str:
-    """Return a single display letter for a color string (handles spD→spX variants)."""
-    if color in _COLOR_LETTER:
-        return _COLOR_LETTER[color]
-    # Handle oh dark-transform notation like "spD→spP"
-    if "→" in color:
-        return "D"
-    return color[:1].upper() if color else "?"
-
-
-def _render_board(cells: list[str], clicked_positions: set[tuple[int, int]] | None = None) -> str:
-    """Render a 5×5 board from a 25-element cell list.
-
-    cells[i] is the color string for cell i (row = i//5, col = i%5).
-    Clicked cells are shown in lowercase.
-    Returns a multi-line string.
-    """
-    header = "    0   1   2   3   4"
-    rows = [header]
-    for r in range(5):
-        parts = [f"{r} "]
-        for c in range(5):
-            idx = r * 5 + c
-            letter = _cell_letter(cells[idx])
-            if clicked_positions and (r, c) in clicked_positions:
-                letter = letter.lower()
-            parts.append(f" {letter:>2} ")
-        rows.append("".join(parts))
-    return "\n".join(rows)
-
 
 def _meta_str(meta: dict[str, Any], game: str) -> str:
     """Format meta dict as a compact key=val string, game-appropriate fields only."""

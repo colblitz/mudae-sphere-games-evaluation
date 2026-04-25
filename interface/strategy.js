@@ -130,6 +130,8 @@ class StrategyBase {
  * Game metadata keys:
  *   clicks_left  number  remaining click budget (5 at start).
  *   max_clicks   number  total click budget (always 5).
+ *   game_seed    number  per-game deterministic seed; use to seed your own RNG
+ *                        for reproducible results across runs.
  *
  * Colors: spB spT spG spY spL spO spR spW spP spD spU
  */

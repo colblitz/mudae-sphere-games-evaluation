@@ -95,43 +95,43 @@ public:
     LoadDataOHStrategy() : rng_(static_cast<uint64_t>(std::time(nullptr))) {}
 
     // -----------------------------------------------------------------------
-    // Global state: load data file once, share across all games
+    // Global state: load data file once, store in member variable
     // -----------------------------------------------------------------------
 
     /**
      * Called once before all games.  Loads color priority weights from
-     * data/oh_example.json via sphere::data::fetch().
+     * data/oh_example.json via sphere::data::fetch() and stores them in
+     * the color_values_ member variable.
      *
      * fetch() checks whether the file is already present in data/ and its
      * SHA-256 matches.  If so it returns immediately — no download occurs.
      * If the file is absent or corrupted it downloads from DATA_URL.
      *
-     * Returns a JSON string encoding the color_values map so the harness
-     * can thread it through init_game_payload on every game.
+     * In C++, run-level results live in member variables — there is no return
+     * value threaded through the harness.  Treat color_values_ as read-only
+     * after this call; never mutate it inside next_click().
      */
-    std::string init_evaluation_run() override {
+    void init_evaluation_run() override {
         std::string path = sphere::data::fetch(DATA_URL, DATA_SHA256, DATA_FILE);
         std::string json = read_file(path);
         color_values_ = parse_color_values(json);
-        // Serialize to JSON for the harness state protocol.
-        // (The harness re-passes this string to init_game_payload; we re-parse
-        //  it there, or just rely on the member variable since there is one
-        //  strategy instance for the entire run.)
-        return "{}";
     }
 
     // -----------------------------------------------------------------------
     // Per-game state: seed RNG from game_seed for reproducibility
     // -----------------------------------------------------------------------
 
-    std::string init_game_payload(const std::string& meta_json,
-                                  const std::string& /*run_state_json*/) override {
+    /**
+     * Reset per-game state before each game.  Seeds the per-game RNG from
+     * game_seed so that results are reproducible across runs with the same
+     * master seed.
+     */
+    void init_game_payload(const std::string& meta_json) override {
         // Extract game_seed from meta_json: {"clicks_left":5,"max_clicks":5,"game_seed":N}
         uint64_t seed = static_cast<uint64_t>(std::time(nullptr));
         const char* gs = strstr(meta_json.c_str(), "\"game_seed\":");
         if (gs) seed = static_cast<uint64_t>(atoll(gs + 12));
         rng_.seed(seed);
-        return "{}";
     }
 
     // -----------------------------------------------------------------------
@@ -140,7 +140,6 @@ public:
 
     void next_click(const std::vector<Cell>& board,
                     const std::string& /*meta_json*/,
-                    const std::string& game_state_json,
                     ClickResult& out) override
     {
         // Purples are free — click any visible unclicked purple immediately.
@@ -150,7 +149,6 @@ public:
         if (!purples.empty()) {
             int chosen = purples[std::uniform_int_distribution<int>(0, (int)purples.size() - 1)(rng_)];
             out.row = chosen / 5; out.col = chosen % 5;
-            out.game_state_json = game_state_json;
             return;
         }
 
@@ -169,7 +167,6 @@ public:
         if (!best_cells.empty()) {
             int chosen = best_cells[std::uniform_int_distribution<int>(0, (int)best_cells.size() - 1)(rng_)];
             out.row = chosen / 5; out.col = chosen % 5;
-            out.game_state_json = game_state_json;
             return;
         }
 
@@ -177,15 +174,14 @@ public:
         std::vector<int> unclicked;
         for (const Cell& c : board)
             if (!c.clicked) unclicked.push_back(c.row * 5 + c.col);
-        if (unclicked.empty()) { out.row = 0; out.col = 0; out.game_state_json = game_state_json; return; }
+        if (unclicked.empty()) { out.row = 0; out.col = 0; return; }
         int chosen = unclicked[std::uniform_int_distribution<int>(0, (int)unclicked.size() - 1)(rng_)];
         out.row = chosen / 5; out.col = chosen % 5;
-        out.game_state_json = game_state_json;
     }
 
 private:
     std::mt19937_64 rng_;
-    std::map<std::string, int> color_values_;
+    std::map<std::string, int> color_values_;  // loaded once in init_evaluation_run()
 };
 
 // ---------------------------------------------------------------------------
@@ -195,55 +191,24 @@ private:
 extern "C" sphere::StrategyBase* create_strategy()                         { return new LoadDataOHStrategy(); }
 extern "C" void                  destroy_strategy(sphere::StrategyBase* s) { delete s; }
 
-extern "C" const char* strategy_init_evaluation_run(void* inst) {
-    thread_local static std::string buf;
-    buf = static_cast<LoadDataOHStrategy*>(inst)->init_evaluation_run();
-    return buf.c_str();
+extern "C" void strategy_init_evaluation_run(void* inst) {
+    static_cast<LoadDataOHStrategy*>(inst)->init_evaluation_run();
 }
 
-extern "C" const char* strategy_init_game_payload(void* inst,
-                                                   const char* meta_json,
-                                                   const char* game_state_json) {
-    thread_local static std::string buf;
-    buf = static_cast<LoadDataOHStrategy*>(inst)->init_game_payload(
-        meta_json        ? meta_json        : "{}",
-        game_state_json  ? game_state_json  : "{}"
-    );
-    return buf.c_str();
+extern "C" void strategy_init_game_payload(void* inst, const char* meta_json) {
+    static_cast<LoadDataOHStrategy*>(inst)->init_game_payload(
+        meta_json ? meta_json : "{}");
 }
 
 extern "C" const char* strategy_next_click(void* inst,
                                             const char* board_json,
-                                            const char* meta_json,
-                                            const char* game_state_json)
+                                            const char* meta_json)
 {
     thread_local static std::string buf;
     auto* s = static_cast<LoadDataOHStrategy*>(inst);
-
-    std::vector<Cell> board;
-    const char* p = board_json;
-    while ((p = strstr(p, "\"row\":")) != nullptr) {
-        Cell c;
-        c.row = atoi(p + 6);
-        const char* cp   = strstr(p, "\"col\":");   if (cp)   c.col   = atoi(cp + 6);
-        const char* colp = strstr(p, "\"color\":\""); if (colp) {
-            colp += 9;
-            const char* e = strchr(colp, '"');
-            if (e) c.color = std::string(colp, e - colp);
-        }
-        const char* clkp = strstr(p, "\"clicked\":"); if (clkp) {
-            clkp += 10;
-            while (*clkp == ' ') ++clkp;
-            c.clicked = (strncmp(clkp, "true", 4) == 0);
-        }
-        board.push_back(c);
-        p += 6;
-    }
-
+    std::vector<Cell> board = parse_board_json(board_json);
     ClickResult out;
-    s->next_click(board, meta_json ? meta_json : "{}", game_state_json ? game_state_json : "{}", out);
-    buf = "{\"row\":" + std::to_string(out.row) +
-          ",\"col\":" + std::to_string(out.col) +
-          ",\"state\":" + out.game_state_json + "}";
+    s->next_click(board, meta_json ? meta_json : "{}", out);
+    buf = "{\"row\":" + std::to_string(out.row) + ",\"col\":" + std::to_string(out.col) + "}";
     return buf.c_str();
 }

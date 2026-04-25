@@ -332,7 +332,7 @@ Runs both strategies in trace mode with the same seed and diffs move sequences g
 ```
 --game            oh | oc | oq | ot                      (required)
 --strategy        path to strategy file                  (required)
---games N         (oh) number of Monte Carlo games        default: 100000
+--games N         (oh) number of Monte Carlo games        default: 1000000
 --seed S          RNG seed (evaluation and trace mode)   default: 42
 --n-colors X      (ot) 6|7|8|9|all                       default: all
 --threads N       parallel threads                        default: all cores

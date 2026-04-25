@@ -5,7 +5,7 @@
  * No constraint inference — does not use ship geometry.
  *
  * This is the simplest possible strategy — no state, no inference.
- * See stateful.cpp (oq/) for per-game state usage, global_state.cpp (oc/)
+ * See oq/stateful.cpp for per-game state usage, oc/global_state.cpp
  * for cross-game global state usage.
  */
 
@@ -26,7 +26,6 @@ public:
 
     void next_click(const std::vector<Cell>& board,
                     const std::string& /*meta_json*/,
-                    const std::string& /*game_state_json*/,
                     ClickResult& out) override
     {
         bool clicked[25] = {};
@@ -40,38 +39,32 @@ public:
             : unclicked[std::uniform_int_distribution<int>(0, (int)unclicked.size() - 1)(rng_)];
         out.row = chosen / 5;
         out.col = chosen % 5;
-        out.game_state_json = "{}";
     }
 
 private:
     std::mt19937_64 rng_;
 };
 
-extern "C" sphere::StrategyBase* create_strategy()                        { return new RandomOTStrategy(); }
+// ---------------------------------------------------------------------------
+// C exports required by the harness — do not rename these functions
+// ---------------------------------------------------------------------------
+
+extern "C" sphere::StrategyBase* create_strategy()                         { return new RandomOTStrategy(); }
 extern "C" void                  destroy_strategy(sphere::StrategyBase* s) { delete s; }
-extern "C" const char* strategy_init_evaluation_run(void*)                        { return "{}"; }
-extern "C" const char* strategy_init_game_payload(void*, const char*, const char* evaluation_run_state){ return evaluation_run_state; }
+
+extern "C" void strategy_init_evaluation_run(void* /*inst*/) {}
+
+extern "C" void strategy_init_game_payload(void* /*inst*/, const char* /*meta_json*/) {}
 
 extern "C" const char* strategy_next_click(void* inst,
                                             const char* board_json,
-                                            const char* meta_json,
-                                            const char* game_state_json)
+                                            const char* meta_json)
 {
-    static char buf[64];
-    auto* st = static_cast<RandomOTStrategy*>(inst);
-    std::vector<Cell> board;
-    const char* p = board_json;
-    while ((p = strstr(p, "\"row\":")) != nullptr) {
-        Cell c;
-        c.row = static_cast<int8_t>(atoi(p + 6));
-        const char* cp = strstr(p, "\"col\":"); if (cp) c.col = static_cast<int8_t>(atoi(cp + 6));
-        const char* colp = strstr(p, "\"color\":\"");
-        if (colp) { colp += 9; const char* e = strchr(colp, '"'); if (e) c.color = std::string(colp, e - colp); }
-        const char* clkp = strstr(p, "\"clicked\":"); if (clkp) { clkp += 10; while (*clkp==' ') ++clkp; c.clicked = (strncmp(clkp,"true",4)==0); }
-        board.push_back(c); p += 6;
-    }
+    thread_local static std::string buf;
+    auto* s = static_cast<RandomOTStrategy*>(inst);
+    std::vector<Cell> board = parse_board_json(board_json);
     ClickResult out;
-    st->next_click(board, meta_json ? meta_json : "{}", game_state_json ? game_state_json : "{}", out);
-    snprintf(buf, sizeof(buf), "{\"row\":%d,\"col\":%d,\"state\":{}}", out.row, out.col);
-    return buf;
+    s->next_click(board, meta_json ? meta_json : "{}", out);
+    buf = "{\"row\":" + std::to_string(out.row) + ",\"col\":" + std::to_string(out.col) + "}";
+    return buf.c_str();
 }

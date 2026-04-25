@@ -10,8 +10,8 @@
 #   make clean                 Remove compiled binaries and .so files
 #
 # Evaluate a strategy (run via evaluate.py — see scripts/evaluate.py):
-#   python scripts/evaluate.py --game oc --strategy strategies/oc/random_py.py
-#   python scripts/evaluate.py --game oc --strategy strategies/oc/random_py.py --commit
+#   python scripts/evaluate.py --game oc --strategy strategies/oc/global_state.py
+#   python scripts/evaluate.py --game oc --strategy strategies/oc/global_state.py --yes
 
 # ---------------------------------------------------------------------------
 # Compiler settings

@@ -58,10 +58,9 @@ class LoadDataOHStrategy extends OHStrategy {
   initEvaluationRun() {
     const filePath = fetchSync({ url: DATA_URL, sha256: DATA_SHA256, filename: DATA_FILE });
     const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    // Store on the instance: the harness JS bridge's JSON extractor corrupts
-    // deeply nested objects when threading state between calls (it strips
-    // trailing braces naively).  Instance variables survive harness
-    // serialization because they are never passed through the JSON protocol.
+    // Store on the instance rather than returning from initEvaluationRun so
+    // that the large color-values table is never copied into the game-state
+    // slot on every initGamePayload() call.
     this._colorValues = data["color_values"];
     return null;
   }

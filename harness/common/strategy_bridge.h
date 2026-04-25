@@ -102,6 +102,26 @@ public:
 };
 
 // ---------------------------------------------------------------------------
+// Shared JSON helpers
+// ---------------------------------------------------------------------------
+
+// Serialise a board (vector of Cell) to the JSON array format expected by
+// all three language bridges.  Defined once here; used by CppBridge and
+// JsBridge via the free function below.
+inline std::string cells_to_json(const std::vector<Cell>& cells) {
+    std::string s = "[";
+    for (size_t i = 0; i < cells.size(); ++i) {
+        if (i) s += ',';
+        s += "{\"row\":" + std::to_string(cells[i].row)
+           + ",\"col\":" + std::to_string(cells[i].col)
+           + ",\"color\":\"" + cells[i].color + "\""
+           + ",\"clicked\":" + (cells[i].clicked ? "true" : "false") + "}";
+    }
+    s += "]";
+    return s;
+}
+
+// ---------------------------------------------------------------------------
 // Python bridge (pybind11 / Python C API)
 // ---------------------------------------------------------------------------
 
@@ -408,19 +428,6 @@ private:
     NextClickFn     nc_fn_      = nullptr;
     NextClickSvFn   nc_sv_fn_   = nullptr;  // optional; null if not exported
 
-    static std::string cells_to_json(const std::vector<Cell>& cells) {
-        std::string s = "[";
-        for (size_t i = 0; i < cells.size(); ++i) {
-            if (i) s += ',';
-            s += "{\"row\":" + std::to_string(cells[i].row)
-               + ",\"col\":" + std::to_string(cells[i].col)
-               + ",\"color\":\"" + cells[i].color + "\""
-               + ",\"clicked\":" + (cells[i].clicked ? "true" : "false") + "}";
-        }
-        s += "]";
-        return s;
-    }
-
     static Click json_parse_click(const char* s) {
         Click c{0, 0};
         const char* p = strstr(s, "\"row\":");
@@ -640,18 +647,6 @@ private:
         return json.substr(start, end - start);
     }
 
-    static std::string cells_to_json(const std::vector<Cell>& cells) {
-        std::string s = "[";
-        for (size_t i = 0; i < cells.size(); ++i) {
-            if (i) s += ',';
-            s += "{\"row\":" + std::to_string(cells[i].row)
-               + ",\"col\":" + std::to_string(cells[i].col)
-               + ",\"color\":\"" + cells[i].color + "\""
-               + ",\"clicked\":" + (cells[i].clicked ? "true" : "false") + "}";
-        }
-        s += "]";
-        return s;
-    }
 };
 
 // ---------------------------------------------------------------------------

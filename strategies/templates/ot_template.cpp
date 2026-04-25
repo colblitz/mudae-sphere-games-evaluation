@@ -173,18 +173,7 @@ extern "C" const char* strategy_next_click(void* inst,
     thread_local static std::string buf;
     auto* s = static_cast<MyOTStrategy*>(inst);
 
-    std::vector<Cell> board;
-    const char* p = board_json;
-    while ((p = strstr(p, "\"row\":")) != nullptr) {
-        Cell c;
-        c.row = atoi(p + 6);
-        const char* cp = strstr(p, "\"col\":"); if (cp) c.col = atoi(cp + 6);
-        const char* colp = strstr(p, "\"color\":\"");
-        if (colp) { colp += 9; const char* e = strchr(colp, '"'); if (e) c.color = std::string(colp, e - colp); }
-        const char* clkp = strstr(p, "\"clicked\":"); if (clkp) { clkp += 10; while (*clkp==' ') ++clkp; c.clicked = (strncmp(clkp,"true",4)==0); }
-        board.push_back(c); p += 6;
-    }
-
+    std::vector<Cell> board = parse_board_json(board_json);
     ClickResult out;
     s->next_click(board, meta_json ? meta_json : "{}", out);
     buf = "{\"row\":" + std::to_string(out.row) + ",\"col\":" + std::to_string(out.col) + "}";

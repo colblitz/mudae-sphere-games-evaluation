@@ -24,6 +24,13 @@ static inline int idx_to_col(int idx)          { return idx % GRID_SIZE; }
 // ---------------------------------------------------------------------------
 // Board cell
 // ---------------------------------------------------------------------------
+//
+// NOTE: interface/strategy.h also defines sphere::Cell for use by strategy
+// authors.  That definition uses `int` for row/col (not int8_t) so that
+// strategies do not need to cast when doing arithmetic.  The two definitions
+// are binary-compatible (int8_t widened to int at the ABI boundary), but they
+// are intentionally separate: harness internals use this compact form;
+// strategies use the interface form.
 
 struct Cell {
     int8_t      row;

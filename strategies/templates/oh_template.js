@@ -101,18 +101,20 @@ class MyOHStrategy extends OHStrategy {
    * The returned value is stored by the bridge and passed as `evaluationRunState`
    * to every initGamePayload() call.  Treat it as read-only.
    *
+   * IMPORTANT: do NOT make this method async.  The protocol loop does not
+   * await initEvaluationRun(); an async version would return a Promise that
+   * gets silently discarded.  Use fetchSync() from interface/data.js instead
+   * of the async fetch() when loading external files.
+   *
    * @returns {*}  Any value.  Default: null.
    */
-  // If using a large external file, make this method async:
-  //   async initEvaluationRun() { ... }
   initEvaluationRun() {
     // TODO: replace with your global precomputation, or delete this method.
     //
-    // Example (large external file via auto-download):
-    //   async initEvaluationRun() {
-    //     const filePath = await fetchData({ url: LUT_URL, sha256: LUT_SHA256, filename: LUT_FILE });
-    //     return { lut: loadLut(filePath) };  // your own loader
-    //   }
+    // Example (large external file via fetchSync auto-download):
+    //   const { fetchSync } = require("../../interface/data.js");
+    //   const filePath = fetchSync({ url: LUT_URL, sha256: LUT_SHA256, filename: LUT_FILE });
+    //   return { lut: loadLut(filePath) };  // your own loader
     //
     // Example (small committed file in data/):
     //   const DATA_DIR = path.join(__dirname, "..", "..", "data");

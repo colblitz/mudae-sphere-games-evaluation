@@ -44,8 +44,8 @@ def _spiral_order() -> list[tuple[int, int]]:
     # Within each shell, iterate clockwise starting from top-left.
     visited = []
     seen = set()
-    # Walk shells by increasing Chebyshev distance from center
-    for dist in range(1, 4):
+    # Walk shells by increasing Chebyshev distance from center (max dist=2 on a 5×5 grid)
+    for dist in range(1, 3):
         r_start, r_end = 2 - dist, 2 + dist
         c_start, c_end = 2 - dist, 2 + dist
         # Top row left→right
@@ -70,7 +70,7 @@ def _spiral_order() -> list[tuple[int, int]]:
                 visited.append((r, c)); seen.add((r, c))
     # Add center last (it can never be red so it has the lowest priority)
     if (2, 2) not in seen:
-        visited.append((2, 2))
+        visited.append((2, 2)); seen.add((2, 2))
     # Fill in any cells not yet covered (shouldn't happen on a 5x5 grid,
     # but keeps the list complete just in case)
     for r in range(5):

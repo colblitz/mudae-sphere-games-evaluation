@@ -31,7 +31,7 @@ This neighbor-count information can be used to narrow down where purples are
 COLOR REFERENCE (oq)
 --------------------
 spP   purple  5 SP each; 4 hidden per board; click is FREE
-spR   red     150 SP; appears after 3 purples found; click is FREE
+spR   red     150 SP; appears after 3 purples found; costs 1 click
 spB   blue    0 purple neighbours
 spT   teal    1 purple neighbour
 spG   green   2 purple neighbours

@@ -56,6 +56,11 @@ namespace sphere {
 // ---------------------------------------------------------------------------
 // Shared data structures
 // ---------------------------------------------------------------------------
+//
+// NOTE: harness/common/types.h also defines sphere::Cell for internal harness
+// use, with int8_t row/col fields.  This definition uses `int` so strategy
+// code can do arithmetic without casts.  The two are binary-compatible at the
+// ABI boundary (int8_t widened to int by the bridge before calling next_click).
 
 struct Cell {
     int         row;
@@ -126,6 +131,8 @@ public:
  *   "clicks_left"  int  remaining click budget (5 at start; decreases by 1
  *                       per non-purple, non-dark->purple click).
  *   "max_clicks"   int  total click budget (always 5).
+ *   "game_seed"    int  per-game deterministic seed; use to seed your own RNG
+ *                       for reproducible results across runs.
  *
  * Colors: spB spT spG spY spL spO spR spW spP spD spU
  * See interface/strategy.py for full color reference and rules.
@@ -179,5 +186,34 @@ class OQStrategy : public StrategyBase {};
  * Colors: spT spG spY spO spL spD spR spW spB
  */
 class OTStrategy : public StrategyBase {};
+
+// ---------------------------------------------------------------------------
+// Board JSON parser utility
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse the board JSON string passed to strategy_next_click into a vector of
+ * Cell structs.  Use this in the strategy_next_click C export rather than
+ * hand-rolling the parser inline.
+ *
+ * Example:
+ *   std::vector<Cell> board = sphere::parse_board_json(board_json);
+ *   s->next_click(board, meta_json ? meta_json : "{}", out);
+ */
+inline std::vector<Cell> parse_board_json(const char* board_json) {
+    std::vector<Cell> brd;
+    brd.reserve(25);
+    const char* p = board_json;
+    while ((p = strstr(p, "\"row\":")) != nullptr) {
+        Cell c;
+        c.row = atoi(p + 6);
+        const char* cp   = strstr(p, "\"col\":");   if (cp)   c.col     = atoi(cp + 6);
+        const char* colp = strstr(p, "\"color\":\"");
+        if (colp) { colp += 9; const char* e = strchr(colp, '"'); if (e) c.color = std::string(colp, e - colp); }
+        const char* clkp = strstr(p, "\"clicked\":"); if (clkp) { clkp += 10; while (*clkp == ' ') ++clkp; c.clicked = (strncmp(clkp, "true", 4) == 0); }
+        brd.push_back(c); p += 6;
+    }
+    return brd;
+}
 
 }  // namespace sphere

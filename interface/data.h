@@ -156,12 +156,12 @@ inline void download(const std::string& url, const std::filesystem::path& dest) 
 // ---------------------------------------------------------------------------
 // Fatal error: print message and terminate immediately.
 //
-// A plain throw is not sufficient for the Python bridge — the harness calls
-// PyErr_Clear() on exceptions from init_evaluation_run, silently substituting
-// null state and letting the strategy crash later with a confusing error.
-// std::exit(1) terminates the whole process before that can happen, and the
-// message is visible on stderr.  C++ and JS strategies throw/reject normally
-// since their bridges do not swallow errors.
+// std::exit(1) is used rather than throw for consistency across all language
+// bridges.  The Python bridge calls PyErr_Clear() on exceptions from
+// init_evaluation_run, silently substituting null state and letting the
+// strategy crash later with a confusing error; std::exit(1) terminates the
+// whole process before that can happen.  The message is always visible on
+// stderr regardless of which bridge is calling.
 // ---------------------------------------------------------------------------
 
 [[noreturn]] inline void fatal(const std::string& msg) {

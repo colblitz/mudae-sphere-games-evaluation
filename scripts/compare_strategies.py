@@ -44,29 +44,24 @@ import sys
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).parent.parent.resolve()
+from harness_utils import (
+    REPO_ROOT,
+    build_harness as _build_harness,
+    _COLOR_LETTER,
+    _cell_letter,
+    _render_board,
+)
+
 HARNESS_DIR = REPO_ROOT / "harness"
 GAMES = ("oh", "oc", "oq", "ot")
 
 
 # ---------------------------------------------------------------------------
-# Harness build (reuses the same logic as evaluate.py)
+# Harness build — delegates to harness_utils (includes header staleness check)
 # ---------------------------------------------------------------------------
 
 def build_harness(game: str) -> Path:
-    binary = HARNESS_DIR / f"evaluate_{game}"
-    source = HARNESS_DIR / f"evaluate_{game}.cpp"
-    if not source.exists():
-        print(f"ERROR: harness source not found: {source}", file=sys.stderr)
-        sys.exit(2)
-    if binary.exists() and binary.stat().st_mtime >= source.stat().st_mtime:
-        return binary
-    print(f"[build] Building {binary.name} ...")
-    result = subprocess.run(["make", f"build-{game}"], cwd=REPO_ROOT, capture_output=False)
-    if result.returncode != 0:
-        print(f"ERROR: build failed for evaluate_{game}", file=sys.stderr)
-        sys.exit(2)
-    return binary
+    return _build_harness(game, exit_code=2)
 
 
 # ---------------------------------------------------------------------------
@@ -142,32 +137,6 @@ def moves_of(game_obj: dict[str, Any]) -> list[tuple[int, int]]:
     divergence in the sequence matters.
     """
     return [(m["row"], m["col"]) for m in game_obj.get("moves", [])]
-
-
-# ---------------------------------------------------------------------------
-# Color codes for ASCII board rendering
-# ---------------------------------------------------------------------------
-
-_COLOR_LETTER = {
-    "spR": "R", "spO": "O", "spY": "Y", "spG": "G", "spT": "T",
-    "spB": "B", "spP": "P", "spD": "D", "spL": "L", "spW": "W",
-    "spU": "U", "chest": "C", "?": "?",
-}
-
-def _cell_letter(color: str) -> str:
-    if color in _COLOR_LETTER:
-        return _COLOR_LETTER[color]
-    return color[:1].upper() if color else "?"
-
-def _render_board(cells: list[str]) -> str:
-    header = "    0   1   2   3   4"
-    rows = [header]
-    for r in range(5):
-        parts = [f"{r} "]
-        for c in range(5):
-            parts.append(f" {_cell_letter(cells[r * 5 + c]):>2} ")
-        rows.append("".join(parts))
-    return "\n".join(rows)
 
 
 # ---------------------------------------------------------------------------
