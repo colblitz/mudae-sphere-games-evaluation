@@ -18,6 +18,21 @@
       "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
     },
     {
+      "filename": "strategies/oh/colblitz_bellman.cpp",
+      "commit": "8f4e3b5",
+      "date": "2026-04-25",
+      "ev": 721.8976,
+      "stdev": 222.4972,
+      "oc_rate": 0.01,
+      "n_games": 1000000,
+      "seed": 42,
+      "games_per_cpu_s": 18513.9,
+      "setup_cpu_s": 0.022,
+      "harness_elapsed_s": 2.723,
+      "n_threads": 20,
+      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+    },
+    {
       "filename": "random_clicks.py",
       "commit": "e5b8664",
       "date": "2026-04-21",

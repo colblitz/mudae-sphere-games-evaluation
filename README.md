@@ -156,8 +156,9 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | EV | Stdev | OC Rate | Commit | Date |
 |------|----------|----|-------|---------|--------|------|
-| 1 | `colblitz_bellman.cpp` | 721.90 | 222.50 | 1.00% | `e9e503a` | 2026-04-25 |
-| 2 | `random_clicks.py` | 117.63 | 224.46 | 4.09% | `e5b8664` | 2026-04-21 |
+| 1 | `colblitz_bellman.cpp` | 721.90 | 222.50 | 1.00% | `8f4e3b5` | 2026-04-25 |
+| 2 | `colblitz_bellman.cpp` | 721.90 | 222.50 | 1.00% | `8f4e3b5` | 2026-04-25 |
+| 3 | `random_clicks.py` | 117.63 | 224.46 | 4.09% | `e5b8664` | 2026-04-21 |
 
 <details>
 <summary>Performance</summary>
@@ -165,6 +166,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | Strategy | Games/CPU-s | Setup CPU-s | Harness wall-s | Threads | CPU |
 |----------|-------------|-------------|----------------|---------|-----|
 | `colblitz_bellman.cpp` | 18298 | — | 2.7 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
+| `colblitz_bellman.cpp` | 18514 | 0.02 | 2.7 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `random_clicks.py` | — | — | — | — | — |
 
 </details>
@@ -173,9 +175,9 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
 |------|----------|----|-------|-------|--------|------|
-| 1 | `colblitz_bellman.cpp` | 344.73 | 57.97 | 99.98% | `8e636cd` | 2026-04-25 |
-| 2 | `kelinimo_adaptive_ev.js` | 332.34 | 61.17 | 99.95% | `270eefa` | 2026-04-25 |
-| 3 | `svessinn_solver.js` | 317.39 | 72.49 | 98.82% | `97cf4bb` | 2026-04-25 |
+| 1 | `colblitz_bellman.cpp` | 344.73 | 57.97 | 99.98% | `8f4e3b5` | 2026-04-25 |
+| 2 | `kelinimo_adaptive_ev.js` | 332.34 | 61.17 | 99.95% | `98cc571` | 2026-04-25 |
+| 3 | `svessinn_solver.js` | 317.39 | 72.49 | 98.82% | `fb02619` | 2026-04-25 |
 
 <details>
 <summary>Performance</summary>
@@ -192,11 +194,11 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
 |------|----------|----|-------|-------|--------|------|
-| 1 | `zavex_book_heuristic.js` | 350.86 | 44.04 | 98.96% | `60a6ef8` | 2026-04-23 |
-| 2 | `kelinimo_adaptive_ev.js` | 348.03 | 50.85 | 96.20% | `1b9f1ac` | 2026-04-23 |
+| 1 | `zavex_book_heuristic.js` | 350.86 | 44.04 | 98.96% | `da54712` | 2026-04-23 |
+| 2 | `kelinimo_adaptive_ev.js` | 348.03 | 50.85 | 96.20% | `7ac88d8` | 2026-04-23 |
 | 3 | `gap22_backtrack_solver.js` | 346.59 | 58.72 | 92.66% | `daf7d9b` | 2026-04-25 |
-| 4 | `colblitz_mixed_gini.cpp` | 342.56 | 52.18 | 95.35% | `1a79a4a` | 2026-04-25 |
-| 5 | `svessinn_solver.js` | 301.53 | 79.95 | 71.89% | `029aba7` | 2026-04-23 |
+| 4 | `colblitz_mixed_gini.cpp` | 342.56 | 52.18 | 95.35% | `37b0f7f` | 2026-04-25 |
+| 5 | `svessinn_solver.js` | 301.53 | 79.95 | 71.89% | `da54712` | 2026-04-23 |
 
 <details>
 <summary>Performance</summary>
@@ -221,11 +223,11 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | Agg EV | Commit | Date |
 |------|----------|--------|--------|------|
-| 1 | `colblitz_v8_heuristics_stateless.cpp` | 1579.05 | `d37c01b` | 2026-04-25 |
-| 2 | `kelinimo_expectimax_fast.cpp` | 1513.58 | `ca7b1b2` | 2026-04-25 |
-| 3 | `tksglass_5.cpp` | 1318.03 | `0cf016c` | 2026-04-25 |
+| 1 | `colblitz_v8_heuristics_stateless.cpp` | 1579.05 | `14d4ef4` | 2026-04-25 |
+| 2 | `kelinimo_expectimax_fast.cpp` | 1513.58 | `c09e6cd` | 2026-04-25 |
+| 3 | `tksglass_5.cpp` | 1318.03 | `25f4aef` | 2026-04-25 |
 | 4 | `tksglass_4.cpp` | 1267.93 | `25f4aef` | 2026-04-25 |
-| 5 | `svessinn_solver_fast.cpp` | 1259.21 | `c0ad8f7` | 2026-04-25 |
+| 5 | `svessinn_solver_fast.cpp` | 1259.21 | `c09e6cd` | 2026-04-25 |
 
 <details>
 <summary>Per-color variant breakdown</summary>
@@ -234,40 +236,40 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
-| 1 | `colblitz_v8_heuristics_stateless.cpp` | 768.62 | 184.65 | 59.02% | 91.84% | 33.26% | 21.39 | 0.00 | 13.03 | 0.00 | `d37c01b` | 2026-04-25 |
-| 2 | `zavex_heuristic_fast.cpp` | 751.17 | 197.86 | 53.27% | 94.75% | 37.10% | 21.21 | 0.00 | 12.60 | 0.00 | `c631f9b` | 2026-04-25 |
-| 3 | `kelinimo_expectimax_fast.cpp` | 696.37 | 193.69 | 33.88% | 69.72% | 50.73% | 17.33 | 0.00 | 11.78 | 0.00 | `ca7b1b2` | 2026-04-25 |
-| 4 | `tksglass_5.cpp` | 633.20 | 197.98 | 23.39% | 57.15% | 62.37% | 17.76 | 0.00 | 11.47 | 0.00 | `0cf016c` | 2026-04-25 |
-| 5 | `svessinn_solver_fast.cpp` | 557.04 | 212.46 | 11.71% | 45.79% | 60.64% | 16.62 | 0.00 | 10.07 | 0.00 | `c0ad8f7` | 2026-04-25 |
+| 1 | `colblitz_v8_heuristics_stateless.cpp` | 768.62 | 184.65 | 59.02% | 91.84% | 33.26% | 21.39 | 0.00 | 13.03 | 0.00 | `14d4ef4` | 2026-04-25 |
+| 2 | `zavex_heuristic_fast.cpp` | 751.17 | 197.86 | 53.27% | 94.75% | 37.10% | 21.21 | 0.00 | 12.60 | 0.00 | `c09e6cd` | 2026-04-25 |
+| 3 | `kelinimo_expectimax_fast.cpp` | 696.37 | 193.69 | 33.88% | 69.72% | 50.73% | 17.33 | 0.00 | 11.78 | 0.00 | `c09e6cd` | 2026-04-25 |
+| 4 | `tksglass_5.cpp` | 633.20 | 197.98 | 23.39% | 57.15% | 62.37% | 17.76 | 0.00 | 11.47 | 0.00 | `25f4aef` | 2026-04-25 |
+| 5 | `svessinn_solver_fast.cpp` | 557.04 | 212.46 | 11.71% | 45.79% | 60.64% | 16.62 | 0.00 | 10.07 | 0.00 | `c09e6cd` | 2026-04-25 |
 
 **7-color variant**
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
-| 1 | `colblitz_v8_heuristics_stateless.cpp` | 949.44 | 269.94 | 43.09% | 77.80% | 44.36% | 20.17 | 0.00 | 14.50 | 0.00 | `d37c01b` | 2026-04-25 |
-| 2 | `zavex_heuristic_fast.cpp` | 892.43 | 277.54 | 33.62% | 66.40% | 47.75% | 18.87 | 0.00 | 13.85 | 0.00 | `c631f9b` | 2026-04-25 |
-| 3 | `kelinimo_expectimax_fast.cpp` | 880.71 | 283.57 | 27.38% | 64.87% | 53.10% | 17.81 | 0.00 | 13.15 | 0.00 | `ca7b1b2` | 2026-04-25 |
-| 4 | `tksglass_5.cpp` | 761.58 | 271.27 | 14.55% | 45.07% | 66.78% | 17.43 | 0.00 | 12.65 | 0.00 | `0cf016c` | 2026-04-25 |
+| 1 | `colblitz_v8_heuristics_stateless.cpp` | 949.44 | 269.94 | 43.09% | 77.80% | 44.36% | 20.17 | 0.00 | 14.50 | 0.00 | `14d4ef4` | 2026-04-25 |
+| 2 | `zavex_heuristic_fast.cpp` | 892.43 | 277.54 | 33.62% | 66.40% | 47.75% | 18.87 | 0.00 | 13.85 | 0.00 | `c09e6cd` | 2026-04-25 |
+| 3 | `kelinimo_expectimax_fast.cpp` | 880.71 | 283.57 | 27.38% | 64.87% | 53.10% | 17.81 | 0.00 | 13.15 | 0.00 | `c09e6cd` | 2026-04-25 |
+| 4 | `tksglass_5.cpp` | 761.58 | 271.27 | 14.55% | 45.07% | 66.78% | 17.43 | 0.00 | 12.65 | 0.00 | `25f4aef` | 2026-04-25 |
 | 5 | `tksglass_4.cpp` | 702.14 | 269.02 | 9.62% | 36.34% | 69.31% | 16.34 | 0.00 | 11.95 | 0.00 | `25f4aef` | 2026-04-25 |
 
 **8-color variant**
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
-| 1 | `colblitz_v8_heuristics_stateless.cpp` | 1341.55 | 357.51 | 53.21% | 87.12% | 37.22% | 21.36 | 0.00 | 16.90 | 0.00 | `d37c01b` | 2026-04-25 |
-| 2 | `kelinimo_expectimax_fast.cpp` | 1262.98 | 387.49 | 36.40% | 77.73% | 42.17% | 19.96 | 0.00 | 15.73 | 0.00 | `ca7b1b2` | 2026-04-25 |
-| 3 | `zavex_heuristic_fast.cpp` | 1258.96 | 394.50 | 39.78% | 81.81% | 39.92% | 20.03 | 0.00 | 15.98 | 0.00 | `c631f9b` | 2026-04-25 |
-| 4 | `tksglass_5.cpp` | 1100.47 | 387.49 | 19.75% | 59.70% | 54.98% | 19.42 | 0.00 | 15.02 | 0.00 | `0cf016c` | 2026-04-25 |
+| 1 | `colblitz_v8_heuristics_stateless.cpp` | 1341.55 | 357.51 | 53.21% | 87.12% | 37.22% | 21.36 | 0.00 | 16.90 | 0.00 | `14d4ef4` | 2026-04-25 |
+| 2 | `kelinimo_expectimax_fast.cpp` | 1262.98 | 387.49 | 36.40% | 77.73% | 42.17% | 19.96 | 0.00 | 15.73 | 0.00 | `c09e6cd` | 2026-04-25 |
+| 3 | `zavex_heuristic_fast.cpp` | 1258.96 | 394.50 | 39.78% | 81.81% | 39.92% | 20.03 | 0.00 | 15.98 | 0.00 | `c09e6cd` | 2026-04-25 |
+| 4 | `tksglass_5.cpp` | 1100.47 | 387.49 | 19.75% | 59.70% | 54.98% | 19.42 | 0.00 | 15.02 | 0.00 | `25f4aef` | 2026-04-25 |
 | 5 | `tksglass_4.cpp` | 1052.72 | 392.50 | 15.77% | 54.84% | 56.31% | 18.84 | 0.00 | 14.60 | 0.00 | `25f4aef` | 2026-04-25 |
 
 **9-color variant**
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
-| 1 | `colblitz_v8_heuristics_stateless.cpp` | 2179.95 | 150.42 | 79.11% | 98.76% | 17.61% | 23.74 | 0.00 | 19.68 | 0.00 | `d37c01b` | 2026-04-25 |
-| 2 | `kelinimo_expectimax_fast.cpp` | 2129.61 | 252.00 | 65.84% | 96.06% | 21.62% | 23.27 | 0.00 | 19.23 | 0.00 | `ca7b1b2` | 2026-04-25 |
-| 3 | `svessinn_solver_fast.cpp` | 1890.85 | 526.54 | 52.03% | 84.40% | 30.41% | 22.12 | 0.00 | 18.00 | 0.00 | `c0ad8f7` | 2026-04-25 |
-| 4 | `tksglass_5.cpp` | 1853.67 | 462.95 | 35.60% | 81.72% | 40.65% | 22.18 | 0.00 | 18.02 | 0.00 | `0cf016c` | 2026-04-25 |
+| 1 | `colblitz_v8_heuristics_stateless.cpp` | 2179.95 | 150.42 | 79.11% | 98.76% | 17.61% | 23.74 | 0.00 | 19.68 | 0.00 | `14d4ef4` | 2026-04-25 |
+| 2 | `kelinimo_expectimax_fast.cpp` | 2129.61 | 252.00 | 65.84% | 96.06% | 21.62% | 23.27 | 0.00 | 19.23 | 0.00 | `c09e6cd` | 2026-04-25 |
+| 3 | `svessinn_solver_fast.cpp` | 1890.85 | 526.54 | 52.03% | 84.40% | 30.41% | 22.12 | 0.00 | 18.00 | 0.00 | `c09e6cd` | 2026-04-25 |
+| 4 | `tksglass_5.cpp` | 1853.67 | 462.95 | 35.60% | 81.72% | 40.65% | 22.18 | 0.00 | 18.02 | 0.00 | `25f4aef` | 2026-04-25 |
 | 5 | `tksglass_4.cpp` | 1809.17 | 492.41 | 31.92% | 79.38% | 41.91% | 21.86 | 0.00 | 17.77 | 0.00 | `25f4aef` | 2026-04-25 |
 
 </details>
