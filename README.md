@@ -163,6 +163,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | EV | Stdev | Red Rate | Games/CPU-s | CPU | Commit | Date |
 |------|----------|----|-------|-------|-------------|-----|--------|------|
+| 1 | `colblitz_bellman.cpp` | 344.73 | 57.97 | 100.0% | 87 | 13th Gen Intel(R) Core(TM) i7-13700K | `8e636cd` | 2026-04-25 |
 
 ### /sphere quest (oq)
 
