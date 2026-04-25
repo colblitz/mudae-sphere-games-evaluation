@@ -46,8 +46,10 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 // pybind11 / Python C API
@@ -640,18 +642,29 @@ inline std::unique_ptr<StrategyBridge> StrategyBridge::load(const std::string& p
     }
 
     if (ext == ".cpp") {
-        // Compile to .so in a temp location
+        // Compile to .so — but only once per process per unique source path.
+        // Multiple threads call load() in parallel; the mutex ensures exactly
+        // one compilation runs, and the rest reuse the already-built .so.
+        static std::mutex compile_mtx;
+        static std::unordered_set<std::string> compiled_sos;
+
         std::string so = path.substr(0, path.size() - 4) + ".so";
-        std::string cmd =
-            "g++ -O2 -march=native -std=c++17 -shared -fPIC"
-            " -I" + std::string(REPO_ROOT) + "/interface"
-            " -DREPO_ROOT=\\\"" + std::string(REPO_ROOT) + "\\\""
-            " -o " + so + " " + path
-            + " -llzma";
-        fprintf(stderr, "[harness] compiling %s ...\n", path.c_str());
-        int rc = system(cmd.c_str());
-        if (rc != 0)
-            throw std::runtime_error("StrategyBridge: compilation failed for " + path);
+        {
+            std::lock_guard<std::mutex> lk(compile_mtx);
+            if (compiled_sos.find(so) == compiled_sos.end()) {
+                std::string cmd =
+                    "g++ -O2 -march=native -std=c++17 -shared -fPIC"
+                    " -I" + std::string(REPO_ROOT) + "/interface"
+                    " -DREPO_ROOT=\\\"" + std::string(REPO_ROOT) + "\\\""
+                    " -o " + so + " " + path
+                    + " -llzma";
+                fprintf(stderr, "[harness] compiling %s ...\n", path.c_str());
+                int rc = system(cmd.c_str());
+                if (rc != 0)
+                    throw std::runtime_error("StrategyBridge: compilation failed for " + path);
+                compiled_sos.insert(so);
+            }
+        }
         return std::make_unique<CppBridge>(so);
     }
 
