@@ -44,6 +44,20 @@
       "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
     },
     {
+      "filename": "strategies/oc/kelinimo_adaptive_ev.js",
+      "commit": "98cc571",
+      "date": "2026-04-25",
+      "ev": 332.3359,
+      "stdev": 61.17,
+      "red_rate": 0.9995,
+      "n_boards": 16800,
+      "games_per_cpu_s": 1463.4,
+      "setup_cpu_s": 0.042,
+      "harness_elapsed_s": 0.616,
+      "n_threads": 20,
+      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+    },
+    {
       "filename": "svessinn_solver.js",
       "commit": "fb02619",
       "date": "2026-04-25",
