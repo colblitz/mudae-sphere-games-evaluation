@@ -244,6 +244,7 @@ static inline void accumulate(NodeResult& result,
 struct alignas(64) ProgressSlot {
     std::atomic<uint64_t> strategy_calls{0};  // incremented at every next_click call
     std::atomic<uint64_t> terminals{0};       // incremented at every terminal node
+    std::atomic<uint8_t>  active{0};          // 1 while this thread's worker is running
 };
 
 // ---------------------------------------------------------------------------
@@ -591,10 +592,13 @@ static OTVariantResult evaluate_variant_treewalk(
             double elapsed = duration<double>(steady_clock::now() - start).count();
             if (elapsed < next_time_secs) continue;
 
-            // Sum strategy_calls across all threads
-            uint64_t total_calls = 0;
-            for (int t = 0; t < n_threads; ++t)
-                total_calls += progress[t].strategy_calls.load(std::memory_order_relaxed);
+            // Sum strategy_calls and active thread count across all threads
+            uint64_t total_calls  = 0;
+            int      active_count = 0;
+            for (int t = 0; t < n_threads; ++t) {
+                total_calls  += progress[t].strategy_calls.load(std::memory_order_relaxed);
+                active_count += progress[t].active.load(std::memory_order_relaxed);
+            }
 
             double interval    = elapsed - prev_elapsed;
             double calls_per_s = (interval > 0.0)
@@ -605,14 +609,15 @@ static OTVariantResult evaluate_variant_treewalk(
                 double pct = std::min(100.0 * (double)total_calls / (double)expected_calls, 100.0);
                 double eta = (calls_per_s > 0.0 && pct < 100.0)
                     ? (double)(expected_calls - total_calls) / calls_per_s : 0.0;
-                printf("  n_colors=%d:  elapsed=%.0fs  calls=%llu  calls/s=%.0f"
-                       "  %.1f%%  eta=%.0fs\n",
-                       n_colors, elapsed,
+                printf("  n_colors=%d:  elapsed=%.0fs  threads=%d/%d"
+                       "  calls=%llu  calls/s=%.0f  %.1f%%  eta=%.0fs\n",
+                       n_colors, elapsed, active_count, n_threads,
                        (unsigned long long)total_calls, calls_per_s,
                        pct, eta);
             } else {
-                printf("  n_colors=%d:  elapsed=%.0fs  calls=%llu  calls/s=%.0f\n",
-                       n_colors, elapsed,
+                printf("  n_colors=%d:  elapsed=%.0fs  threads=%d/%d"
+                       "  calls=%llu  calls/s=%.0f\n",
+                       n_colors, elapsed, active_count, n_threads,
                        (unsigned long long)total_calls, calls_per_s);
             }
             fflush(stdout);
@@ -644,11 +649,13 @@ static OTVariantResult evaluate_variant_treewalk(
             uint8_t revealed_dc[N_CELLS] = {};
             ColorAssign ca(fbs.n_var);
 
+            progress[t].active.store(1, std::memory_order_relaxed);
             results[t] = tree_walk(
                 fbs, indices, revealed, revealed_dc,
                 0, 0, false, ca,
                 total_ship_cells, 0, 0,
                 0, *bridges[t], n_colors, progress[t]);
+            progress[t].active.store(0, std::memory_order_relaxed);
         });
     }
 
