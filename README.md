@@ -221,9 +221,9 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 |------|----------|--------|--------|------|
 | 1 | `colblitz_v8_heuristics_stateless.cpp` | 1579.05 | `d37c01b` | 2026-04-25 |
 | 2 | `kelinimo_expectimax_fast.cpp` | 1513.58 | `ca7b1b2` | 2026-04-25 |
-| 3 | `tksglass_4.cpp` | 1267.93 | `25f4aef` | 2026-04-25 |
-| 4 | `svessinn_solver_fast.cpp` | 1259.21 | `c0ad8f7` | 2026-04-25 |
-| 5 | `zavex_heuristic_fast.cpp` | 1215.60 | `c631f9b` | 2026-04-25 |
+| 3 | `tksglass_5.cpp` | 1318.03 | `0cf016c` | 2026-04-25 |
+| 4 | `tksglass_4.cpp` | 1267.93 | `25f4aef` | 2026-04-25 |
+| 5 | `svessinn_solver_fast.cpp` | 1259.21 | `c0ad8f7` | 2026-04-25 |
 
 <details>
 <summary>Per-color variant breakdown</summary>
@@ -235,8 +235,8 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | 1 | `colblitz_v8_heuristics_stateless.cpp` | 768.62 | 184.65 | 59.02% | 91.84% | 33.26% | 21.39 | 0.00 | 13.03 | 0.00 | `d37c01b` | 2026-04-25 |
 | 2 | `zavex_heuristic_fast.cpp` | 751.17 | 197.86 | 53.27% | 94.75% | 37.10% | 21.21 | 0.00 | 12.60 | 0.00 | `c631f9b` | 2026-04-25 |
 | 3 | `kelinimo_expectimax_fast.cpp` | 696.37 | 193.69 | 33.88% | 69.72% | 50.73% | 17.33 | 0.00 | 11.78 | 0.00 | `ca7b1b2` | 2026-04-25 |
-| 4 | `svessinn_solver_fast.cpp` | 557.04 | 212.46 | 11.71% | 45.79% | 60.64% | 16.62 | 0.00 | 10.07 | 0.00 | `c0ad8f7` | 2026-04-25 |
-| 5 | `tksglass_4.cpp` | 545.17 | 192.68 | 11.38% | 35.67% | 71.41% | 15.45 | 0.00 | 10.29 | 0.00 | `25f4aef` | 2026-04-25 |
+| 4 | `tksglass_5.cpp` | 633.20 | 197.98 | 23.39% | 57.15% | 62.37% | 17.76 | 0.00 | 11.47 | 0.00 | `0cf016c` | 2026-04-25 |
+| 5 | `svessinn_solver_fast.cpp` | 557.04 | 212.46 | 11.71% | 45.79% | 60.64% | 16.62 | 0.00 | 10.07 | 0.00 | `c0ad8f7` | 2026-04-25 |
 
 **7-color variant**
 
@@ -245,8 +245,8 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | 1 | `colblitz_v8_heuristics_stateless.cpp` | 949.44 | 269.94 | 43.09% | 77.80% | 44.36% | 20.17 | 0.00 | 14.50 | 0.00 | `d37c01b` | 2026-04-25 |
 | 2 | `zavex_heuristic_fast.cpp` | 892.43 | 277.54 | 33.62% | 66.40% | 47.75% | 18.87 | 0.00 | 13.85 | 0.00 | `c631f9b` | 2026-04-25 |
 | 3 | `kelinimo_expectimax_fast.cpp` | 880.71 | 283.57 | 27.38% | 64.87% | 53.10% | 17.81 | 0.00 | 13.15 | 0.00 | `ca7b1b2` | 2026-04-25 |
-| 4 | `tksglass_4.cpp` | 702.14 | 269.02 | 9.62% | 36.34% | 69.31% | 16.34 | 0.00 | 11.95 | 0.00 | `25f4aef` | 2026-04-25 |
-| 5 | `svessinn_solver_fast.cpp` | 686.22 | 278.51 | 6.59% | 40.73% | 55.30% | 16.63 | 0.00 | 11.25 | 0.00 | `c0ad8f7` | 2026-04-25 |
+| 4 | `tksglass_5.cpp` | 761.58 | 271.27 | 14.55% | 45.07% | 66.78% | 17.43 | 0.00 | 12.65 | 0.00 | `0cf016c` | 2026-04-25 |
+| 5 | `tksglass_4.cpp` | 702.14 | 269.02 | 9.62% | 36.34% | 69.31% | 16.34 | 0.00 | 11.95 | 0.00 | `25f4aef` | 2026-04-25 |
 
 **8-color variant**
 
@@ -255,8 +255,8 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | 1 | `colblitz_v8_heuristics_stateless.cpp` | 1341.55 | 357.51 | 53.21% | 87.12% | 37.22% | 21.36 | 0.00 | 16.90 | 0.00 | `d37c01b` | 2026-04-25 |
 | 2 | `kelinimo_expectimax_fast.cpp` | 1262.98 | 387.49 | 36.40% | 77.73% | 42.17% | 19.96 | 0.00 | 15.73 | 0.00 | `ca7b1b2` | 2026-04-25 |
 | 3 | `zavex_heuristic_fast.cpp` | 1258.96 | 394.50 | 39.78% | 81.81% | 39.92% | 20.03 | 0.00 | 15.98 | 0.00 | `c631f9b` | 2026-04-25 |
-| 4 | `tksglass_4.cpp` | 1052.72 | 392.50 | 15.77% | 54.84% | 56.31% | 18.84 | 0.00 | 14.60 | 0.00 | `25f4aef` | 2026-04-25 |
-| 5 | `svessinn_solver_fast.cpp` | 954.17 | 391.89 | 10.00% | 52.88% | 44.25% | 17.92 | 0.00 | 13.35 | 0.00 | `c0ad8f7` | 2026-04-25 |
+| 4 | `tksglass_5.cpp` | 1100.47 | 387.49 | 19.75% | 59.70% | 54.98% | 19.42 | 0.00 | 15.02 | 0.00 | `0cf016c` | 2026-04-25 |
+| 5 | `tksglass_4.cpp` | 1052.72 | 392.50 | 15.77% | 54.84% | 56.31% | 18.84 | 0.00 | 14.60 | 0.00 | `25f4aef` | 2026-04-25 |
 
 **9-color variant**
 
@@ -265,8 +265,8 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | 1 | `colblitz_v8_heuristics_stateless.cpp` | 2179.95 | 150.42 | 79.11% | 98.76% | 17.61% | 23.74 | 0.00 | 19.68 | 0.00 | `d37c01b` | 2026-04-25 |
 | 2 | `kelinimo_expectimax_fast.cpp` | 2129.61 | 252.00 | 65.84% | 96.06% | 21.62% | 23.27 | 0.00 | 19.23 | 0.00 | `ca7b1b2` | 2026-04-25 |
 | 3 | `svessinn_solver_fast.cpp` | 1890.85 | 526.54 | 52.03% | 84.40% | 30.41% | 22.12 | 0.00 | 18.00 | 0.00 | `c0ad8f7` | 2026-04-25 |
-| 4 | `tksglass_4.cpp` | 1809.17 | 492.41 | 31.92% | 79.38% | 41.91% | 21.86 | 0.00 | 17.77 | 0.00 | `25f4aef` | 2026-04-25 |
-| 5 | `zavex_heuristic_fast.cpp` | 1364.76 | 618.87 | 8.97% | 20.25% | 53.23% | 17.96 | 0.00 | 13.91 | 0.00 | `c631f9b` | 2026-04-25 |
+| 4 | `tksglass_5.cpp` | 1853.67 | 462.95 | 35.60% | 81.72% | 40.65% | 22.18 | 0.00 | 18.02 | 0.00 | `0cf016c` | 2026-04-25 |
+| 5 | `tksglass_4.cpp` | 1809.17 | 492.41 | 31.92% | 79.38% | 41.91% | 21.86 | 0.00 | 17.77 | 0.00 | `25f4aef` | 2026-04-25 |
 
 </details>
 
@@ -277,9 +277,9 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 |----------|-------------|-------------|----------------|---------|-----|
 | `colblitz_v8_heuristics_stateless.cpp` | 1354 | 2.22 | 1170.5 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `kelinimo_expectimax_fast.cpp` | 134 | 130.30 | 11953.8 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
+| `tksglass_5.cpp` | 1596 | 0.00 | 990.7 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `tksglass_4.cpp` | 1796 | 0.00 | 880.2 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `svessinn_solver_fast.cpp` | 2656 | 0.00 | 595.4 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
-| `zavex_heuristic_fast.cpp` | 2496 | 0.00 | 633.6 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 
 </details>
 
