@@ -4,37 +4,57 @@
 #pragma GCC optimize("O3")
 
 /**
- * colblitz_v8_heuristics_stateless.cpp — Stateless variant of colblitz_v8_heuristics.cpp.
+ * colblitz_v8_heuristics_stateless.cpp — Tree-walk-compatible CORTANA_V8 strategy.
  *
- * Identical algorithm to colblitz_v8_heuristics.cpp (CORTANA_V8 board-filter
- * heuristic).  The only difference is how per-call state is handled:
+ * Implements the same CORTANA_V8 board-filter heuristic as
+ * colblitz_v8_heuristics.cpp, adapted for use with the tree-walk evaluator.
  *
- *   colblitz_v8_heuristics.cpp  (incremental, stateful for tree-walk purposes)
- *     Maintains arr_, prevRevealedMask_, rareColorGroups_ as per-game members.
- *     Applies each reveal once and carries the filtered set across calls.
- *     Correct and fast for sequential evaluation; NOT compatible with the
- *     tree-walk evaluator (which never calls init_game_payload between boards).
+ * Relationship to colblitz_v8_heuristics.cpp (stateful sibling):
+ *   colblitz_v8_heuristics.cpp filters arr_ in-place and carries the result
+ *   across calls as per-game member state.  This is fast for sequential
+ *   evaluation but NOT compatible with the tree-walk evaluator, which never
+ *   calls init_game_payload between boards.
  *
- *   colblitz_v8_heuristics_stateless.cpp  (from-scratch, stateless)  ← this file
- *     On every next_click call, starts from a full index list over fullBoards_[idx]
- *     and re-applies ALL clicked cells from the board argument before scoring.
- *     Output is identical to the incremental version for any given (board, meta)
- *     input.  Compatible with the tree-walk evaluator.
+ *   This file keeps fullBoards_[idx] immutable and uses a std::vector<int>
+ *   index list (sv) as the surviving set.  Two execution paths are provided:
  *
- * Performance model (v3 — incremental delta cache):
- *   Each strategy instance (one per thread in the tree-walk) caches the last
- *   seen (revealed_mask, rareColorGroups, surviving_indices) per board variant.
- *   The tree-walk is DFS: consecutive calls within one thread are almost always
- *   parent→child (revealed_mask grows by one bit).  When the current revealed
- *   set is a strict superset of the cached one, only the new reveal(s) are
- *   applied to the cached sv — O(new_reveals × sv.size()).  When the tree
- *   backtracks to a different branch (revealed_mask is NOT a superset), a full
- *   rebuild from fullBoards_ is performed and the cache is replaced.
+ * TWO EXECUTION PATHS
+ * -------------------
  *
- *   The output of next_click remains a pure function of (board, meta) — the
- *   cache is an unobservable performance optimisation.  sphere:stateless holds.
+ *   Path A — sv-passing (strategy_next_click_sv, primary fast path):
+ *     Used by the tree-walk evaluator (evaluate_ot_treewalk).
+ *     The harness maintains the full-population surviving board index list as
+ *     it descends the game tree and passes it directly via sv_ptr/sv_len.
+ *     No filtering runs in the strategy — the method reads sv_ptr, builds
+ *     rareColorGroups from the board argument (needed for scoring terms), and
+ *     proceeds directly to scoring.  O(|sv| × U × F) per call (scoring only).
  *
- * External data files (same as colblitz_v8_heuristics.cpp):
+ *   Path B — delta cache (strategy_next_click, fallback):
+ *     Used by the sequential evaluator (evaluate_ot) and any harness that
+ *     does not export strategy_next_click_sv.
+ *     Each instance caches (revealed_mask, rareColorGroups, sv) from the last
+ *     call.  Parent→child calls (revealed_mask grows by one bit) apply only
+ *     the delta reveals to the cached sv — O(delta × |sv|).  On backtrack or
+ *     cold start the full sv is rebuilt from fullBoards_ — O(N × k × F).
+ *     The output is a pure function of (board, meta); the cache is an
+ *     unobservable optimisation.  sphere:stateless holds for this path too.
+ *
+ * sphere:stateless contract:
+ *   Path A: output is a deterministic function of (board, meta, full_sv).
+ *     full_sv is provided by the harness and is identical across all threads
+ *     at any given tree node (full population filtered by the current revealed
+ *     path, independent of per-thread chunking).
+ *   Path B: output is a deterministic function of (board, meta).
+ *   In both cases the contract required by the tree-walk evaluator is satisfied.
+ *
+ * Process-wide board cache (BoardCache / std::call_once):
+ *   The tree-walk evaluator creates one bridge instance per thread (up to 20).
+ *   Without the shared cache, each instance would decompress the four board
+ *   files independently (~44 s total init).  BoardCache loads the files exactly
+ *   once via std::call_once; all instances share the immutable data via
+ *   const BoardSet* pointers.  Init time for instances 2–N is near-zero.
+ *
+ * External data files:
  *   data/sphere_trace_boards_2.bin.lzma  (~874 KB)  n_colors=6
  *   data/sphere_trace_boards_3.bin.lzma  (~3.8 MB)  n_colors=7
  *   data/sphere_trace_boards_4.bin.lzma  (~5.8 MB)  n_colors=8

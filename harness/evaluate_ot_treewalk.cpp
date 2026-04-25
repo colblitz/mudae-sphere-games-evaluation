@@ -13,10 +13,16 @@
  * E[score]; stdev = sqrt(E[score²] - E[score]²).
  *
  * Requirements:
- *   - Strategy must be stateless: next_click(board, meta) is a pure function
- *     of its arguments (same revealed pattern + meta → same cell every time).
+ *   - Strategy must be deterministic: the cell chosen by next_click must be a
+ *     pure function of its inputs (same revealed pattern + meta → same cell
+ *     every time).  For most strategies this means a pure function of
+ *     (board, meta).  C++ strategies that export strategy_next_click_sv (see
+ *     below) extend this to (board, meta, full_sv).
  *   - Opt-in: strategy source file must contain the string "sphere:stateless"
  *     within its first 50 lines.  evaluate.py enforces this before routing here.
+ *   - Currently C++ only for board-filter strategies.  Python and JS strategies
+ *     may use sphere:stateless but do not receive full_sv and must perform their
+ *     own filtering on every call (see strategy_bridge.h).
  *
  * Parallelism (--threads N):
  *   The board set is split into N equal chunks.  Each of N pre-allocated worker
@@ -25,12 +31,43 @@
  *   independent NodeResult values that are combined at the end via a
  *   probability-weighted sum.
  *
- *   Correctness: because the strategy is stateless, every thread makes identical
- *   cell choices at every tree node (same revealed[] + meta → same cell).  Only
- *   the branch probabilities (p_color = |branch in chunk| / |chunk|) differ
- *   per thread, and the weighted combination E[X] = Σ (chunk_i/total) * E_i[X]
- *   recovers the exact population mean.  Chunking does not alter the strategy's
- *   view of the game — it only sees (revealed[], meta), never the board counts.
+ *   Correctness: because the strategy is deterministic given its inputs, every
+ *   thread makes identical cell choices at every tree node.  The branch
+ *   probabilities (p_color = |branch in chunk| / |chunk|) differ per thread,
+ *   but the weighted combination E[X] = Σ (chunk_i/total) * E_i[X] recovers
+ *   the exact population mean.
+ *
+ *   full_sv correctness: each thread maintains its own full_sv — the set of
+ *   ALL boards (across the full population, not just the thread's chunk) that
+ *   are consistent with the click history at the current tree node.  At the
+ *   root, full_sv = [0..n_boards-1].  At each branch, full_sv is filtered by
+ *   the revealed cell color (filter_full_sv) independently of board_indices.
+ *   Because the same filter is applied on every thread, all threads carry
+ *   identical full_sv at any given tree node — so all threads pass the same
+ *   full_sv to the strategy, and all threads make the same cell choice.
+ *
+ *   The strategy never sees board_indices (the chunk) — it only sees
+ *   (revealed[], meta, full_sv).  Chunking affects only probability weighting,
+ *   never the strategy's view of the board distribution.
+ *
+ * sv-aware C++ strategies (strategy_next_click_sv):
+ *   If a C++ strategy exports the symbol strategy_next_click_sv, the harness
+ *   calls it instead of strategy_next_click, passing:
+ *     const int* sv_ptr   — pointer to full_sv.data()
+ *     int        sv_len   — full_sv.size()
+ *   The strategy receives the pre-filtered board index list and can skip its
+ *   own filtering step entirely.  If the symbol is absent the harness falls
+ *   back to strategy_next_click (full_sv is not passed).
+ *   See strategies/templates/ot_treewalk_template.cpp for the two-export
+ *   pattern, and strategies/ot/colblitz_v8_heuristics_stateless.cpp for a
+ *   complete working implementation.
+ *
+ * WalkContext:
+ *   Values constant for an entire variant walk (fbs, total_ship_cells,
+ *   n_colors, bridge, progress) are bundled into a WalkContext struct and
+ *   passed by const-ref rather than as individual parameters.  Per-node
+ *   varying state (board_indices, full_sv, revealed[], ships_hit, etc.)
+ *   remains as explicit parameters.
  *
  * Progress reporting:
  *   Each thread maintains two atomic counters: strategy_calls (incremented at

@@ -204,33 +204,54 @@ Stdev is computed in the same single pass by tracking E[score²] alongside E[sco
 
 ### Opting in — the `sphere:stateless` marker
 
-The tree walk is only correct for **stateless** strategies — ones where `next_click(board, meta)` returns the same cell every time for the same inputs, regardless of how many prior calls were made.
+The tree walk is currently **C++ only**.  Python and JS strategies can add the marker and will be routed to the tree-walk evaluator, but they receive no surviving-board-set from the harness (see below) and must do their own filtering on every call — which is typically slower than the sequential evaluator for board-filter strategies.  Use the tree walk from Python/JS only if your strategy is already cheap per call (no board filtering).
 
 To opt in, place the string `sphere:stateless` anywhere in a comment within the **first 50 lines** of your strategy source file:
 
-```python
-# sphere:stateless
-```
 ```cpp
-// sphere:stateless
-```
-```js
 // sphere:stateless
 ```
 
 `evaluate.py` scans for this marker before launching the harness.  If found, it automatically builds and uses `evaluate_ot_treewalk` instead of `evaluate_ot`.  You can also force the tree walk with `--treewalk` regardless of the marker (useful for testing).
 
+For C++ board-filter strategies, copy `strategies/templates/ot_treewalk_template.cpp` rather than `ot_template.cpp` — it includes the two-export pattern described below.
+
 ### What "stateless" means
 
-A strategy is stateless if its `next_click` result is a **pure function of `(board, meta)`** — the same revealed pattern and game metadata always produce the same cell choice.
+A strategy is stateless if its `next_click` result is a **deterministic function of its inputs** — the same revealed board state and game metadata always produce the same cell choice, regardless of how many prior calls were made or which thread is calling.
 
-This is true of all existing ot strategies except those that use random numbers (`random_clicks`).  Strategies that maintain `arr_` (filtered board set) or other per-game bookkeeping are **still stateless** in this sense if the bookkeeping is derived solely from the board cells revealed so far — the incremental filtering in `colblitz_v8_heuristics.cpp` is a performance optimization, not semantic state.
+For most strategies this means a pure function of `(board, meta)`.  C++ strategies that export `strategy_next_click_sv` (see below) extend this to `(board, meta, full_sv)`, where `full_sv` is the surviving board index list supplied by the harness.
+
+Strategies that maintain a filtered board set or other per-game bookkeeping are **still stateless** in this sense if the bookkeeping is derived solely from the board cells revealed so far — the incremental filtering in `colblitz_v8_heuristics.cpp` is a performance optimisation, not semantic state.
 
 **Not stateless** (tree walk would produce wrong results):
 - Strategies whose `next_click` calls `random()` / `Math.random()` / `std::mt19937` to make decisions.
 - Strategies that accumulate cross-game state (mutate `run_state` inside `next_click`).
 
 **Common mistake:** adding `sphere:stateless` to a strategy that uses `random.choice()` or equivalent.  The tree walk will produce a deterministic but incorrect EV because it assumes the same cell is always chosen at each node, while the sequential runner would sample randomly.
+
+### C++ sv-passing optimisation (`strategy_next_click_sv`)
+
+Board-filter strategies spend most of their time re-deriving which boards are still consistent with the current revealed state.  The tree-walk evaluator already maintains this information as it descends the game tree — it knows exactly which boards survive at every node.  C++ strategies can receive this directly and skip all filtering.
+
+**How it works:**  If a compiled `.so` exports the symbol `strategy_next_click_sv`, the harness calls it instead of `strategy_next_click`, passing two extra arguments:
+
+```cpp
+extern "C" const char* strategy_next_click_sv(
+    void*       inst,
+    const char* board_json,   // same as strategy_next_click
+    const char* meta_json,    // same as strategy_next_click
+    const int*  sv_ptr,       // pointer to the surviving board index array
+    int         sv_len);      // number of entries in sv_ptr
+```
+
+`sv_ptr[0..sv_len-1]` are the indices (into the strategy's own internal board array) of every board still consistent with the click history at this tree node.  The strategy uses this list directly for scoring — no filtering code runs.
+
+**Correctness invariant:** `full_sv` is maintained by the harness independently of per-thread chunking.  The board set is split into N chunks for parallelism, but `full_sv` always reflects the full population of boards surviving the current path — not just the chunk assigned to the calling thread.  All threads therefore pass identical `full_sv` at any given tree node, so all threads make the same cell choice and the parallel correctness argument holds.
+
+**Key warning:** do not further filter `sv_ptr` based on per-instance state.  `sv_ptr` is already correctly filtered by the harness; applying additional filters will distort the board distribution seen by the strategy and produce wrong results.
+
+If `strategy_next_click_sv` is absent the harness falls back silently to `strategy_next_click` — the symbol is optional and existing strategies are unaffected.  Only C++ strategies can implement it; Python and JS do not receive `full_sv` because serialising a list of up to ~870 K integers on every call would cost more than the filtering it replaces.
 
 ---
 
