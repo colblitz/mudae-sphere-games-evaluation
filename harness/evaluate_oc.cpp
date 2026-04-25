@@ -229,6 +229,34 @@ int main(int argc, char* argv[]) {
     printf("Loaded %zu boards.\n", boards.size());
     fflush(stdout);
 
+    // Compute per-board weights matching the DP's uniform-over-red-positions prior.
+    // Each red position gets equal total weight (1/24); weight per board = 1/count(red_pos).
+    // Weights are then normalised to sum to 1 across all boards.
+    std::vector<double> board_weights;
+    {
+        // Count boards per red position
+        uint32_t red_counts[N_CELLS] = {};
+        for (const auto& b : boards) {
+            for (int i = 0; i < N_CELLS; ++i) {
+                if (b.cells[i] == 0) { ++red_counts[i]; break; }
+            }
+        }
+        // Assign unnormalised weight = 1 / red_counts[red_pos]; normalise to sum=1
+        double total_w = 0.0;
+        board_weights.resize(boards.size());
+        for (size_t bi = 0; bi < boards.size(); ++bi) {
+            int red_pos = -1;
+            for (int i = 0; i < N_CELLS; ++i) {
+                if (boards[bi].cells[i] == 0) { red_pos = i; break; }
+            }
+            double w = (red_pos >= 0 && red_counts[red_pos] > 0)
+                       ? 1.0 / static_cast<double>(red_counts[red_pos]) : 0.0;
+            board_weights[bi] = w;
+            total_w += w;
+        }
+        for (double& w : board_weights) w /= total_w;
+    }
+
     // Load strategy
     printf("Loading strategy %s ...\n", strategy_path.c_str());
     fflush(stdout);
@@ -294,8 +322,8 @@ int main(int argc, char* argv[]) {
     for (int t = 0; t < n_threads; ++t)
         bridges[t]->init_evaluation_run();
 
-    std::vector<Welford>  ev_acc(n_threads);
-    std::vector<uint64_t> red_count(n_threads, 0);
+    std::vector<WeightedWelford> ev_acc(n_threads);
+    std::vector<double>          red_wsum(n_threads, 0.0);  // weighted red count
 
     std::atomic<uint64_t> done_count(0);
     ProgressReporter prog(total, 2000);
@@ -321,8 +349,9 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "\nERROR on board %lld: %s\n", (long long)i, e.what());
             exit(1);
         }
-        ev_acc[tid].update(score);
-        if (red_found) ++red_count[tid];
+        double w = board_weights[static_cast<size_t>(i)];
+        ev_acc[tid].update(score, w);
+        if (red_found) red_wsum[tid] += w;
 
         uint64_t d = done_count.fetch_add(1) + 1;
         if (d % prog.interval == 0)
@@ -333,26 +362,16 @@ int main(int argc, char* argv[]) {
     // Re-acquire the GIL on the main thread
     if (_tstate) PyEval_RestoreThread(_tstate);
 
-    // Merge per-thread accumulators (Chan's parallel Welford)
-    double   mean_total = 0.0, M2_total = 0.0;
-    uint64_t count_total = 0, total_red = 0;
+    // Merge per-thread accumulators
+    WeightedWelford merged;
+    double total_red_w = 0.0;
     for (int t = 0; t < n_threads; ++t) {
-        uint64_t nb = ev_acc[t].count;
-        if (nb == 0) continue;
-        double delta = ev_acc[t].mean - mean_total;
-        uint64_t nc  = count_total + nb;
-        mean_total  += delta * static_cast<double>(nb) / static_cast<double>(nc);
-        M2_total    += ev_acc[t].M2 + delta * delta
-                       * static_cast<double>(count_total)
-                       * static_cast<double>(nb) / static_cast<double>(nc);
-        count_total  = nc;
-        total_red   += red_count[t];
+        merged.merge(ev_acc[t]);
+        total_red_w += red_wsum[t];
     }
-    double stdev_total = count_total > 1
-        ? std::sqrt(M2_total / static_cast<double>(count_total - 1)) : 0.0;
 
     // Print JSON result
-    double red_rate = static_cast<double>(total_red) / static_cast<double>(count_total);
+    // red_rate: total weight of boards where red was clicked (sums to fraction in [0,1])
     printf("\nRESULT_JSON: {\"game\":\"oc\","
            "\"strategy\":\"%s\","
            "\"n_boards\":%llu,"
@@ -360,10 +379,10 @@ int main(int argc, char* argv[]) {
            "\"stdev\":%.4f,"
            "\"red_rate\":%.4f}\n",
            strategy_path.c_str(),
-           (unsigned long long)count_total,
-           mean_total,
-           stdev_total,
-           red_rate);
+           (unsigned long long)merged.count,
+           merged.mean,
+           merged.stdev(),
+           total_red_w);
     fflush(stdout);
     return 0;
 }

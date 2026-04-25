@@ -31,6 +31,57 @@ struct Welford {
 };
 
 // ---------------------------------------------------------------------------
+// Weighted Welford online mean + variance (West 1979 / Chan et al.)
+//
+// Weights are arbitrary positive doubles; they need not sum to 1.
+// Variance is the reliability-weights (frequency-weights) formula:
+//   Var = M2 / (W - W2/W)   where W = sum of weights, W2 = sum of w^2.
+// This equals the sample variance when all weights are 1.
+// ---------------------------------------------------------------------------
+
+struct WeightedWelford {
+    double mean   = 0.0;
+    double M2     = 0.0;
+    double W      = 0.0;  // sum of weights
+    double W2     = 0.0;  // sum of squared weights (for reliability-weights variance)
+    uint64_t count = 0;   // number of observations (for parallel merge bookkeeping)
+
+    void update(double x, double w) {
+        ++count;
+        double W_new  = W + w;
+        double delta  = x - mean;
+        mean         += delta * (w / W_new);
+        double delta2 = x - mean;
+        M2           += w * delta * delta2;
+        W             = W_new;
+        W2           += w * w;
+    }
+
+    // Population-weighted variance (reliability weights).
+    // Returns 0 if fewer than 2 observations.
+    double variance() const {
+        if (count < 2 || W <= 0.0) return 0.0;
+        double denom = W - W2 / W;
+        return denom > 0.0 ? M2 / denom : 0.0;
+    }
+    double stdev() const { return std::sqrt(variance()); }
+
+    // Parallel merge (Chan's formula for weighted accumulators).
+    // Merges `other` into `*this`.
+    void merge(const WeightedWelford& other) {
+        if (other.count == 0) return;
+        if (count == 0) { *this = other; return; }
+        double W_new  = W + other.W;
+        double delta  = other.mean - mean;
+        mean          = (mean * W + other.mean * other.W) / W_new;
+        M2           += other.M2 + delta * delta * (W * other.W / W_new);
+        W             = W_new;
+        W2           += other.W2;
+        count        += other.count;
+    }
+};
+
+// ---------------------------------------------------------------------------
 // Per-game stat result structs
 // ---------------------------------------------------------------------------
 

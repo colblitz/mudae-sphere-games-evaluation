@@ -1,29 +1,6 @@
 {
   "game": "oc",
   "metric": "ev",
-  "updated": "2026-04-23",
-  "top5": [
-    {
-      "filename": "strategies/oc/kelinimo_adaptive_ev.js",
-      "commit": "979c4a3",
-      "date": "2026-04-23",
-      "ev": 328.4821,
-      "stdev": 58.105,
-      "red_rate": 0.9988,
-      "n_boards": 16800,
-      "games_per_s": 23445.1,
-      "harness_elapsed_s": 0.717
-    },
-    {
-      "filename": "strategies/oc/svessinn_solver.js",
-      "commit": "e27d1e5",
-      "date": "2026-04-23",
-      "ev": 315.1411,
-      "stdev": 67.8421,
-      "red_rate": 0.9814,
-      "n_boards": 16800,
-      "games_per_s": 22322.5,
-      "harness_elapsed_s": 0.753
-    }
-  ]
+  "updated": "2026-04-25",
+  "top5": []
 }
