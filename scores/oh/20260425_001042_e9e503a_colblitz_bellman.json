@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-04-25T00:10:42",
+  "commit": "e9e503a",
+  "filename": "colblitz_bellman.cpp",
+  "game": "oh",
+  "strategy": "/home/colblitz/mudae-sphere-games-evaluation/strategies/oh/colblitz_bellman.cpp",
+  "n_games": 1000000,
+  "seed": 42,
+  "ev": 721.8976,
+  "stdev": 222.4972,
+  "oc_rate": 0.01,
+  "harness_elapsed_s": 2.733,
+  "n_threads": 20,
+  "games_per_cpu_s": 18297.9,
+  "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+}

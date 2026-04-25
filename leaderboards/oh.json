@@ -1,8 +1,22 @@
 {
   "game": "oh",
   "metric": "ev",
-  "updated": "2026-04-21",
+  "updated": "2026-04-25",
   "top5": [
+    {
+      "filename": "colblitz_bellman.cpp",
+      "commit": "e9e503a",
+      "date": "2026-04-25",
+      "ev": 721.8976,
+      "stdev": 222.4972,
+      "oc_rate": 0.01,
+      "n_games": 1000000,
+      "seed": 42,
+      "games_per_cpu_s": 18297.9,
+      "harness_elapsed_s": 2.733,
+      "n_threads": 20,
+      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+    },
     {
       "filename": "random_clicks.py",
       "commit": "e5b8664",

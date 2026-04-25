@@ -156,20 +156,21 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | EV | Stdev | OC Rate | Games/CPU-s | CPU | Commit | Date |
 |------|----------|----|-------|---------|-------------|-----|--------|------|
-| 1 | `random_clicks.py` | 117.63 | 224.46 | 4.1% | — | — | `e5b8664` | 2026-04-21 |
+| 1 | `colblitz_bellman.cpp` | 721.90 | 222.50 | 1.0% | 18298 | 13th Gen Intel(R) Core(TM) i7-13700K | `e9e503a` | 2026-04-25 |
+| 2 | `random_clicks.py` | 117.63 | 224.46 | 4.1% | — | — | `e5b8664` | 2026-04-21 |
 
 ### /sphere chest (oc)
 
 | Rank | Strategy | EV | Stdev | Red Rate | Games/CPU-s | CPU | Commit | Date |
-|------|----------|----|-------|----------|-------------|-----|--------|------|
+|------|----------|----|-------|-------|-------------|-----|--------|------|
 
 ### /sphere quest (oq)
 
 | Rank | Strategy | EV | Stdev | Red Rate | Games/CPU-s | CPU | Commit | Date |
-|------|----------|----|-------|----------|-------------|-----|--------|------|
-| 1 | `zavex_book_heuristic.js` | 350.86 | 44.04 | 99.0% | 4085 | — | `60a6ef8` | 2026-04-23 |
-| 2 | `kelinimo_adaptive_ev.js` | 348.03 | 50.85 | 96.2% | 944 | — | `1b9f1ac` | 2026-04-23 |
-| 3 | `svessinn_solver.js` | 301.53 | 79.95 | 71.9% | 490 | — | `029aba7` | 2026-04-23 |
+|------|----------|----|-------|-------|-------------|-----|--------|------|
+| 1 | `zavex_book_heuristic.js` | 350.86 | 44.04 | 99.0% | — | — | `60a6ef8` | 2026-04-23 |
+| 2 | `kelinimo_adaptive_ev.js` | 348.03 | 50.85 | 96.2% | — | — | `1b9f1ac` | 2026-04-23 |
+| 3 | `svessinn_solver.js` | 301.53 | 79.95 | 71.9% | — | — | `029aba7` | 2026-04-23 |
 
 ### /sphere trace (ot)
 
