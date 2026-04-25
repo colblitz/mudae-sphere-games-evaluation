@@ -1,0 +1,15 @@
+{
+  "timestamp": "2026-04-25T00:13:29",
+  "commit": "1a79a4a",
+  "filename": "colblitz_mixed_gini.cpp",
+  "game": "oq",
+  "strategy": "/home/colblitz/mudae-sphere-games-evaluation/strategies/oq/colblitz_mixed_gini.cpp",
+  "n_boards": 12650,
+  "ev": 342.5632,
+  "stdev": 52.1794,
+  "red_rate": 0.9535,
+  "harness_elapsed_s": 0.937,
+  "n_threads": 20,
+  "games_per_cpu_s": 675.0,
+  "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+}

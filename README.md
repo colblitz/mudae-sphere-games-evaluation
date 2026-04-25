@@ -173,7 +173,8 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 |------|----------|----|-------|-------|-------------|-----|--------|------|
 | 1 | `zavex_book_heuristic.js` | 350.86 | 44.04 | 99.0% | — | — | `60a6ef8` | 2026-04-23 |
 | 2 | `kelinimo_adaptive_ev.js` | 348.03 | 50.85 | 96.2% | — | — | `1b9f1ac` | 2026-04-23 |
-| 3 | `svessinn_solver.js` | 301.53 | 79.95 | 71.9% | — | — | `029aba7` | 2026-04-23 |
+| 3 | `colblitz_mixed_gini.cpp` | 342.56 | 52.18 | 95.3% | 675 | 13th Gen Intel(R) Core(TM) i7-13700K | `1a79a4a` | 2026-04-25 |
+| 4 | `svessinn_solver.js` | 301.53 | 79.95 | 71.9% | — | — | `029aba7` | 2026-04-23 |
 
 ### /sphere trace (ot)
 
