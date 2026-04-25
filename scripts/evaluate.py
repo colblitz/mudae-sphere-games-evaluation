@@ -404,15 +404,16 @@ def _fmt_f(v: Any, d: int = 2) -> str:
 
 def render_oh_table(top5: list[dict]) -> str:
     lines = [
-        "| Rank | Strategy | EV | Stdev | OC Rate | Games/CPU-s | Commit | Date |",
-        "|------|----------|----|-------|---------|-------------|--------|------|",
+        "| Rank | Strategy | EV | Stdev | OC Rate | Games/CPU-s | CPU | Commit | Date |",
+        "|------|----------|----|-------|---------|-------------|-----|--------|------|",
     ]
     for i, e in enumerate(top5, 1):
         fname = Path(e.get("filename", "")).name
         gps = _fmt_f(e.get("games_per_cpu_s"), 0) if e.get("games_per_cpu_s") is not None else "—"
+        cpu = e.get("cpu_model", "—")
         lines.append(
             f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} | {_fmt_f(e.get('stdev'))} "
-            f"| {_fmt_pct(e.get('oc_rate', '—'))} | {gps} | `{e.get('commit','?')}` | {e.get('date','?')} |"
+            f"| {_fmt_pct(e.get('oc_rate', '—'))} | {gps} | {cpu} | `{e.get('commit','?')}` | {e.get('date','?')} |"
         )
     return "\n".join(lines)
 
@@ -420,15 +421,16 @@ def render_oh_table(top5: list[dict]) -> str:
 def render_oc_oq_table(top5: list[dict], game: str) -> str:
     label = "Red Rate"
     lines = [
-        f"| Rank | Strategy | EV | Stdev | {label} | Games/CPU-s | Commit | Date |",
-        f"|------|----------|----|-------|{'-------' if len(label) < 9 else '-' * len(label)}|-------------|--------|------|",
+        f"| Rank | Strategy | EV | Stdev | {label} | Games/CPU-s | CPU | Commit | Date |",
+        f"|------|----------|----|-------|{'-------' if len(label) < 9 else '-' * len(label)}|-------------|-----|--------|------|",
     ]
     for i, e in enumerate(top5, 1):
         fname = Path(e.get("filename", "")).name
         gps = _fmt_f(e.get("games_per_cpu_s"), 0) if e.get("games_per_cpu_s") is not None else "—"
+        cpu = e.get("cpu_model", "—")
         lines.append(
             f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} | {_fmt_f(e.get('stdev'))} "
-            f"| {_fmt_pct(e.get('red_rate', '—'))} | {gps} | `{e.get('commit','?')}` | {e.get('date','?')} |"
+            f"| {_fmt_pct(e.get('red_rate', '—'))} | {gps} | {cpu} | `{e.get('commit','?')}` | {e.get('date','?')} |"
         )
     return "\n".join(lines)
 
@@ -439,15 +441,16 @@ def render_ot_tables(lb: dict[str, Any]) -> str:
     # Aggregate
     sections.append("**Aggregate (board-count weighted EV across all variants)**\n")
     agg_lines = [
-        "| Rank | Strategy | Agg EV | Games/CPU-s | Commit | Date |",
-        "|------|----------|--------|-------------|--------|------|",
+        "| Rank | Strategy | Agg EV | Games/CPU-s | CPU | Commit | Date |",
+        "|------|----------|--------|-------------|-----|--------|------|",
     ]
     for i, e in enumerate(lb.get("top5", []), 1):
         fname = Path(e.get("filename", "")).name
         gps = _fmt_f(e.get("games_per_cpu_s"), 0) if e.get("games_per_cpu_s") is not None else "—"
+        cpu = e.get("cpu_model", "—")
         agg_lines.append(
             f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} | {gps} "
-            f"| `{e.get('commit','?')}` | {e.get('date','?')} |"
+            f"| {cpu} | `{e.get('commit','?')}` | {e.get('date','?')} |"
         )
     sections.append("\n".join(agg_lines))
 
@@ -459,19 +462,20 @@ def render_ot_tables(lb: dict[str, Any]) -> str:
         top5 = vdata.get("top5", [])
         v_lines = [
             f"**{nc}-color variant**\n",
-            "| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Games/CPU-s | Commit | Date |",
-            "|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|-------------|--------|------|",
+            "| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Games/CPU-s | CPU | Commit | Date |",
+            "|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|-------------|-----|--------|------|",
         ]
         for i, e in enumerate(top5, 1):
             fname = Path(e.get("filename", "")).name
             gps = _fmt_f(e.get("games_per_cpu_s"), 0) if e.get("games_per_cpu_s") is not None else "—"
+            cpu = e.get("cpu_model", "—")
             v_lines.append(
                 f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} | {_fmt_f(e.get('stdev_ev','—'))} "
                 f"| {_fmt_pct(e.get('perfect_rate','—'))} | {_fmt_pct(e.get('all_ships_rate','—'))} "
                 f"| {_fmt_pct(e.get('loss_5050_rate','—'))} | {_fmt_f(e.get('avg_clicks','—'))} "
                 f"| {_fmt_f(e.get('stdev_clicks','—'))} | {_fmt_f(e.get('avg_ship_clicks','—'))} "
                 f"| {_fmt_f(e.get('stdev_ship_clicks','—'))} | {gps} "
-                f"| `{e.get('commit','?')}` | {e.get('date','?')} |"
+                f"| {cpu} | `{e.get('commit','?')}` | {e.get('date','?')} |"
             )
         variant_parts.append("\n".join(v_lines))
 
