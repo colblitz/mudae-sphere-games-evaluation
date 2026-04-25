@@ -374,8 +374,11 @@ int main(int argc, char* argv[]) {
     for (int t = 1; t < n_threads; ++t)
         bridges[t] = StrategyBridge::load(strategy_path, "oq");
 
+    auto t_init0 = std::chrono::steady_clock::now();
     for (int t = 0; t < n_threads; ++t)
         bridges[t]->init_evaluation_run();
+    double init_run_elapsed = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - t_init0).count();
 
     std::vector<Welford>  ev_acc(n_threads);
     std::vector<uint64_t> red_count(n_threads, 0);
@@ -440,12 +443,14 @@ int main(int argc, char* argv[]) {
            "\"n_boards\":%llu,"
            "\"ev\":%.4f,"
            "\"stdev\":%.4f,"
-           "\"red_rate\":%.4f}\n",
+           "\"red_rate\":%.4f,"
+           "\"init_run_elapsed_s\":%.4f}\n",
            strategy_path.c_str(),
            (unsigned long long)count_total,
            mean_total,
            stdev_total,
-           red_rate);
+           red_rate,
+           init_run_elapsed);
     fflush(stdout);
     return 0;
 }

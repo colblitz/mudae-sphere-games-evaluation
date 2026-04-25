@@ -319,8 +319,11 @@ int main(int argc, char* argv[]) {
     for (int t = 1; t < n_threads; ++t)
         bridges[t] = StrategyBridge::load(strategy_path, "oc");
 
+    auto t_init0 = std::chrono::steady_clock::now();
     for (int t = 0; t < n_threads; ++t)
         bridges[t]->init_evaluation_run();
+    double init_run_elapsed = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - t_init0).count();
 
     std::vector<WeightedWelford> ev_acc(n_threads);
     std::vector<double>          red_wsum(n_threads, 0.0);  // weighted red count
@@ -377,12 +380,14 @@ int main(int argc, char* argv[]) {
            "\"n_boards\":%llu,"
            "\"ev\":%.4f,"
            "\"stdev\":%.4f,"
-           "\"red_rate\":%.4f}\n",
+           "\"red_rate\":%.4f,"
+           "\"init_run_elapsed_s\":%.4f}\n",
            strategy_path.c_str(),
            (unsigned long long)merged.count,
            merged.mean,
            merged.stdev(),
-           total_red_w);
+           total_red_w,
+           init_run_elapsed);
     fflush(stdout);
     return 0;
 }

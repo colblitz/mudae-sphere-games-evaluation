@@ -636,8 +636,11 @@ int main(int argc, char* argv[]) {
     for (int t = 1; t < n_threads; ++t)
         bridges[t] = StrategyBridge::load(strategy_path, "oh");
 
+    auto t_init0 = std::chrono::steady_clock::now();
     for (int t = 0; t < n_threads; ++t)
         bridges[t]->init_evaluation_run();
+    double init_run_elapsed = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - t_init0).count();
 
     std::atomic<uint64_t> done_count(0);
     ProgressReporter prog(n_games, 10000);
@@ -709,13 +712,15 @@ int main(int argc, char* argv[]) {
            "\"seed\":%llu,"
            "\"ev\":%.4f,"
            "\"stdev\":%.4f,"
-           "\"oc_rate\":%.4f}\n",
+           "\"oc_rate\":%.4f,"
+           "\"init_run_elapsed_s\":%.4f}\n",
            strategy_path.c_str(),
            (unsigned long long)count_total,
            (unsigned long long)seed,
            mean_total,
            stdev_total,
-           oc_rate);
+           oc_rate,
+           init_run_elapsed);
     fflush(stdout);
     return 0;
 }

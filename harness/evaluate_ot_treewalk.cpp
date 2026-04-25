@@ -501,7 +501,8 @@ static OTVariantResult evaluate_variant_treewalk(
     int                 n_colors,
     const std::string&  strategy_path,
     int                 n_threads,
-    double&             variant_elapsed_out)
+    double&             variant_elapsed_out,
+    double&             init_elapsed_out)
 {
     int total_ship_cells = 4 + 3 + 3 + 2 + fbs.n_var * 2;
     int n_boards         = fbs.n_boards;
@@ -529,11 +530,11 @@ static OTVariantResult evaluate_variant_treewalk(
         bridges[t]->init_evaluation_run();
     }
 
+    init_elapsed_out = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - tb0).count();
     {
-        double tb = std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - tb0).count();
         print_ts();
-        printf("  n_colors=%d: bridges ready  (%.1fs)\n", n_colors, tb);
+        printf("  n_colors=%d: bridges ready  (%.1fs)\n", n_colors, init_elapsed_out);
         fflush(stdout);
     }
 
@@ -777,6 +778,7 @@ int main(int argc, char* argv[]) {
     OTResult overall_result;
     double   total_boards_weighted = 0.0;
     double   weighted_ev           = 0.0;
+    double   total_init_elapsed    = 0.0;
 
     auto run_start = std::chrono::steady_clock::now();
     std::vector<std::pair<int,double>> variant_timings;
@@ -800,14 +802,17 @@ int main(int argc, char* argv[]) {
         boards.clear();
 
         double variant_elapsed = 0.0;
+        double variant_init_elapsed = 0.0;
         OTVariantResult vr = evaluate_variant_treewalk(fbs, nc, strategy_path,
-                                                       n_threads, variant_elapsed);
+                                                       n_threads, variant_elapsed,
+                                                       variant_init_elapsed);
         int vi = nc - 6;
         overall_result.variants[vi] = vr;
         variant_timings.emplace_back(nc, variant_elapsed);
 
         weighted_ev           += vr.ev * (double)vr.n_boards;
         total_boards_weighted += (double)vr.n_boards;
+        total_init_elapsed    += variant_init_elapsed;
     }
 
     double total_run_secs = std::chrono::duration<double>(
@@ -827,8 +832,9 @@ int main(int argc, char* argv[]) {
 
     // RESULT_JSON — same format as evaluate_ot, plus "evaluator":"treewalk"
     printf("\nRESULT_JSON: {\"game\":\"ot\",\"strategy\":\"%s\","
-           "\"aggregate_ev\":%.4f,\"evaluator\":\"treewalk\",\"variants\":[",
-           strategy_path.c_str(), overall_result.aggregate_ev);
+           "\"aggregate_ev\":%.4f,\"evaluator\":\"treewalk\","
+           "\"init_run_elapsed_s\":%.4f,\"variants\":[",
+           strategy_path.c_str(), overall_result.aggregate_ev, total_init_elapsed);
     bool first = true;
     for (int nc : variants) {
         if (!first) printf(",");

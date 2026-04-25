@@ -450,7 +450,8 @@ static OTVariantResult evaluate_variant(
     const std::vector<OTBoard>& boards,
     int                         n_colors,
     const std::string&          strategy_path,
-    int                         n_threads)
+    int                         n_threads,
+    double&                     init_elapsed_out)
 {
     uint64_t total = boards.size();
 
@@ -490,8 +491,11 @@ static OTVariantResult evaluate_variant(
         bridges[t] = StrategyBridge::load(strategy_path, "ot");
     }
 
+    auto t_init0 = std::chrono::steady_clock::now();
     for (int t = 0; t < n_threads; ++t)
         bridges[t]->init_evaluation_run();
+    init_elapsed_out = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - t_init0).count();
 
 #ifdef _OPENMP
     omp_set_num_threads(n_threads);
@@ -749,6 +753,7 @@ int main(int argc, char* argv[]) {
     OTResult overall_result;
     double   total_boards_weighted = 0.0;
     double   weighted_ev           = 0.0;
+    double   total_init_elapsed    = 0.0;
 
     auto run_start = std::chrono::steady_clock::now();
 
@@ -765,12 +770,15 @@ int main(int argc, char* argv[]) {
         printf("Loaded %zu boards for n_colors=%d\n", boards.size(), nc);
         fflush(stdout);
 
-        OTVariantResult vr = evaluate_variant(boards, nc, strategy_path, n_threads);
+        double variant_init_elapsed = 0.0;
+        OTVariantResult vr = evaluate_variant(boards, nc, strategy_path, n_threads,
+                                              variant_init_elapsed);
         int vi = nc - 6;
         overall_result.variants[vi] = vr;
 
         weighted_ev           += vr.ev * static_cast<double>(vr.n_boards);
         total_boards_weighted += static_cast<double>(vr.n_boards);
+        total_init_elapsed    += variant_init_elapsed;
     }
 
     {
@@ -788,8 +796,9 @@ int main(int argc, char* argv[]) {
         overall_result.aggregate_ev = weighted_ev / total_boards_weighted;
 
     // Print JSON result
-    printf("\nRESULT_JSON: {\"game\":\"ot\",\"strategy\":\"%s\",\"aggregate_ev\":%.4f,\"variants\":[",
-           strategy_path.c_str(), overall_result.aggregate_ev);
+    printf("\nRESULT_JSON: {\"game\":\"ot\",\"strategy\":\"%s\",\"aggregate_ev\":%.4f,"
+           "\"init_run_elapsed_s\":%.4f,\"variants\":[",
+           strategy_path.c_str(), overall_result.aggregate_ev, total_init_elapsed);
     bool first = true;
     for (int nc : variants) {
         if (!first) printf(",");

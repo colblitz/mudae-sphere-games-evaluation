@@ -341,7 +341,7 @@ def make_entry(result: dict[str, Any], strategy_path: str) -> dict[str, Any]:
                 "avg_clicks", "stdev_clicks", "avg_ship_clicks", "stdev_ship_clicks",
                 "perfect_rate", "all_ships_rate", "loss_5050_rate",
                 "n_games", "n_boards", "aggregate_ev", "seed",
-                "games_per_cpu_s", "harness_elapsed_s", "cpu_model"):
+                "games_per_cpu_s", "setup_cpu_s", "harness_elapsed_s", "cpu_model"):
         if key in result:
             entry[key] = result[key]
     return entry
@@ -414,18 +414,38 @@ def _fmt_f(v: Any, d: int = 2) -> str:
     return str(v) if v is not None else "—"
 
 
+def render_perf_section(entries: list[dict]) -> str:
+    """Render a collapsible performance/timing table for a list of leaderboard entries."""
+    lines = [
+        "| Strategy | Games/CPU-s | Setup CPU-s | Harness wall-s | Threads | CPU |",
+        "|----------|-------------|-------------|----------------|---------|-----|",
+    ]
+    for e in entries:
+        fname = Path(e.get("filename", "")).name
+        gps = _fmt_f(e.get("games_per_cpu_s"), 0) if e.get("games_per_cpu_s") is not None else "—"
+        setup = _fmt_f(e.get("setup_cpu_s"), 2) if e.get("setup_cpu_s") is not None else "—"
+        wall = _fmt_f(e.get("harness_elapsed_s"), 1) if e.get("harness_elapsed_s") is not None else "—"
+        threads = str(e.get("n_threads", "—"))
+        cpu = e.get("cpu_model", "—")
+        lines.append(f"| `{fname}` | {gps} | {setup} | {wall} | {threads} | {cpu} |")
+    table = "\n".join(lines)
+    return (
+        "<details>\n<summary>Performance</summary>\n\n"
+        + table
+        + "\n\n</details>"
+    )
+
+
 def render_oh_table(top5: list[dict]) -> str:
     lines = [
-        "| Rank | Strategy | EV | Stdev | OC Rate | Games/CPU-s | CPU | Commit | Date |",
-        "|------|----------|----|-------|---------|-------------|-----|--------|------|",
+        "| Rank | Strategy | EV | Stdev | OC Rate | Commit | Date |",
+        "|------|----------|----|-------|---------|--------|------|",
     ]
     for i, e in enumerate(top5, 1):
         fname = Path(e.get("filename", "")).name
-        gps = _fmt_f(e.get("games_per_cpu_s"), 0) if e.get("games_per_cpu_s") is not None else "—"
-        cpu = e.get("cpu_model", "—")
         lines.append(
             f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} | {_fmt_f(e.get('stdev'))} "
-            f"| {_fmt_pct(e.get('oc_rate', '—'))} | {gps} | {cpu} | `{e.get('commit','?')}` | {e.get('date','?')} |"
+            f"| {_fmt_pct(e.get('oc_rate', '—'))} | `{e.get('commit','?')}` | {e.get('date','?')} |"
         )
     return "\n".join(lines)
 
@@ -433,16 +453,14 @@ def render_oh_table(top5: list[dict]) -> str:
 def render_oc_oq_table(top5: list[dict], game: str) -> str:
     label = "Red Rate"
     lines = [
-        f"| Rank | Strategy | EV | Stdev | {label} | Games/CPU-s | CPU | Commit | Date |",
-        f"|------|----------|----|-------|{'-------' if len(label) < 9 else '-' * len(label)}|-------------|-----|--------|------|",
+        f"| Rank | Strategy | EV | Stdev | {label} | Commit | Date |",
+        f"|------|----------|----|-------|{'-------' if len(label) < 9 else '-' * len(label)}|--------|------|",
     ]
     for i, e in enumerate(top5, 1):
         fname = Path(e.get("filename", "")).name
-        gps = _fmt_f(e.get("games_per_cpu_s"), 0) if e.get("games_per_cpu_s") is not None else "—"
-        cpu = e.get("cpu_model", "—")
         lines.append(
             f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} | {_fmt_f(e.get('stdev'))} "
-            f"| {_fmt_pct(e.get('red_rate', '—'))} | {gps} | {cpu} | `{e.get('commit','?')}` | {e.get('date','?')} |"
+            f"| {_fmt_pct(e.get('red_rate', '—'))} | `{e.get('commit','?')}` | {e.get('date','?')} |"
         )
     return "\n".join(lines)
 
@@ -451,18 +469,17 @@ def render_ot_tables(lb: dict[str, Any]) -> str:
     sections = []
 
     # Aggregate
+    top5_agg = lb.get("top5", [])
     sections.append("**Aggregate (board-count weighted EV across all variants)**\n")
     agg_lines = [
-        "| Rank | Strategy | Agg EV | Games/CPU-s | CPU | Commit | Date |",
-        "|------|----------|--------|-------------|-----|--------|------|",
+        "| Rank | Strategy | Agg EV | Commit | Date |",
+        "|------|----------|--------|--------|------|",
     ]
-    for i, e in enumerate(lb.get("top5", []), 1):
+    for i, e in enumerate(top5_agg, 1):
         fname = Path(e.get("filename", "")).name
-        gps = _fmt_f(e.get("games_per_cpu_s"), 0) if e.get("games_per_cpu_s") is not None else "—"
-        cpu = e.get("cpu_model", "—")
         agg_lines.append(
-            f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} | {gps} "
-            f"| {cpu} | `{e.get('commit','?')}` | {e.get('date','?')} |"
+            f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} "
+            f"| `{e.get('commit','?')}` | {e.get('date','?')} |"
         )
     sections.append("\n".join(agg_lines))
 
@@ -474,20 +491,18 @@ def render_ot_tables(lb: dict[str, Any]) -> str:
         top5 = vdata.get("top5", [])
         v_lines = [
             f"**{nc}-color variant**\n",
-            "| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Games/CPU-s | CPU | Commit | Date |",
-            "|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|-------------|-----|--------|------|",
+            "| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |",
+            "|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|",
         ]
         for i, e in enumerate(top5, 1):
             fname = Path(e.get("filename", "")).name
-            gps = _fmt_f(e.get("games_per_cpu_s"), 0) if e.get("games_per_cpu_s") is not None else "—"
-            cpu = e.get("cpu_model", "—")
             v_lines.append(
                 f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} | {_fmt_f(e.get('stdev_ev','—'))} "
                 f"| {_fmt_pct(e.get('perfect_rate','—'))} | {_fmt_pct(e.get('all_ships_rate','—'))} "
                 f"| {_fmt_pct(e.get('loss_5050_rate','—'))} | {_fmt_f(e.get('avg_clicks','—'))} "
                 f"| {_fmt_f(e.get('stdev_clicks','—'))} | {_fmt_f(e.get('avg_ship_clicks','—'))} "
-                f"| {_fmt_f(e.get('stdev_ship_clicks','—'))} | {gps} "
-                f"| {cpu} | `{e.get('commit','?')}` | {e.get('date','?')} |"
+                f"| {_fmt_f(e.get('stdev_ship_clicks','—'))} "
+                f"| `{e.get('commit','?')}` | {e.get('date','?')} |"
             )
         variant_parts.append("\n".join(v_lines))
 
@@ -497,6 +512,10 @@ def render_ot_tables(lb: dict[str, Any]) -> str:
         f"{variants_block}\n\n"
         f"</details>"
     )
+
+    # Performance section — use aggregate top5 entries (they carry the run-level timing fields)
+    if top5_agg:
+        sections.append("\n" + render_perf_section(top5_agg))
 
     return "\n".join(sections)
 
@@ -513,9 +532,15 @@ def render_leaderboard_section() -> str:
         }
         parts.append(f"### {game_labels[game]}\n")
         if game == "oh":
-            parts.append(render_oh_table(lb.get("top5", [])))
+            top5 = lb.get("top5", [])
+            parts.append(render_oh_table(top5))
+            if top5:
+                parts.append("\n" + render_perf_section(top5))
         elif game in ("oc", "oq"):
-            parts.append(render_oc_oq_table(lb.get("top5", []), game))
+            top5 = lb.get("top5", [])
+            parts.append(render_oc_oq_table(top5, game))
+            if top5:
+                parts.append("\n" + render_perf_section(top5))
         elif game == "ot":
             parts.append(render_ot_tables(lb))
         parts.append("")
@@ -814,12 +839,16 @@ def main() -> None:
     elif "n_boards" in result:
         n_games_run = result["n_boards"]
     n_threads_run = args.threads if args.threads is not None else os.cpu_count() or 1
+    init_run_elapsed_s: float = result.get("init_run_elapsed_s", 0.0)
     print("\n--- Timing ---")
     if n_games_run:
-        cpu_seconds = harness_elapsed * n_threads_run
-        games_per_cpu_s = n_games_run / cpu_seconds
-        print(f"  Harness run:   {harness_elapsed:.2f} s  wall  ×{n_threads_run} threads"
-              f"  →  {cpu_seconds:.2f} CPU-s  ({games_per_cpu_s:,.0f} games/CPU-s,  {n_games_run:,} games)")
+        game_wall_s = harness_elapsed - init_run_elapsed_s
+        game_cpu_s = game_wall_s * n_threads_run
+        games_per_cpu_s = n_games_run / game_cpu_s if game_cpu_s > 0 else 0.0
+        setup_cpu_s = init_run_elapsed_s  # single-threaded, so wall == CPU
+        print(f"  Harness run:   {harness_elapsed:.2f} s  wall  ×{n_threads_run} threads")
+        print(f"  Setup:         {init_run_elapsed_s:.2f} s  (init_evaluation_run, excluded from throughput)")
+        print(f"  Game CPU-s:    {game_cpu_s:.2f}  ({games_per_cpu_s:,.0f} games/CPU-s,  {n_games_run:,} games)")
     else:
         print(f"  Harness run:   {harness_elapsed:.2f} s")
     print(f"  Total elapsed: {total_elapsed:.2f} s")
@@ -896,8 +925,10 @@ def main() -> None:
     run_params["harness_elapsed_s"] = round(harness_elapsed, 3)
     run_params["n_threads"] = n_threads_run
     if n_games_run:
-        cpu_s = harness_elapsed * n_threads_run
-        run_params["games_per_cpu_s"] = round(n_games_run / cpu_s, 1)
+        _game_wall = harness_elapsed - init_run_elapsed_s
+        _game_cpu = _game_wall * n_threads_run
+        run_params["games_per_cpu_s"] = round(n_games_run / _game_cpu, 1) if _game_cpu > 0 else 0.0
+    run_params["setup_cpu_s"] = round(init_run_elapsed_s, 3)
     run_params["cpu_model"] = get_cpu_model()
 
     artifact_path = write_scores_artifact(
@@ -917,7 +948,7 @@ def main() -> None:
                     "n_games", "n_boards", "aggregate_ev", "seed"):
             if key in res:
                 entry[key] = res[key]
-        for key in ("games_per_cpu_s", "harness_elapsed_s", "n_threads", "cpu_model"):
+        for key in ("games_per_cpu_s", "setup_cpu_s", "harness_elapsed_s", "n_threads", "cpu_model"):
             if key in run_params:
                 entry[key] = run_params[key]
         return entry
