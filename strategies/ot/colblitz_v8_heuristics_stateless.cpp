@@ -1061,31 +1061,6 @@ extern "C" void strategy_init_game_payload(void* inst, const char* meta_json) {
         meta_json ? meta_json : "{}");
 }
 
-// Shared board JSON parser used by both next_click exports.
-static std::vector<Cell> parse_board_json(const char* board_json) {
-    std::vector<Cell> brd;
-    brd.reserve(25);
-    const char* p = board_json;
-    while ((p = strstr(p, "\"row\":")) != nullptr) {
-        Cell c;
-        c.row = atoi(p + 6);
-        const char* cp   = strstr(p, "\"col\":");    if (cp)   c.col = atoi(cp + 6);
-        const char* colp = strstr(p, "\"color\":\"");
-        if (colp) {
-            colp += 9;
-            const char* e = strchr(colp, '"');
-            if (e) c.color = std::string(colp, e - colp);
-        }
-        const char* clkp = strstr(p, "\"clicked\":"); if (clkp) {
-            clkp += 10;
-            while (*clkp == ' ') ++clkp;
-            c.clicked = (strncmp(clkp, "true", 4) == 0);
-        }
-        brd.push_back(c);
-        p += 6;
-    }
-    return brd;
-}
 
 extern "C" const char* strategy_next_click(void* inst,
                                             const char* board_json,
