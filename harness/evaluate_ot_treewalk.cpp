@@ -248,31 +248,37 @@ struct ColorAssign {
 // ---------------------------------------------------------------------------
 
 struct NodeResult {
-    double ev_sp      = 0.0;   // E[score]
-    double ev_sp2     = 0.0;   // E[score²]  — for stdev
-    double ship_frac  = 0.0;   // E[ship_cells_revealed / total_ship_cells]
-    double perf_prob  = 0.0;   // P(all ship cells revealed)
-    double avg_clicks = 0.0;   // E[total click count]
-    double loss_5050  = 0.0;   // P(game-ending blue had 0.25 < P(blue) < 0.75)
-    double all_ships  = 0.0;   // P(all distinct ships hit)
+    double ev_sp          = 0.0;   // E[score]
+    double ev_sp2         = 0.0;   // E[score²]        — for stdev_ev
+    double ship_frac      = 0.0;   // E[ship_cells_revealed / total_ship_cells]
+    double ship_frac2     = 0.0;   // E[(ship_frac)²]  — for stdev_ship_clicks
+    double perf_prob      = 0.0;   // P(all ship cells revealed)
+    double avg_clicks     = 0.0;   // E[total click count]
+    double avg_clicks2    = 0.0;   // E[clicks²]       — for stdev_clicks
+    double loss_5050      = 0.0;   // P(game-ending blue had 0.25 < P(blue) < 0.75)
+    double all_ships      = 0.0;   // P(all distinct ships hit)
 };
 
 // accumulate: result += weight * subtree(r) with sp_delta earned at this node.
 // E[(sp_delta + X)²] = sp_delta² + 2*sp_delta*E[X] + E[X²]
+// Click delta is always 1 per node: E[(1 + clicks)²] = 1 + 2*E[clicks] + E[clicks²]
+// ship_frac has no per-node delta (terminal-only value): pure weighted mean of squares.
 static inline void accumulate(NodeResult& result,
                                double weight,
                                const NodeResult& r,
                                double sp_delta)
 {
     double ev_child = r.ev_sp + sp_delta;
-    result.ev_sp      += weight * ev_child;
-    result.ev_sp2     += weight * (r.ev_sp2 + 2.0 * sp_delta * r.ev_sp
-                                   + sp_delta * sp_delta);
-    result.ship_frac  += weight * r.ship_frac;
-    result.perf_prob  += weight * r.perf_prob;
-    result.avg_clicks += weight * r.avg_clicks;
-    result.loss_5050  += weight * r.loss_5050;
-    result.all_ships  += weight * r.all_ships;
+    result.ev_sp       += weight * ev_child;
+    result.ev_sp2      += weight * (r.ev_sp2 + 2.0 * sp_delta * r.ev_sp
+                                    + sp_delta * sp_delta);
+    result.ship_frac   += weight * r.ship_frac;
+    result.ship_frac2  += weight * r.ship_frac2;
+    result.perf_prob   += weight * r.perf_prob;
+    result.avg_clicks  += weight * r.avg_clicks;
+    result.avg_clicks2 += weight * (r.avg_clicks2 + 2.0 * r.avg_clicks + 1.0);
+    result.loss_5050   += weight * r.loss_5050;
+    result.all_ships   += weight * r.all_ships;
 }
 
 // ---------------------------------------------------------------------------
@@ -417,13 +423,15 @@ static NodeResult tree_walk(
         double all_s = ((ship_hit_mask & all_ships_mask) == all_ships_mask) ? 1.0 : 0.0;
         ctx.progress.terminals.fetch_add(1, std::memory_order_relaxed);
         return {
-            .ev_sp      = 0.0,
-            .ev_sp2     = 0.0,
-            .ship_frac  = sfrac,
-            .perf_prob  = perf,
-            .avg_clicks = (double)click_count,
-            .loss_5050  = 0.0,
-            .all_ships  = all_s,
+            .ev_sp          = 0.0,
+            .ev_sp2         = 0.0,
+            .ship_frac      = sfrac,
+            .ship_frac2     = sfrac * sfrac,
+            .perf_prob      = perf,
+            .avg_clicks     = (double)click_count,
+            .avg_clicks2    = (double)click_count * (double)click_count,
+            .loss_5050      = 0.0,
+            .all_ships      = all_s,
         };
     };
 
@@ -547,23 +555,27 @@ static NodeResult tree_walk(
                         new_ships_hit, blues_used, false, ca2,
                         new_ships_rev, new_ship_hit_mask, new_click_count);
                     double ev_child = r.ev_sp + sp_delta;
-                    var_result.ev_sp      += wc * ev_child;
-                    var_result.ev_sp2     += wc * (r.ev_sp2
-                                                   + 2.0 * sp_delta * r.ev_sp
-                                                   + sp_delta * sp_delta);
-                    var_result.ship_frac  += wc * r.ship_frac;
-                    var_result.perf_prob  += wc * r.perf_prob;
-                    var_result.avg_clicks += wc * r.avg_clicks;
-                    var_result.loss_5050  += wc * r.loss_5050;
-                    var_result.all_ships  += wc * r.all_ships;
+                    var_result.ev_sp       += wc * ev_child;
+                    var_result.ev_sp2      += wc * (r.ev_sp2
+                                                    + 2.0 * sp_delta * r.ev_sp
+                                                    + sp_delta * sp_delta);
+                    var_result.ship_frac   += wc * r.ship_frac;
+                    var_result.ship_frac2  += wc * r.ship_frac2;
+                    var_result.perf_prob   += wc * r.perf_prob;
+                    var_result.avg_clicks  += wc * r.avg_clicks;
+                    var_result.avg_clicks2 += wc * (r.avg_clicks2 + 2.0 * r.avg_clicks + 1.0);
+                    var_result.loss_5050   += wc * r.loss_5050;
+                    var_result.all_ships   += wc * r.all_ships;
                 }
-                result.ev_sp      += p_color * var_result.ev_sp;
-                result.ev_sp2     += p_color * var_result.ev_sp2;
-                result.ship_frac  += p_color * var_result.ship_frac;
-                result.perf_prob  += p_color * var_result.perf_prob;
-                result.avg_clicks += p_color * var_result.avg_clicks;
-                result.loss_5050  += p_color * var_result.loss_5050;
-                result.all_ships  += p_color * var_result.all_ships;
+                result.ev_sp       += p_color * var_result.ev_sp;
+                result.ev_sp2      += p_color * var_result.ev_sp2;
+                result.ship_frac   += p_color * var_result.ship_frac;
+                result.ship_frac2  += p_color * var_result.ship_frac2;
+                result.perf_prob   += p_color * var_result.perf_prob;
+                result.avg_clicks  += p_color * var_result.avg_clicks;
+                result.avg_clicks2 += p_color * var_result.avg_clicks2;
+                result.loss_5050   += p_color * var_result.loss_5050;
+                result.all_ships   += p_color * var_result.all_ships;
             }
         }
     }
@@ -788,18 +800,28 @@ static OTVariantResult evaluate_variant_treewalk(
         int    csz    = chunk_start[t+1] - chunk_start[t];
         if (csz == 0) continue;
         double cw     = (double)csz / n_boards;
-        combined.ev_sp      += cw * results[t].ev_sp;
-        combined.ev_sp2     += cw * results[t].ev_sp2;
-        combined.ship_frac  += cw * results[t].ship_frac;
-        combined.perf_prob  += cw * results[t].perf_prob;
-        combined.avg_clicks += cw * results[t].avg_clicks;
-        combined.loss_5050  += cw * results[t].loss_5050;
-        combined.all_ships  += cw * results[t].all_ships;
+        combined.ev_sp       += cw * results[t].ev_sp;
+        combined.ev_sp2      += cw * results[t].ev_sp2;
+        combined.ship_frac   += cw * results[t].ship_frac;
+        combined.ship_frac2  += cw * results[t].ship_frac2;
+        combined.perf_prob   += cw * results[t].perf_prob;
+        combined.avg_clicks  += cw * results[t].avg_clicks;
+        combined.avg_clicks2 += cw * results[t].avg_clicks2;
+        combined.loss_5050   += cw * results[t].loss_5050;
+        combined.all_ships   += cw * results[t].all_ships;
     }
 
     double mean_sp   = combined.ev_sp;
     double variance  = combined.ev_sp2 - mean_sp * mean_sp;
     double stdev_ev  = (variance > 0.0) ? std::sqrt(variance) : 0.0;
+
+    double var_cl    = combined.avg_clicks2 - combined.avg_clicks * combined.avg_clicks;
+    double stdev_cl  = (var_cl > 0.0) ? std::sqrt(var_cl) : 0.0;
+
+    double sc_mean        = combined.ship_frac  * (double)total_ship_cells;
+    double sc_mean2       = combined.ship_frac2 * (double)(total_ship_cells * total_ship_cells);
+    double var_sc         = sc_mean2 - sc_mean * sc_mean;
+    double stdev_sc       = (var_sc > 0.0) ? std::sqrt(var_sc) : 0.0;
 
     print_ts();
     printf("  n_colors=%d: done in %.1fs  ev=%.4f  stdev=%.4f\n",
@@ -817,9 +839,9 @@ static OTVariantResult evaluate_variant_treewalk(
     r.ev                    = mean_sp;
     r.stdev_ev              = stdev_ev;
     r.avg_clicks            = combined.avg_clicks;
-    r.stdev_clicks          = 0.0;
-    r.avg_ship_clicks       = combined.ship_frac * total_ship_cells;
-    r.stdev_ship_clicks     = 0.0;
+    r.stdev_clicks          = stdev_cl;
+    r.avg_ship_clicks       = sc_mean;
+    r.stdev_ship_clicks     = stdev_sc;
     r.perfect_rate          = combined.perf_prob;
     r.all_ships_rate        = combined.all_ships;
     r.loss_5050_rate        = combined.loss_5050;
