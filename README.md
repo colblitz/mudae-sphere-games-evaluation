@@ -236,7 +236,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | 2 | `zavex_heuristic_fast.cpp` | 751.17 | 197.86 | 53.27% | 94.75% | 37.10% | 21.21 | 0.00 | 12.60 | 0.00 | `c09e6cd` | 2026-04-25 |
 | 3 | `kelinimo_expectimax_fast.cpp` | 696.37 | 193.69 | 33.88% | 69.72% | 50.73% | 17.33 | 25.61 | 11.78 | 2.25 | `c09e6cd` | 2026-04-25 |
 | 4 | `tksglass_5.cpp` | 633.20 | 197.98 | 23.39% | 57.15% | 62.37% | 17.76 | 26.31 | 11.47 | 2.13 | `25f4aef` | 2026-04-25 |
-| 5 | `svessinn_solver_fast.cpp` | 557.04 | 212.46 | 11.71% | 45.79% | 60.64% | 16.62 | 0.00 | 10.07 | 0.00 | `c09e6cd` | 2026-04-25 |
+| 5 | `svessinn_solver_fast.cpp` | 557.04 | 212.46 | 11.71% | 45.79% | 60.64% | 16.62 | 24.73 | 10.07 | 2.80 | `c09e6cd` | 2026-04-25 |
 
 **7-color variant**
 
@@ -264,7 +264,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
 | 1 | `colblitz_v8_heuristics_stateless.cpp` | 2179.95 | 150.42 | 79.11% | 98.76% | 17.61% | 23.74 | 33.95 | 19.68 | 0.77 | `ddbf2d3` | 2026-04-25 |
 | 2 | `kelinimo_expectimax_fast.cpp` | 2129.61 | 252.00 | 65.84% | 96.06% | 21.62% | 23.27 | 33.37 | 19.23 | 1.56 | `c09e6cd` | 2026-04-25 |
-| 3 | `svessinn_solver_fast.cpp` | 1890.85 | 526.54 | 52.03% | 84.40% | 30.41% | 22.12 | 0.00 | 18.00 | 0.00 | `c09e6cd` | 2026-04-25 |
+| 3 | `svessinn_solver_fast.cpp` | 1890.85 | 526.54 | 52.03% | 84.40% | 30.41% | 22.12 | 32.16 | 18.00 | 3.35 | `c09e6cd` | 2026-04-25 |
 | 4 | `tksglass_5.cpp` | 1853.67 | 462.95 | 35.60% | 81.72% | 40.65% | 22.18 | 32.03 | 18.02 | 2.49 | `25f4aef` | 2026-04-25 |
 | 5 | `tksglass_4.cpp` | 1809.17 | 492.41 | 31.92% | 79.38% | 41.91% | 21.86 | 31.63 | 17.77 | 2.70 | `25f4aef` | 2026-04-25 |
 
@@ -279,7 +279,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | `kelinimo_expectimax_fast.cpp` | 140 | 131.00 | 11446.3 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `tksglass_5.cpp` | 1596 | 0.00 | 990.8 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `tksglass_4.cpp` | 1812 | 0.00 | 872.8 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
-| `svessinn_solver_fast.cpp` | 2656 | 0.00 | 595.4 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
+| `svessinn_solver_fast.cpp` | 2649 | 0.00 | 596.9 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 
 </details>
 
