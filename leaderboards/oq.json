@@ -40,6 +40,20 @@
       "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
     },
     {
+      "filename": "strategies/oq/gap22_backtrack_solver.js",
+      "commit": "daf7d9b",
+      "date": "2026-04-25",
+      "ev": 346.5909,
+      "stdev": 58.7161,
+      "red_rate": 0.9266,
+      "n_boards": 12650,
+      "games_per_cpu_s": 268.4,
+      "setup_cpu_s": 0.043,
+      "harness_elapsed_s": 2.4,
+      "n_threads": 20,
+      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+    },
+    {
       "filename": "colblitz_mixed_gini.cpp",
       "commit": "37b0f7f",
       "date": "2026-04-25",
@@ -49,20 +63,6 @@
       "n_boards": 12650,
       "games_per_cpu_s": 675.0,
       "harness_elapsed_s": 0.937,
-      "n_threads": 20,
-      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
-    },
-    {
-      "filename": "strategies/oq/colblitz_mixed_gini.cpp",
-      "commit": "37b0f7f",
-      "date": "2026-04-25",
-      "ev": 342.5632,
-      "stdev": 52.1794,
-      "red_rate": 0.9535,
-      "n_boards": 12650,
-      "games_per_cpu_s": 678.3,
-      "setup_cpu_s": 0.0,
-      "harness_elapsed_s": 0.932,
       "n_threads": 20,
       "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
     }
