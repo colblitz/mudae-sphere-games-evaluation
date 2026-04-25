@@ -4,6 +4,18 @@
   "updated": "2026-04-25",
   "top5": [
     {
+      "filename": "colblitz_v8_heuristics_stateless.cpp",
+      "commit": "ddbf2d3",
+      "date": "2026-04-25",
+      "aggregate_ev": 1579.0541,
+      "games_per_cpu_s": 1316.9,
+      "setup_cpu_s": 2.229,
+      "harness_elapsed_s": 1202.907,
+      "n_threads": 20,
+      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+      "ev": 1579.0541
+    },
+    {
       "filename": "kelinimo_expectimax_fast.cpp",
       "commit": "c09e6cd",
       "date": "2026-04-25",
@@ -56,6 +68,29 @@
     "6": {
       "n_colors": 6,
       "top5": [
+        {
+          "filename": "colblitz_v8_heuristics_stateless.cpp",
+          "commit": "ddbf2d3",
+          "date": "2026-04-25",
+          "aggregate_ev": 1579.0541,
+          "games_per_cpu_s": 1316.9,
+          "setup_cpu_s": 2.229,
+          "harness_elapsed_s": 1202.907,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 6,
+          "n_boards": 1194816,
+          "ev": 768.6238,
+          "stdev_ev": 184.6507,
+          "avg_clicks": 21.3904,
+          "stdev_clicks": 31.1298,
+          "avg_ship_clicks": 13.0349,
+          "stdev_ship_clicks": 1.5703,
+          "perfect_rate": 0.5902,
+          "all_ships_rate": 0.9184,
+          "loss_5050_rate": 0.3326,
+          "total_strategy_calls": 28625532
+        },
         {
           "filename": "zavex_heuristic_fast.cpp",
           "commit": "c09e6cd",
@@ -154,6 +189,29 @@
       "n_colors": 7,
       "top5": [
         {
+          "filename": "colblitz_v8_heuristics_stateless.cpp",
+          "commit": "ddbf2d3",
+          "date": "2026-04-25",
+          "aggregate_ev": 1579.0541,
+          "games_per_cpu_s": 1316.9,
+          "setup_cpu_s": 2.229,
+          "harness_elapsed_s": 1202.907,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 7,
+          "n_boards": 5672880,
+          "ev": 949.4424,
+          "stdev_ev": 269.9431,
+          "avg_clicks": 20.17,
+          "stdev_clicks": 29.2741,
+          "avg_ship_clicks": 14.4983,
+          "stdev_ship_clicks": 1.8294,
+          "perfect_rate": 0.4309,
+          "all_ships_rate": 0.778,
+          "loss_5050_rate": 0.4436,
+          "total_strategy_calls": 240666886
+        },
+        {
           "filename": "zavex_heuristic_fast.cpp",
           "commit": "c09e6cd",
           "date": "2026-04-25",
@@ -251,6 +309,29 @@
       "n_colors": 8,
       "top5": [
         {
+          "filename": "colblitz_v8_heuristics_stateless.cpp",
+          "commit": "ddbf2d3",
+          "date": "2026-04-25",
+          "aggregate_ev": 1579.0541,
+          "games_per_cpu_s": 1316.9,
+          "setup_cpu_s": 2.229,
+          "harness_elapsed_s": 1202.907,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 8,
+          "n_boards": 12328128,
+          "ev": 1341.5496,
+          "stdev_ev": 357.5074,
+          "avg_clicks": 21.3591,
+          "stdev_clicks": 30.7291,
+          "avg_ship_clicks": 16.8977,
+          "stdev_ship_clicks": 1.6267,
+          "perfect_rate": 0.5321,
+          "all_ships_rate": 0.8712,
+          "loss_5050_rate": 0.3722,
+          "total_strategy_calls": 990517107
+        },
+        {
           "filename": "kelinimo_expectimax_fast.cpp",
           "commit": "c09e6cd",
           "date": "2026-04-25",
@@ -347,6 +428,29 @@
     "9": {
       "n_colors": 9,
       "top5": [
+        {
+          "filename": "colblitz_v8_heuristics_stateless.cpp",
+          "commit": "ddbf2d3",
+          "date": "2026-04-25",
+          "aggregate_ev": 1579.0541,
+          "games_per_cpu_s": 1316.9,
+          "setup_cpu_s": 2.229,
+          "harness_elapsed_s": 1202.907,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 9,
+          "n_boards": 12428080,
+          "ev": 2179.9525,
+          "stdev_ev": 150.4168,
+          "avg_clicks": 23.7361,
+          "stdev_clicks": 33.9479,
+          "avg_ship_clicks": 19.6805,
+          "stdev_ship_clicks": 0.7682,
+          "perfect_rate": 0.7911,
+          "all_ships_rate": 0.9876,
+          "loss_5050_rate": 0.1761,
+          "total_strategy_calls": 1405614559
+        },
         {
           "filename": "kelinimo_expectimax_fast.cpp",
           "commit": "c09e6cd",
