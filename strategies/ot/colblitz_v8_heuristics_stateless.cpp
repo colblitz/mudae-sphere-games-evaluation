@@ -21,12 +21,18 @@
  *     Output is identical to the incremental version for any given (board, meta)
  *     input.  Compatible with the tree-walk evaluator.
  *
- * Performance model (v2 — index-based filtering):
- *   Instead of deep-copying the 24MB board data on every call, we maintain a
- *   std::vector<int> of surviving row indices into the immutable fullBoards_[idx].
- *   Filtering removes non-matching indices in-place.  No heap allocation beyond
- *   the index vector itself (~4.8MB for n_colors=6 at the start, shrinking fast).
- *   Per-call cost: O(N_reveals × N_surviving) with no memcpy of board data.
+ * Performance model (v3 — incremental delta cache):
+ *   Each strategy instance (one per thread in the tree-walk) caches the last
+ *   seen (revealed_mask, rareColorGroups, surviving_indices) per board variant.
+ *   The tree-walk is DFS: consecutive calls within one thread are almost always
+ *   parent→child (revealed_mask grows by one bit).  When the current revealed
+ *   set is a strict superset of the cached one, only the new reveal(s) are
+ *   applied to the cached sv — O(new_reveals × sv.size()).  When the tree
+ *   backtracks to a different branch (revealed_mask is NOT a superset), a full
+ *   rebuild from fullBoards_ is performed and the cache is replaced.
+ *
+ *   The output of next_click remains a pure function of (board, meta) — the
+ *   cache is an unobservable performance optimisation.  sphere:stateless holds.
  *
  * External data files (same as colblitz_v8_heuristics.cpp):
  *   data/sphere_trace_boards_2.bin.lzma  (~874 KB)  n_colors=6
@@ -695,6 +701,26 @@ public:
     BoardSet fullBoards_[4];           // indexed by n_rare - 2
     bool     boardsLoaded_[4] = {};
 
+    // -----------------------------------------------------------------------
+    // Incremental delta cache (one slot per board variant, per instance).
+    //
+    // The tree-walk evaluator is DFS and uses one strategy instance per thread.
+    // Consecutive calls within one thread are almost always parent→child
+    // (revealed_mask grows by one bit).  We cache the last (revealed_mask,
+    // rareColorGroups, sv) so that parent→child calls only apply the delta.
+    // On a backtrack (revealed_mask not a superset of cached), we rebuild fully.
+    //
+    // cache_valid_[i]: true once the cache has been populated for variant i.
+    // cache_revealed_[i]: bitmask of all clicked cells from the last call.
+    // cache_rare_[i]: rareColorGroups map from the last call.
+    // cache_sv_[i]: surviving row indices from the last call.
+    // -----------------------------------------------------------------------
+
+    bool     cache_valid_[4]    = {};
+    uint32_t cache_revealed_[4] = {};
+    std::unordered_map<std::string, int32_t> cache_rare_[4];
+    std::vector<int> cache_sv_[4];
+
     std::array<double, V8_N_WEIGHTS> weights_[4];
     bool                              weightsLoaded_[4] = {};
 
@@ -703,6 +729,14 @@ public:
     // -----------------------------------------------------------------------
 
     void init_evaluation_run() override {
+        // Reset incremental cache (safe to call multiple times).
+        for (int i = 0; i < 4; ++i) {
+            cache_valid_[i]    = false;
+            cache_revealed_[i] = 0;
+            cache_rare_[i].clear();
+            cache_sv_[i].clear();
+        }
+
         for (int n_colors = 6; n_colors <= 9; ++n_colors) {
             int n_rare = n_colors - 4;
             int idx    = n_rare - 2;
@@ -738,8 +772,14 @@ public:
     // init_game_payload is a no-op — all state is rebuilt from board each call.
 
     // -----------------------------------------------------------------------
-    // next_click — rebuilds surviving index list from scratch on every call,
-    // applying reveals against the immutable fullBoards_ data (no data copy).
+    // next_click — incremental delta cache.
+    //
+    // Maintains one cached (revealed_mask, rareColorGroups, sv) per board
+    // variant.  On each call:
+    //   - Parent→child (revealed_mask is a strict superset of cache): apply
+    //     only the new reveal(s) to a copy of the cached sv.
+    //   - Backtrack or first call (revealed_mask not a superset): full rebuild
+    //     from fullBoards_, then update cache.
     // -----------------------------------------------------------------------
 
     void next_click(const std::vector<Cell>& board,
@@ -752,22 +792,24 @@ public:
         int n_rare     = n_colors - 4;
         int bs_idx     = n_rare - 2;
 
-        // Build unclicked list and sorted reveals list.
+        // Build unclicked list, revealed bitmask, and sorted reveals list.
         std::vector<int> unclicked;
         unclicked.reserve(25);
         std::vector<std::pair<int, std::string>> reveals; // (cell_idx, color)
         reveals.reserve(25);
+        uint32_t revealed_mask = 0;
 
         for (const Cell& c : board) {
             int idx = c.row * GRID + c.col;
             if (c.clicked) {
+                revealed_mask |= (1u << idx);
                 reveals.push_back({idx, c.color});
             } else {
                 unclicked.push_back(idx);
             }
         }
 
-        // Sort for determinism (same order as incremental version).
+        // Sort for determinism.
         std::sort(reveals.begin(),   reveals.end(),
                   [](const auto& a, const auto& b){ return a.first < b.first; });
         std::sort(unclicked.begin(), unclicked.end());
@@ -782,14 +824,44 @@ public:
 
         const BoardSet& fbs = fullBoards_[bs_idx];
 
-        // Start with all row indices surviving — no data copy.
-        std::vector<int> sv(fbs.n);
-        std::iota(sv.begin(), sv.end(), 0);
-
-        // Apply all reveals in cell-index order.
+        // Working surviving index list and rareColorGroups for this call.
+        std::vector<int> sv;
         std::unordered_map<std::string, int32_t> rareColorGroups;
-        for (const auto& [cidx, color] : reveals)
-            applyRevealIdx(fbs, sv, rareColorGroups, cidx, color, n_rare);
+
+        uint32_t cached = cache_valid_[bs_idx] ? cache_revealed_[bs_idx] : ~0u;
+        bool is_superset = cache_valid_[bs_idx]
+                        && ((cached & revealed_mask) == cached)   // cached ⊆ current
+                        && (cached != revealed_mask);             // strictly more reveals now
+
+        if (revealed_mask == 0) {
+            // No reveals yet — full board, no filtering needed.
+            sv.resize(fbs.n);
+            std::iota(sv.begin(), sv.end(), 0);
+            // rareColorGroups stays empty.
+        } else if (is_superset) {
+            // Parent→child: start from cached sv and apply only the delta reveals.
+            sv             = cache_sv_[bs_idx];
+            rareColorGroups = cache_rare_[bs_idx];
+
+            uint32_t delta_mask = revealed_mask & ~cached;
+            // Apply delta reveals in cell-index order (already sorted in reveals[]).
+            for (const auto& [cidx, color] : reveals) {
+                if (delta_mask & (1u << cidx))
+                    applyRevealIdx(fbs, sv, rareColorGroups, cidx, color, n_rare);
+            }
+        } else {
+            // Backtrack or cache cold: full rebuild from scratch.
+            sv.resize(fbs.n);
+            std::iota(sv.begin(), sv.end(), 0);
+            for (const auto& [cidx, color] : reveals)
+                applyRevealIdx(fbs, sv, rareColorGroups, cidx, color, n_rare);
+        }
+
+        // Update cache with the result for this call.
+        cache_valid_[bs_idx]    = true;
+        cache_revealed_[bs_idx] = revealed_mask;
+        cache_rare_[bs_idx]     = rareColorGroups;
+        cache_sv_[bs_idx]       = sv;
 
         if (sv.empty()) {
             out.row = unclicked[0] / GRID;
@@ -797,7 +869,6 @@ public:
             return;
         }
 
-        int n = (int)sv.size();
         int chosen = -1;
 
         if (ships_hit < SHIPS_HIT_THRESHOLD) {
@@ -809,7 +880,6 @@ public:
                 chosen = pickPhase1CellPhaseDIdx(fbs, sv, unclicked, n_rare, ships_hit);
             }
         } else {
-            // Phase 2: need occ for SafeP2
             std::vector<int32_t> occ_sv;
             computeOccIdx(fbs, sv, occ_sv);
             chosen = pickSafeP2CellIdx(fbs, sv, occ_sv, unclicked);
