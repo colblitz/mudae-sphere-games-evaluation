@@ -53,13 +53,13 @@ INCLUDES = -Iharness/common -I. -DREPO_ROOT=\"$(REPO_ROOT)\"
 # Binaries
 # ---------------------------------------------------------------------------
 
-BINARIES = harness/evaluate_oh harness/evaluate_oc harness/evaluate_oq harness/evaluate_ot
+BINARIES = harness/evaluate_oh harness/evaluate_oc harness/evaluate_oq harness/evaluate_ot harness/evaluate_ot_treewalk
 
-.PHONY: all build-harness build-oh build-oc build-oq build-ot generate-boards clean
+.PHONY: all build-harness build-oh build-oc build-oq build-ot build-ot-treewalk generate-boards clean
 
 all: build-harness
 
-build-harness: build-oh build-oc build-oq build-ot
+build-harness: build-oh build-oc build-oq build-ot build-ot-treewalk
 
 build-oh: harness/evaluate_oh
 build-oc: harness/evaluate_oc
@@ -85,6 +85,14 @@ harness/evaluate_oq: harness/evaluate_oq.cpp harness/common/*.h
 	@echo "Built $@"
 
 harness/evaluate_ot: harness/evaluate_ot.cpp harness/common/*.h
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(PY_CFLAGS) $(OPENMP_FLAG) \
+	    -o $@ $< \
+	    $(LDFLAGS) $(LIBS) $(PY_LDFLAGS) $(OPENMP_FLAG)
+	@echo "Built $@"
+
+build-ot-treewalk: harness/evaluate_ot_treewalk
+
+harness/evaluate_ot_treewalk: harness/evaluate_ot_treewalk.cpp harness/common/*.h
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(PY_CFLAGS) $(OPENMP_FLAG) \
 	    -o $@ $< \
 	    $(LDFLAGS) $(LIBS) $(PY_LDFLAGS) $(OPENMP_FLAG)

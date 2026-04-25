@@ -1,3 +1,4 @@
+// sphere:stateless
 /**
  * svessinn_solver.cpp — Faithful C++ port of Svessinn's Trace solver for /sphere trace (ot).
  *

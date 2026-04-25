@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -60,6 +61,77 @@ LEADERBOARD_SENTINEL_START = "<!-- LEADERBOARD_START -->"
 LEADERBOARD_SENTINEL_END = "<!-- LEADERBOARD_END -->"
 
 GAMES = ("oh", "oc", "oq", "ot")
+
+
+# ---------------------------------------------------------------------------
+# Stateless detection
+# ---------------------------------------------------------------------------
+
+def is_strategy_stateless(path: Path) -> bool:
+    """Return True if the strategy file contains 'sphere:stateless' in its first 50 lines.
+
+    Strategies opt into the tree-walk evaluator by placing this marker anywhere
+    in a comment within the first 50 lines of their source file, e.g.:
+        # sphere:stateless      (Python)
+        // sphere:stateless     (C++ / JS)
+    """
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for i, line in enumerate(f):
+                if i >= 50:
+                    break
+                if "sphere:stateless" in line:
+                    return True
+    except OSError:
+        pass
+    return False
+
+
+# ---------------------------------------------------------------------------
+# CPU model detection
+# ---------------------------------------------------------------------------
+
+def get_cpu_model() -> str:
+    """Return a human-readable CPU model string (e.g. 'AMD Ryzen 9 7950X').
+
+    Tries platform-specific sources in order; falls back to platform.processor()
+    if none succeed.  Never raises — always returns a non-empty string.
+    """
+    system = platform.system()
+    try:
+        if system == "Linux":
+            cpu_info = Path("/proc/cpuinfo").read_text(errors="replace")
+            for line in cpu_info.splitlines():
+                if line.startswith("model name"):
+                    _, _, value = line.partition(":")
+                    name = value.strip()
+                    if name:
+                        return name
+        elif system == "Darwin":
+            r = subprocess.run(
+                ["sysctl", "-n", "machdep.cpu.brand_string"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if r.returncode == 0:
+                name = r.stdout.strip()
+                if name:
+                    return name
+        elif system == "Windows":
+            r = subprocess.run(
+                ["wmic", "cpu", "get", "name", "/value"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if r.returncode == 0:
+                for line in r.stdout.splitlines():
+                    if line.lower().startswith("name="):
+                        name = line.split("=", 1)[1].strip()
+                        if name:
+                            return name
+    except Exception:
+        pass
+    # Fallback
+    name = platform.processor().strip()
+    return name if name else "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -87,12 +159,35 @@ def build_harness(game: str) -> Path:
     return binary
 
 
+def build_harness_treewalk() -> Path:
+    """Build (if stale) and return the path to evaluate_ot_treewalk."""
+    binary = HARNESS_DIR / "evaluate_ot_treewalk"
+    source = HARNESS_DIR / "evaluate_ot_treewalk.cpp"
+    if not source.exists():
+        print(f"ERROR: harness source not found: {source}", file=sys.stderr)
+        sys.exit(1)
+    if binary.exists() and binary.stat().st_mtime >= source.stat().st_mtime:
+        return binary  # up to date
+
+    print("[build] Building evaluate_ot_treewalk ...")
+    result = subprocess.run(
+        ["make", "build-ot-treewalk"],
+        cwd=REPO_ROOT,
+        capture_output=False,
+    )
+    if result.returncode != 0:
+        print("ERROR: build failed for evaluate_ot_treewalk", file=sys.stderr)
+        sys.exit(1)
+    return binary
+
+
 # ---------------------------------------------------------------------------
 # Run harness
 # ---------------------------------------------------------------------------
 
-def run_harness(game: str, strategy: str, extra_args: list[str]) -> tuple[dict[str, Any], float]:
-    binary = build_harness(game)
+def run_harness(game: str, strategy: str, extra_args: list[str],
+                binary_override: Path | None = None) -> tuple[dict[str, Any], float]:
+    binary = binary_override if binary_override is not None else build_harness(game)
     cmd = [str(binary), "--strategy", strategy] + extra_args
 
     # Add boards-dir default
@@ -234,7 +329,7 @@ def make_entry(result: dict[str, Any], strategy_path: str) -> dict[str, Any]:
                 "avg_clicks", "stdev_clicks", "avg_ship_clicks", "stdev_ship_clicks",
                 "perfect_rate", "all_ships_rate", "loss_5050_rate",
                 "n_games", "n_boards", "aggregate_ev", "seed",
-                "games_per_cpu_s", "harness_elapsed_s"):
+                "games_per_cpu_s", "harness_elapsed_s", "cpu_model"):
         if key in result:
             entry[key] = result[key]
     return entry
@@ -579,6 +674,8 @@ def main() -> None:
                         help="(trace) number of games to sample  default: 20")
     parser.add_argument("--yes",             action="store_true",
                         help="automatically commit the result without prompting")
+    parser.add_argument("--treewalk",        action="store_true",
+                        help="(ot) force the tree-walk evaluator regardless of sphere:stateless marker")
     args = parser.parse_args()
 
     strategy_path = Path(args.strategy)
@@ -610,6 +707,21 @@ def main() -> None:
         extra += ["--threads", str(args.threads)]
     if args.boards_dir:
         extra += ["--boards-dir", args.boards_dir]
+
+    # ------------------------------------------------------------------
+    # Tree-walk routing (ot non-trace mode only)
+    # ------------------------------------------------------------------
+    # Determine whether to use the tree-walk evaluator.
+    # Conditions: game is ot, not trace mode, and either --treewalk was passed
+    # or the strategy file contains the 'sphere:stateless' marker.
+    use_treewalk = False
+    if args.game == "ot" and not args.trace:
+        if args.treewalk:
+            use_treewalk = True
+            print("[info] --treewalk flag set — using tree-walk evaluator")
+        elif is_strategy_stateless(strategy_path):
+            use_treewalk = True
+            print("[info] Detected sphere:stateless marker — using tree-walk evaluator")
 
     # ------------------------------------------------------------------
     # TRACE MODE
@@ -662,7 +774,12 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Run evaluation
     # ------------------------------------------------------------------
-    result, harness_elapsed = run_harness(args.game, strategy_abs, extra)
+    if use_treewalk:
+        treewalk_binary = build_harness_treewalk()
+        result, harness_elapsed = run_harness(args.game, strategy_abs, extra,
+                                              binary_override=treewalk_binary)
+    else:
+        result, harness_elapsed = run_harness(args.game, strategy_abs, extra)
 
     print("\n--- Result ---")
     print(json.dumps(result, indent=2))
@@ -765,6 +882,7 @@ def main() -> None:
     if n_games_run:
         cpu_s = harness_elapsed * n_threads_run
         run_params["games_per_cpu_s"] = round(n_games_run / cpu_s, 1)
+    run_params["cpu_model"] = get_cpu_model()
 
     artifact_path = write_scores_artifact(
         args.game, result, args.strategy, commit_for_entry, run_params
@@ -783,7 +901,7 @@ def main() -> None:
                     "n_games", "n_boards", "aggregate_ev", "seed"):
             if key in res:
                 entry[key] = res[key]
-        for key in ("games_per_cpu_s", "harness_elapsed_s", "n_threads"):
+        for key in ("games_per_cpu_s", "harness_elapsed_s", "n_threads", "cpu_model"):
             if key in run_params:
                 entry[key] = run_params[key]
         return entry

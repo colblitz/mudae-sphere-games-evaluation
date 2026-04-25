@@ -1,3 +1,4 @@
+// sphere:stateless
 // Disable FMA contraction so floating-point arithmetic matches JavaScript's
 // strict IEEE 754 double precision (no fused multiply-add).  Without this,
 // g++ -march=native folds expressions like `p * pC * cVal` in the rollout DP

@@ -4,6 +4,47 @@ This repo is a competitive evaluation framework for four Mudae `/sphere` mini-ga
 
 ---
 
+## Platform Compatibility
+
+| Platform | evaluate.py | Harness build | Python strategies | C++ strategies | JS strategies |
+|----------|-------------|---------------|-------------------|----------------|---------------|
+| **Linux** | Full support | Full support | Full support | Full support | Full support |
+| **macOS** | Full support | Mostly works (see notes) | Full support | Full support | Degraded (see notes) |
+| **Windows** | Script works | **Not supported** | **Blocked** | **Blocked** | **Blocked** |
+
+### macOS caveats
+
+- **OpenMP** is not included in Apple Clang by default. Install via `brew install libomp` and add
+  `-Xpreprocessor -fopenmp -lomp` to `CXXFLAGS`/`LDFLAGS` in the Makefile (or set `CXX=g++-14` if
+  you have GCC installed via Homebrew). Without OpenMP, `ot` evaluation runs single-threaded.
+- **Python dylib detection** in the Makefile uses `sysconfig.get_config_var('LDLIBRARY')`, which
+  returns a `.dylib` path on macOS. This is handled correctly on standard installs; if linking fails
+  with a "library not found" error, set `PY_LIBDIR` explicitly:
+  `make build-harness PY_LIBDIR=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")`
+- **JS strategies — phantom pipe degradation.** The `/proc`-based phantom pipe cleanup in
+  `interface/strategy.js:235-275` silently no-ops on macOS (no `/proc` filesystem). For single-JS-
+  strategy runs this is harmless. If you run the harness with multiple JS strategy instances in
+  parallel (not a typical user scenario), the Node children may hang waiting for EOF on inherited
+  pipe fds. Single-strategy evaluation is unaffected.
+
+### Windows
+
+The C++ harness has hard POSIX dependencies that cannot be trivially ported:
+
+| Blocker | Location |
+|---------|----------|
+| `fork()` / `pipe()` / `dup2()` / `execlp()` / `waitpid()` — POSIX process/pipe API (JS bridge) | `harness/common/strategy_bridge.h:419–508` |
+| `dlopen()` / `dlsym()` / `dlfcn.h` — POSIX dynamic loading (C++ bridge) | `strategy_bridge.h:56–57, 335–354` |
+| `localtime_r()` — POSIX-only (Windows has `localtime_s` with reversed args) | `harness/common/progress.h:18` |
+| `/proc` fd scanning — Linux kernel VFS only (JS strategy runtime) | `interface/strategy.js:235–275` |
+| `make` + `g++` not present by default | `scripts/evaluate.py:80`, `Makefile` |
+| `/dev/null` in shell redirects | `Makefile:44`, `strategy_bridge.h:412` |
+
+**Recommended workaround:** use WSL2 (Windows Subsystem for Linux) and follow the Linux setup
+instructions. Everything works inside WSL2 without modification.
+
+---
+
 ## What to Touch
 
 | Path | Action |
@@ -141,6 +182,55 @@ Answering `y` makes two automatic git commits:
 The scores artifact records the timestamp, strategy commit hash, filename, all harness stats, and run parameters. The prompt appears after every run; the top-5 notice only appears when the score would change the leaderboard.
 
 See the README for the full list of `evaluate.py` flags (`--games`, `--seed`, `--n-colors`, `--threads`, etc.).
+
+---
+
+## Tree-Walk Evaluator (ot only)
+
+The `ot` evaluator has two modes:
+
+| Mode | Binary | How selected |
+|------|--------|-------------|
+| Sequential | `harness/evaluate_ot` | default |
+| Tree walk | `harness/evaluate_ot_treewalk` | auto-detected via `sphere:stateless` marker, or `--treewalk` flag |
+
+### What the tree walk does
+
+Instead of running each board as an independent sequential game, the tree-walk evaluator processes **all boards simultaneously** in a single shared recursive walk.  At each node it calls `next_click` once for the current board partition, then splits boards by the outcome color at the chosen cell and recurses into each branch.  Boards that follow the same click path share every strategy call up to their divergence point.
+
+This eliminates the vast majority of redundant strategy calls.  For a typical 6-color run (1.2 M boards × 4 color assignments × ~8 clicks ≈ 38 M calls in the sequential runner), the tree walk issues far fewer calls because most boards share their early-game paths.
+
+Stdev is computed in the same single pass by tracking E[score²] alongside E[score].
+
+### Opting in — the `sphere:stateless` marker
+
+The tree walk is only correct for **stateless** strategies — ones where `next_click(board, meta)` returns the same cell every time for the same inputs, regardless of how many prior calls were made.
+
+To opt in, place the string `sphere:stateless` anywhere in a comment within the **first 50 lines** of your strategy source file:
+
+```python
+# sphere:stateless
+```
+```cpp
+// sphere:stateless
+```
+```js
+// sphere:stateless
+```
+
+`evaluate.py` scans for this marker before launching the harness.  If found, it automatically builds and uses `evaluate_ot_treewalk` instead of `evaluate_ot`.  You can also force the tree walk with `--treewalk` regardless of the marker (useful for testing).
+
+### What "stateless" means
+
+A strategy is stateless if its `next_click` result is a **pure function of `(board, meta)`** — the same revealed pattern and game metadata always produce the same cell choice.
+
+This is true of all existing ot strategies except those that use random numbers (`random_clicks`).  Strategies that maintain `arr_` (filtered board set) or other per-game bookkeeping are **still stateless** in this sense if the bookkeeping is derived solely from the board cells revealed so far — the incremental filtering in `colblitz_v8_heuristics.cpp` is a performance optimization, not semantic state.
+
+**Not stateless** (tree walk would produce wrong results):
+- Strategies whose `next_click` calls `random()` / `Math.random()` / `std::mt19937` to make decisions.
+- Strategies that accumulate cross-game state (mutate `run_state` inside `next_click`).
+
+**Common mistake:** adding `sphere:stateless` to a strategy that uses `random.choice()` or equivalent.  The tree walk will produce a deterministic but incorrect EV because it assumes the same cell is always chosen at each node, while the sequential runner would sample randomly.
 
 ---
 

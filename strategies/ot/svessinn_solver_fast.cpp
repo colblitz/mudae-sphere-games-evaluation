@@ -1,3 +1,4 @@
+// sphere:stateless
 /**
  * svessinn_solver_fast.cpp — Optimised C++ port of Svessinn's Trace solver.
  *

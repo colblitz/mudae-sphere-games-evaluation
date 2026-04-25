@@ -1,3 +1,4 @@
+// sphere:stateless
 /**
  * zavex_heuristic_fast.cpp — Optimized C++ port of the heuristic strategy for /sphere trace (ot).
  *
