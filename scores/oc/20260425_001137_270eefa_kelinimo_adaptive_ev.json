@@ -1,0 +1,15 @@
+{
+  "timestamp": "2026-04-25T00:11:37",
+  "commit": "270eefa",
+  "filename": "kelinimo_adaptive_ev.js",
+  "game": "oc",
+  "strategy": "/home/colblitz/mudae-sphere-games-evaluation/strategies/oc/kelinimo_adaptive_ev.js",
+  "n_boards": 16800,
+  "ev": 332.3359,
+  "stdev": 61.17,
+  "red_rate": 0.9995,
+  "harness_elapsed_s": 0.664,
+  "n_threads": 20,
+  "games_per_cpu_s": 1265.9,
+  "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+}
