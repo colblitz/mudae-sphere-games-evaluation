@@ -5,7 +5,7 @@
   "top5": [
     {
       "filename": "colblitz_v8_heuristics_stateless.cpp",
-      "commit": "d37c01b",
+      "commit": "14d4ef4",
       "date": "2026-04-25",
       "aggregate_ev": 1579.0541,
       "games_per_cpu_s": 1353.5,
@@ -17,7 +17,7 @@
     },
     {
       "filename": "kelinimo_expectimax_fast.cpp",
-      "commit": "ca7b1b2",
+      "commit": "c09e6cd",
       "date": "2026-04-25",
       "aggregate_ev": 1513.5832,
       "games_per_cpu_s": 133.7,
@@ -29,7 +29,7 @@
     },
     {
       "filename": "tksglass_5.cpp",
-      "commit": "0cf016c",
+      "commit": "25f4aef",
       "date": "2026-04-25",
       "aggregate_ev": 1318.0271,
       "games_per_cpu_s": 1596.1,
@@ -53,7 +53,7 @@
     },
     {
       "filename": "svessinn_solver_fast.cpp",
-      "commit": "c0ad8f7",
+      "commit": "c09e6cd",
       "date": "2026-04-25",
       "aggregate_ev": 1259.2089,
       "games_per_cpu_s": 2655.8,
@@ -70,7 +70,7 @@
       "top5": [
         {
           "filename": "colblitz_v8_heuristics_stateless.cpp",
-          "commit": "d37c01b",
+          "commit": "14d4ef4",
           "date": "2026-04-25",
           "aggregate_ev": 1579.0541,
           "games_per_cpu_s": 1353.5,
@@ -93,7 +93,7 @@
         },
         {
           "filename": "zavex_heuristic_fast.cpp",
-          "commit": "c631f9b",
+          "commit": "c09e6cd",
           "date": "2026-04-25",
           "aggregate_ev": 1215.6034,
           "games_per_cpu_s": 2495.7,
@@ -116,7 +116,7 @@
         },
         {
           "filename": "kelinimo_expectimax_fast.cpp",
-          "commit": "ca7b1b2",
+          "commit": "c09e6cd",
           "date": "2026-04-25",
           "aggregate_ev": 1513.5832,
           "games_per_cpu_s": 133.7,
@@ -139,7 +139,7 @@
         },
         {
           "filename": "tksglass_5.cpp",
-          "commit": "0cf016c",
+          "commit": "25f4aef",
           "date": "2026-04-25",
           "aggregate_ev": 1318.0271,
           "games_per_cpu_s": 1596.1,
@@ -162,7 +162,7 @@
         },
         {
           "filename": "svessinn_solver_fast.cpp",
-          "commit": "c0ad8f7",
+          "commit": "c09e6cd",
           "date": "2026-04-25",
           "aggregate_ev": 1259.2089,
           "games_per_cpu_s": 2655.8,
@@ -190,7 +190,7 @@
       "top5": [
         {
           "filename": "colblitz_v8_heuristics_stateless.cpp",
-          "commit": "d37c01b",
+          "commit": "14d4ef4",
           "date": "2026-04-25",
           "aggregate_ev": 1579.0541,
           "games_per_cpu_s": 1353.5,
@@ -213,7 +213,7 @@
         },
         {
           "filename": "zavex_heuristic_fast.cpp",
-          "commit": "c631f9b",
+          "commit": "c09e6cd",
           "date": "2026-04-25",
           "aggregate_ev": 1215.6034,
           "games_per_cpu_s": 2495.7,
@@ -236,7 +236,7 @@
         },
         {
           "filename": "kelinimo_expectimax_fast.cpp",
-          "commit": "ca7b1b2",
+          "commit": "c09e6cd",
           "date": "2026-04-25",
           "aggregate_ev": 1513.5832,
           "games_per_cpu_s": 133.7,
@@ -259,7 +259,7 @@
         },
         {
           "filename": "tksglass_5.cpp",
-          "commit": "0cf016c",
+          "commit": "25f4aef",
           "date": "2026-04-25",
           "aggregate_ev": 1318.0271,
           "games_per_cpu_s": 1596.1,
@@ -310,7 +310,7 @@
       "top5": [
         {
           "filename": "colblitz_v8_heuristics_stateless.cpp",
-          "commit": "d37c01b",
+          "commit": "14d4ef4",
           "date": "2026-04-25",
           "aggregate_ev": 1579.0541,
           "games_per_cpu_s": 1353.5,
@@ -333,7 +333,7 @@
         },
         {
           "filename": "kelinimo_expectimax_fast.cpp",
-          "commit": "ca7b1b2",
+          "commit": "c09e6cd",
           "date": "2026-04-25",
           "aggregate_ev": 1513.5832,
           "games_per_cpu_s": 133.7,
@@ -356,7 +356,7 @@
         },
         {
           "filename": "zavex_heuristic_fast.cpp",
-          "commit": "c631f9b",
+          "commit": "c09e6cd",
           "date": "2026-04-25",
           "aggregate_ev": 1215.6034,
           "games_per_cpu_s": 2495.7,
@@ -379,7 +379,7 @@
         },
         {
           "filename": "tksglass_5.cpp",
-          "commit": "0cf016c",
+          "commit": "25f4aef",
           "date": "2026-04-25",
           "aggregate_ev": 1318.0271,
           "games_per_cpu_s": 1596.1,
@@ -430,7 +430,7 @@
       "top5": [
         {
           "filename": "colblitz_v8_heuristics_stateless.cpp",
-          "commit": "d37c01b",
+          "commit": "14d4ef4",
           "date": "2026-04-25",
           "aggregate_ev": 1579.0541,
           "games_per_cpu_s": 1353.5,
@@ -453,7 +453,7 @@
         },
         {
           "filename": "kelinimo_expectimax_fast.cpp",
-          "commit": "ca7b1b2",
+          "commit": "c09e6cd",
           "date": "2026-04-25",
           "aggregate_ev": 1513.5832,
           "games_per_cpu_s": 133.7,
@@ -476,7 +476,7 @@
         },
         {
           "filename": "svessinn_solver_fast.cpp",
-          "commit": "c0ad8f7",
+          "commit": "c09e6cd",
           "date": "2026-04-25",
           "aggregate_ev": 1259.2089,
           "games_per_cpu_s": 2655.8,
@@ -499,7 +499,7 @@
         },
         {
           "filename": "tksglass_5.cpp",
-          "commit": "0cf016c",
+          "commit": "25f4aef",
           "date": "2026-04-25",
           "aggregate_ev": 1318.0271,
           "games_per_cpu_s": 1596.1,

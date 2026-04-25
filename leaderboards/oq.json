@@ -5,7 +5,7 @@
   "top5": [
     {
       "filename": "strategies/oq/zavex_book_heuristic.js",
-      "commit": "60a6ef8",
+      "commit": "da54712",
       "date": "2026-04-23",
       "ev": 350.8617,
       "stdev": 44.0388,
@@ -16,7 +16,7 @@
     },
     {
       "filename": "strategies/oq/kelinimo_adaptive_ev.js",
-      "commit": "1b9f1ac",
+      "commit": "7ac88d8",
       "date": "2026-04-23",
       "ev": 348.032,
       "stdev": 50.8498,
@@ -41,7 +41,7 @@
     },
     {
       "filename": "colblitz_mixed_gini.cpp",
-      "commit": "1a79a4a",
+      "commit": "37b0f7f",
       "date": "2026-04-25",
       "ev": 342.5632,
       "stdev": 52.1794,
@@ -54,7 +54,7 @@
     },
     {
       "filename": "strategies/oq/svessinn_solver.js",
-      "commit": "029aba7",
+      "commit": "da54712",
       "date": "2026-04-23",
       "ev": 301.5296,
       "stdev": 79.9497,

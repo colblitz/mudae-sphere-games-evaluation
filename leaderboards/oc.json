@@ -5,7 +5,7 @@
   "top5": [
     {
       "filename": "colblitz_bellman.cpp",
-      "commit": "8e636cd",
+      "commit": "8f4e3b5",
       "date": "2026-04-25",
       "ev": 344.7286,
       "stdev": 57.9711,
@@ -18,7 +18,7 @@
     },
     {
       "filename": "kelinimo_adaptive_ev.js",
-      "commit": "270eefa",
+      "commit": "98cc571",
       "date": "2026-04-25",
       "ev": 332.3359,
       "stdev": 61.17,
@@ -31,7 +31,7 @@
     },
     {
       "filename": "svessinn_solver.js",
-      "commit": "97cf4bb",
+      "commit": "fb02619",
       "date": "2026-04-25",
       "ev": 317.394,
       "stdev": 72.4942,
