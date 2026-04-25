@@ -156,8 +156,8 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | EV | Stdev | OC Rate | Commit | Date |
 |------|----------|----|-------|---------|--------|------|
-| 1 | `colblitz_bellman.cpp` | 721.90 | 222.50 | 1.0% | `e9e503a` | 2026-04-25 |
-| 2 | `random_clicks.py` | 117.63 | 224.46 | 4.1% | `e5b8664` | 2026-04-21 |
+| 1 | `colblitz_bellman.cpp` | 721.90 | 222.50 | 1.00% | `e9e503a` | 2026-04-25 |
+| 2 | `random_clicks.py` | 117.63 | 224.46 | 4.09% | `e5b8664` | 2026-04-21 |
 
 <details>
 <summary>Performance</summary>
@@ -173,9 +173,9 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
 |------|----------|----|-------|-------|--------|------|
-| 1 | `colblitz_bellman.cpp` | 344.73 | 57.97 | 100.0% | `8e636cd` | 2026-04-25 |
-| 2 | `kelinimo_adaptive_ev.js` | 332.34 | 61.17 | 100.0% | `270eefa` | 2026-04-25 |
-| 3 | `svessinn_solver.js` | 317.39 | 72.49 | 98.8% | `97cf4bb` | 2026-04-25 |
+| 1 | `colblitz_bellman.cpp` | 344.73 | 57.97 | 99.98% | `8e636cd` | 2026-04-25 |
+| 2 | `kelinimo_adaptive_ev.js` | 332.34 | 61.17 | 99.95% | `270eefa` | 2026-04-25 |
+| 3 | `svessinn_solver.js` | 317.39 | 72.49 | 98.82% | `97cf4bb` | 2026-04-25 |
 
 <details>
 <summary>Performance</summary>
@@ -192,10 +192,10 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
 |------|----------|----|-------|-------|--------|------|
-| 1 | `zavex_book_heuristic.js` | 350.86 | 44.04 | 99.0% | `60a6ef8` | 2026-04-23 |
-| 2 | `kelinimo_adaptive_ev.js` | 348.03 | 50.85 | 96.2% | `1b9f1ac` | 2026-04-23 |
-| 3 | `colblitz_mixed_gini.cpp` | 342.56 | 52.18 | 95.3% | `1a79a4a` | 2026-04-25 |
-| 4 | `svessinn_solver.js` | 301.53 | 79.95 | 71.9% | `029aba7` | 2026-04-23 |
+| 1 | `zavex_book_heuristic.js` | 350.86 | 44.04 | 98.96% | `60a6ef8` | 2026-04-23 |
+| 2 | `kelinimo_adaptive_ev.js` | 348.03 | 50.85 | 96.20% | `1b9f1ac` | 2026-04-23 |
+| 3 | `colblitz_mixed_gini.cpp` | 342.56 | 52.18 | 95.35% | `1a79a4a` | 2026-04-25 |
+| 4 | `svessinn_solver.js` | 301.53 | 79.95 | 71.89% | `029aba7` | 2026-04-23 |
 
 <details>
 <summary>Performance</summary>
@@ -224,25 +224,25 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
-| 1 | `random_clicks.cpp` | 270.39 | — | 0.0% | 16.0% | 95.7% | 10.69 | — | — | — | `9cf69e2` | 2026-04-21 |
+| 1 | `random_clicks.cpp` | 270.39 | — | 0.00% | 15.96% | 95.66% | 10.69 | — | — | — | `9cf69e2` | 2026-04-21 |
 
 **7-color variant**
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
-| 1 | `random_clicks.cpp` | 349.70 | — | 0.0% | 11.8% | 84.8% | 10.75 | — | — | — | `9cf69e2` | 2026-04-21 |
+| 1 | `random_clicks.cpp` | 349.70 | — | 0.00% | 11.75% | 84.77% | 10.75 | — | — | — | `9cf69e2` | 2026-04-21 |
 
 **8-color variant**
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
-| 1 | `random_clicks.cpp` | 500.88 | — | 0.0% | 14.0% | 44.3% | 11.74 | — | — | — | `9cf69e2` | 2026-04-21 |
+| 1 | `random_clicks.cpp` | 500.88 | — | 0.01% | 14.00% | 44.33% | 11.74 | — | — | — | `9cf69e2` | 2026-04-21 |
 
 **9-color variant**
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
-| 1 | `random_clicks.cpp` | 1069.13 | — | 0.1% | 20.9% | 9.9% | 13.86 | — | — | — | `9cf69e2` | 2026-04-21 |
+| 1 | `random_clicks.cpp` | 1069.13 | — | 0.07% | 20.95% | 9.94% | 13.86 | — | — | — | `9cf69e2` | 2026-04-21 |
 
 </details>
 

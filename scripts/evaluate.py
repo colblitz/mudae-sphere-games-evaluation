@@ -64,6 +64,52 @@ GAMES = ("oh", "oc", "oq", "ot")
 
 
 # ---------------------------------------------------------------------------
+# Treewalk prior call-count lookup
+# ---------------------------------------------------------------------------
+
+def get_prior_strategy_calls(strategy_path: Path, n_colors_arg: str) -> dict[int, int]:
+    """Return a dict mapping n_colors -> total_strategy_calls from the most recent
+    scores artifact for this strategy file that used the treewalk evaluator.
+
+    Only variants covered by n_colors_arg are included.  Returns an empty dict
+    if no suitable prior artifact is found.
+    """
+    stem = strategy_path.stem
+    scores_dir = SCORES_DIR / "ot"
+    if not scores_dir.is_dir():
+        return {}
+
+    # Collect all artifact files for this strategy stem, newest first.
+    candidates = sorted(
+        [p for p in scores_dir.glob(f"*_{stem}.json")],
+        reverse=True,
+    )
+
+    requested: set[int] = set([6, 7, 8, 9] if n_colors_arg == "all"
+                               else [int(n_colors_arg)])
+
+    for artifact_path in candidates:
+        try:
+            data = json.loads(artifact_path.read_text())
+        except Exception:
+            continue
+        # Must be a treewalk run
+        if data.get("evaluator") != "treewalk":
+            continue
+        variants = data.get("variants", [])
+        result: dict[int, int] = {}
+        for v in variants:
+            nc = v.get("n_colors")
+            calls = v.get("total_strategy_calls")
+            if nc in requested and calls is not None:
+                result[nc] = int(calls)
+        if result:
+            return result
+
+    return {}
+
+
+# ---------------------------------------------------------------------------
 # Stateless detection
 # ---------------------------------------------------------------------------
 
@@ -404,7 +450,7 @@ def update_leaderboard(game: str, result: dict[str, Any], strategy_path: str) ->
 
 def _fmt_pct(v: Any) -> str:
     if isinstance(v, float):
-        return f"{v * 100:.1f}%"
+        return f"{v * 100:.2f}%"
     return str(v)
 
 
@@ -817,7 +863,15 @@ def main() -> None:
     # ------------------------------------------------------------------
     if use_treewalk:
         treewalk_binary = build_harness_treewalk()
-        result, harness_elapsed = run_harness(args.game, strategy_abs, extra,
+        # Look up prior call counts so the harness can show percentage progress.
+        prior_calls = get_prior_strategy_calls(strategy_path, args.n_colors)
+        treewalk_extra = extra.copy()
+        if prior_calls:
+            print(f"[info] Found prior call counts for {len(prior_calls)} variant(s) "
+                  f"— progress percentages will be shown")
+            for nc, calls in prior_calls.items():
+                treewalk_extra += [f"--expected-calls-{nc}", str(calls)]
+        result, harness_elapsed = run_harness(args.game, strategy_abs, treewalk_extra,
                                               binary_override=treewalk_binary)
     else:
         result, harness_elapsed = run_harness(args.game, strategy_abs, extra)
