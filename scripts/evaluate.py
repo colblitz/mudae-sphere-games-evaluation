@@ -485,6 +485,13 @@ def render_oc_oq_table(top5: list[dict], game: str) -> str:
 def render_ot_tables(lb: dict[str, Any]) -> str:
     sections = []
 
+    # Prepend any persistent notes from leaderboards/notes/ot.md
+    notes_path = REPO_ROOT / "leaderboards" / "notes" / "ot.md"
+    if notes_path.exists():
+        note_text = notes_path.read_text().strip()
+        if note_text:
+            sections.append(note_text)
+
     # Aggregate
     top5_agg = lb.get("top5", [])
     sections.append("**Aggregate (board-count weighted EV across all variants)**\n")
