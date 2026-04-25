@@ -892,9 +892,32 @@ def main() -> None:
     print(f"  Total elapsed: {total_elapsed:.2f} s")
 
     # ------------------------------------------------------------------
+    # Pre-compute the strategy commit hash — needed for both the dry-run
+    # update check below and the actual commit block later.
+    # ------------------------------------------------------------------
+    _strategy_is_clean = git_is_clean(strategy_path.resolve())
+    _precomputed_file_hash: str | None = (
+        git_file_hash(strategy_path.resolve()) if _strategy_is_clean else None
+    )
+
+    # ------------------------------------------------------------------
     # Dry-run leaderboard check — would this result change the top 5?
+    # Also detect whether it would be an in-place update of an existing
+    # (filename, commit) entry rather than a brand-new entry.
     # ------------------------------------------------------------------
     lb_dry = load_leaderboard(args.game)
+
+    # Check if an entry for this (filename, commit) already exists anywhere
+    # in the leaderboard — only possible when the file is already committed.
+    _dry_all: list[dict] = list(lb_dry.get("top5", []))
+    if args.game == "ot":
+        for _v in lb_dry.get("by_variant", {}).values():
+            _dry_all.extend(_v.get("top5", []))
+    _would_be_update = _precomputed_file_hash is not None and any(
+        e.get("filename") == args.strategy and e.get("commit") == _precomputed_file_hash
+        for e in _dry_all
+    )
+
     _would_change = False
     if args.game == "ot":
         # Check aggregate top5
@@ -917,7 +940,10 @@ def main() -> None:
         _, _would_change = update_leaderboard_top5(lb_dry.get("top5", []), entry_dry)
 
     if _would_change:
-        print("\n*** This result would enter the top 5 leaderboard! ***")
+        if _would_be_update:
+            print("\n*** This result would update an existing top 5 entry. ***")
+        else:
+            print("\n*** This result would enter the top 5 leaderboard! ***")
 
     # ------------------------------------------------------------------
     # Prompt — always ask whether to commit after every run (skip if --yes)
@@ -941,11 +967,11 @@ def main() -> None:
     # Commit 1 — the strategy file
     # ------------------------------------------------------------------
     strategy_commit_hash: str | None = None
-    if git_is_clean(strategy_path.resolve()):
+    if _strategy_is_clean:
         # File is already committed and unmodified — use the hash of the last
         # commit that actually touched this file (not HEAD, which may point to
         # a scores/leaderboard commit made after the strategy was last changed).
-        strategy_commit_hash = git_file_hash(strategy_path.resolve())
+        strategy_commit_hash = _precomputed_file_hash
         print(f"[commit] Strategy file already committed ({strategy_commit_hash})")
     else:
         msg1 = f"strategy: {args.game} {strat_short}"
@@ -995,16 +1021,8 @@ def main() -> None:
     _original_make_entry = make_entry
     make_entry = _make_entry_with_hash  # type: ignore[assignment]
 
-    # Detect whether this is an in-place update of an existing (filename, commit) entry.
-    _lb_pre = load_leaderboard(args.game)
-    _all_pre: list[dict] = list(_lb_pre.get("top5", []))
-    if args.game == "ot":
-        for _v in _lb_pre.get("by_variant", {}).values():
-            _all_pre.extend(_v.get("top5", []))
-    _is_update = any(
-        e.get("filename") == args.strategy and e.get("commit") == commit_for_entry
-        for e in _all_pre
-    )
+    # Reuse the update flag computed in the dry-run block above.
+    _is_update = _would_be_update
 
     lb_changed = update_leaderboard(args.game, result, args.strategy)
 
