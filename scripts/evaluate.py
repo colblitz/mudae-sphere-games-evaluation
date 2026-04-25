@@ -267,6 +267,19 @@ def git_short_hash() -> str:
         return "unknown"
 
 
+def git_file_hash(path: Path) -> str:
+    """Return the short hash of the last commit that touched this file."""
+    try:
+        r = subprocess.run(
+            ["git", "log", "-1", "--format=%h", "--", str(path.relative_to(REPO_ROOT))],
+            cwd=REPO_ROOT, capture_output=True, text=True
+        )
+        h = r.stdout.strip()
+        return h if r.returncode == 0 and h else "unknown"
+    except Exception:
+        return "unknown"
+
+
 def git_is_clean(path: Path) -> bool:
     """Return True if the given file has no uncommitted changes."""
     r = subprocess.run(
@@ -365,9 +378,40 @@ def make_entry(result: dict[str, Any], strategy_path: str) -> dict[str, Any]:
 
 
 def update_leaderboard_top5(top5: list[dict], new_entry: dict) -> tuple[list[dict], bool]:
-    """Insert new_entry into top5 (sorted by ev desc), keep top 5. Returns (new_list, changed)."""
-    # Remove any existing entry for the same filename
-    filtered = [e for e in top5 if e.get("filename") != new_entry["filename"]]
+    """Insert new_entry into top5 (sorted by ev desc), keep top 5. Returns (new_list, changed).
+
+    Dedup key is (filename, commit) — one entry per strategy version.  When
+    re-running the same committed file the existing entry is merged with the
+    new one: non-zero / non-None new values overwrite, but a zero/None new
+    value never replaces a previously non-zero old value (so stdev_clicks=0
+    from an old treewalk run gets overwritten by a correct nonzero value, and
+    a correct old value is never clobbered by a zero from a different run).
+    """
+    fname  = new_entry.get("filename")
+    commit = new_entry.get("commit")
+
+    # Find an existing entry with the same (filename, commit)
+    same_version = next(
+        (e for e in top5
+         if e.get("filename") == fname and e.get("commit") == commit),
+        None
+    )
+
+    if same_version is not None:
+        # Merge: new values win unless they are zero/None and old value was valid
+        merged = dict(same_version)
+        for k, v in new_entry.items():
+            old_v = merged.get(k)
+            if v is not None and v != 0.0:
+                merged[k] = v          # new non-zero value always wins
+            elif old_v in (None, 0.0):
+                merged[k] = v          # fill in missing/zero old field
+            # else: keep old non-zero value — don't clobber with zero/None
+        new_entry = merged
+
+    # Remove ALL existing entries for this filename+commit before reinserting
+    filtered = [e for e in top5
+                if not (e.get("filename") == fname and e.get("commit") == commit)]
     filtered.append(new_entry)
     filtered.sort(key=lambda e: e.get("ev", 0.0), reverse=True)
     new_top5 = filtered[:5]
@@ -898,9 +942,11 @@ def main() -> None:
     # ------------------------------------------------------------------
     strategy_commit_hash: str | None = None
     if git_is_clean(strategy_path.resolve()):
-        # File is already committed and unmodified — use current HEAD hash
-        strategy_commit_hash = git_short_hash()
-        print(f"[commit] Strategy file already committed (using HEAD {strategy_commit_hash})")
+        # File is already committed and unmodified — use the hash of the last
+        # commit that actually touched this file (not HEAD, which may point to
+        # a scores/leaderboard commit made after the strategy was last changed).
+        strategy_commit_hash = git_file_hash(strategy_path.resolve())
+        print(f"[commit] Strategy file already committed ({strategy_commit_hash})")
     else:
         msg1 = f"strategy: {args.game} {strat_short}"
         print(f"[commit 1/2] {msg1}")
@@ -949,19 +995,33 @@ def main() -> None:
     _original_make_entry = make_entry
     make_entry = _make_entry_with_hash  # type: ignore[assignment]
 
+    # Detect whether this is an in-place update of an existing (filename, commit) entry.
+    _lb_pre = load_leaderboard(args.game)
+    _all_pre: list[dict] = list(_lb_pre.get("top5", []))
+    if args.game == "ot":
+        for _v in _lb_pre.get("by_variant", {}).values():
+            _all_pre.extend(_v.get("top5", []))
+    _is_update = any(
+        e.get("filename") == args.strategy and e.get("commit") == commit_for_entry
+        for e in _all_pre
+    )
+
     lb_changed = update_leaderboard(args.game, result, args.strategy)
 
     make_entry = _original_make_entry  # restore
 
     if lb_changed:
-        print(f"[leaderboard] Updated leaderboards/{args.game}.json (entered top 5)")
+        update_tag = " [update]" if _is_update else ""
+        print(f"[leaderboard] Updated leaderboards/{args.game}.json (entered top 5{update_tag})")
         update_readme()
     else:
-        print("[leaderboard] Result did not enter top 5 — leaderboard unchanged.")
+        update_tag = " [update]" if _is_update else ""
+        print(f"[leaderboard] Result did not enter top 5 — leaderboard unchanged{update_tag}.")
 
     ev = result.get("ev") or result.get("aggregate_ev", 0.0)
     lb_note = " (leaderboard updated)" if lb_changed else ""
-    msg2 = f"scores: {args.game} {strat_short} ev={ev:.2f}{lb_note}"
+    update_note = " [update]" if _is_update else ""
+    msg2 = f"scores: {args.game} {strat_short} ev={ev:.2f}{lb_note}{update_note}"
 
     # Always commit the scores artifact; also commit leaderboard+README if changed.
     commit2_files: list[Path] = [artifact_path]
