@@ -9,15 +9,35 @@
  * total number of strategy calls is proportional to the number of distinct
  * observable game states — far fewer than boards × assignments × game_length.
  *
- * Stdev is computed in the same single pass.  The tree walk accumulates both
- * E[score] and E[score²] simultaneously; stdev = sqrt(E[score²] - E[score]²).
- * No second sweep is needed.
+ * Stdev is computed in the same single pass by tracking E[score²] alongside
+ * E[score]; stdev = sqrt(E[score²] - E[score]²).
  *
  * Requirements:
  *   - Strategy must be stateless: next_click(board, meta) is a pure function
  *     of its arguments (same revealed pattern + meta → same cell every time).
  *   - Opt-in: strategy source file must contain the string "sphere:stateless"
  *     within its first 50 lines.  evaluate.py enforces this before routing here.
+ *
+ * Parallelism (--threads N):
+ *   The board set is split into N equal chunks.  Each of N pre-allocated worker
+ *   threads owns one StrategyBridge and runs a full independent tree walk over
+ *   its board chunk.  Workers never communicate during the walk — they produce
+ *   independent NodeResult values that are combined at the end via a
+ *   probability-weighted sum.
+ *
+ *   Correctness: because the strategy is stateless, every thread makes identical
+ *   cell choices at every tree node (same revealed[] + meta → same cell).  Only
+ *   the branch probabilities (p_color = |branch in chunk| / |chunk|) differ
+ *   per thread, and the weighted combination E[X] = Σ (chunk_i/total) * E_i[X]
+ *   recovers the exact population mean.  Chunking does not alter the strategy's
+ *   view of the game — it only sees (revealed[], meta), never the board counts.
+ *
+ * Progress reporting:
+ *   Each thread accumulates a "terminal weight" counter: whenever a terminal
+ *   node is reached, it adds (leaf_boards / total_boards) to its per-thread
+ *   slot.  A background thread sums the slots every 10 s and prints elapsed
+ *   time + percentage complete.  The per-thread slots are cache-line padded to
+ *   avoid false sharing.  No atomic operations in the hot path.
  *
  * Output: same RESULT_JSON format as evaluate_ot, with an additional
  *   "evaluator": "treewalk"  field.
@@ -34,7 +54,7 @@
  *   Rare-color weights (without-replacement draw):
  *     spL: 0.7143  spD: 0.4052  spR: 0.1332  spW: 0.0508
  *
- * Detailed-color index convention (matches evaluate_trace_strategies_v8.cpp):
+ * Detailed-color index convention:
  *   0 = blue (spB)
  *   1 = teal (spT)
  *   2 = green (spG)
@@ -48,12 +68,14 @@
 #include <cassert>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #ifdef _OPENMP
@@ -78,7 +100,7 @@ using namespace sphere;
 
 static constexpr int    OT_BASE_CLICKS  = 4;
 static constexpr int    OT_BLUE_VALUE   = 10;
-static constexpr int    SHIPS_THRESHOLD = 5;   // Extra Chance threshold
+static constexpr int    SHIPS_THRESHOLD = 5;
 
 static constexpr int    N_VAR_COLORS    = 4;
 static constexpr double VAR_WEIGHT[N_VAR_COLORS] = {0.7143, 0.4052, 0.1332, 0.0508};
@@ -86,37 +108,38 @@ static const char*      VAR_COLOR_NAME[N_VAR_COLORS] = {"spL", "spD", "spR", "sp
 static constexpr int    VAR_SP[N_VAR_COLORS]         = {76, 104, 150, 500};
 
 // Fixed-ship SP by detailed-color index (0=blue handled separately)
-static constexpr int FIXED_SP[5] = {OT_BLUE_VALUE, 20, 35, 55, 90};  // spB,spT,spG,spY,spO
+static constexpr int FIXED_SP[5] = {OT_BLUE_VALUE, 20, 35, 55, 90};
 
 static constexpr double W_TOTAL =
     VAR_WEIGHT[0] + VAR_WEIGHT[1] + VAR_WEIGHT[2] + VAR_WEIGHT[3];
 
-// MAX_DC: maximum number of detailed-color buckets (blue + 4 fixed ships + 4 var slots)
-static constexpr int MAX_DC = 9;
+// MAX_DC: maximum number of detailed-color buckets
+static constexpr int MAX_DC = 9;  // blue + 4 fixed ships + 4 var slots
+
+// Maximum supported thread count (for the progress slot array)
+static constexpr int MAX_THREADS = 256;
 
 // ---------------------------------------------------------------------------
-// FlatBoardSet — boards stored as flat row-major int32 array for fast access
+// FlatBoardSet
 // ---------------------------------------------------------------------------
 
 struct FlatBoardSet {
-    std::vector<int32_t> data;   // n_boards × fields int32s, row-major
+    std::vector<int32_t> data;
     int n_boards = 0;
-    int fields   = 0;            // = 3 + n_rare  (teal,green,yellow,spO,var_rare...)
-    int n_var    = 0;            // = n_rare - 1  (number of var-rare slots)
+    int fields   = 0;   // 3 + n_rare  (teal, green, yellow, spO, var_rare...)
+    int n_var    = 0;   // n_rare - 1
 
     int32_t get(int board, int col) const {
         return data[board * fields + col];
     }
 };
 
-// Build FlatBoardSet from vector<OTBoard> (loaded by board_io.h)
 static FlatBoardSet build_flat(const std::vector<OTBoard>& boards, int n_rare) {
     FlatBoardSet fbs;
     fbs.n_boards = (int)boards.size();
-    fbs.fields   = 3 + n_rare;   // teal + green + yellow + spO + var_rare...
+    fbs.fields   = 3 + n_rare;
     fbs.n_var    = n_rare - 1;
     fbs.data.resize((size_t)fbs.n_boards * fbs.fields);
-
     for (int i = 0; i < fbs.n_boards; ++i) {
         int32_t* row = fbs.data.data() + i * fbs.fields;
         row[0] = boards[i].teal;
@@ -134,31 +157,33 @@ static FlatBoardSet build_flat(const std::vector<OTBoard>& boards, int n_rare) {
 static inline int cell_dc(const FlatBoardSet& fbs, int bi, int cell) {
     int32_t bit = (int32_t)(1 << cell);
     const int32_t* row = fbs.data.data() + bi * fbs.fields;
-    if (row[0] & bit) return 1;  // teal
-    if (row[1] & bit) return 2;  // green
-    if (row[2] & bit) return 3;  // yellow
-    if (row[3] & bit) return 4;  // spO
+    if (row[0] & bit) return 1;
+    if (row[1] & bit) return 2;
+    if (row[2] & bit) return 3;
+    if (row[3] & bit) return 4;
     for (int k = 0; k < fbs.n_var; ++k)
         if (row[4 + k] & bit) return 5 + k;
-    return 0;  // blue
+    return 0;
 }
 
 // ---------------------------------------------------------------------------
-// ColorAssign — tracks which var-rare slots have been identity-resolved
+// ColorAssign
 // ---------------------------------------------------------------------------
 
 struct ColorAssign {
-    int8_t  color[4];    // VAR color index (0-3) or -1 if unassigned
-    uint8_t used_mask;   // bitmask of assigned VAR color indices
+    int8_t  color[4];
+    uint8_t used_mask;
     int     n_var;
 
+    ColorAssign() : used_mask(0), n_var(0) {
+        color[0] = color[1] = color[2] = color[3] = -1;
+    }
     explicit ColorAssign(int nv) : used_mask(0), n_var(nv) {
         color[0] = color[1] = color[2] = color[3] = -1;
     }
 
     bool is_assigned(int slot) const { return color[slot] >= 0; }
 
-    // Return a new ColorAssign with slot assigned to var_color_idx c
     ColorAssign with_assign(int slot, int c) const {
         ColorAssign ca2 = *this;
         ca2.color[slot] = (int8_t)c;
@@ -175,17 +200,16 @@ struct ColorAssign {
 };
 
 // ---------------------------------------------------------------------------
-// NodeResult — accumulated stats for a subtree
+// NodeResult
 //
-// All fields are probability-weighted sums (not averages).  At the root,
-// divide by n_boards to get the population mean.
-//
-// ev_sp and ev_sp2 let us compute stdev = sqrt(E[sp²] - E[sp]²) in one pass.
+// All fields are probability-weighted means (not sums).  The tree walk
+// weights each branch by p_color = |branch| / |parent|, so the root result
+// is already the population mean — no division by n_boards needed afterwards.
 // ---------------------------------------------------------------------------
 
 struct NodeResult {
     double ev_sp      = 0.0;   // E[score]
-    double ev_sp2     = 0.0;   // E[score²]   — for stdev
+    double ev_sp2     = 0.0;   // E[score²]  — for stdev
     double ship_frac  = 0.0;   // E[ship_cells_revealed / total_ship_cells]
     double perf_prob  = 0.0;   // P(all ship cells revealed)
     double avg_clicks = 0.0;   // E[total click count]
@@ -193,9 +217,8 @@ struct NodeResult {
     double all_ships  = 0.0;   // P(all distinct ships hit)
 };
 
-// Accumulate: result += weight * (NodeResult r, plus sp_delta added to score)
-// sp_delta is the score earned at THIS node; r is the subtree result.
-// Because E[(sp_delta + X)²] = sp_delta² + 2*sp_delta*E[X] + E[X²]:
+// accumulate: result += weight * subtree(r) with sp_delta earned at this node.
+// E[(sp_delta + X)²] = sp_delta² + 2*sp_delta*E[X] + E[X²]
 static inline void accumulate(NodeResult& result,
                                double weight,
                                const NodeResult& r,
@@ -213,11 +236,19 @@ static inline void accumulate(NodeResult& result,
 }
 
 // ---------------------------------------------------------------------------
-// Build board_vec and meta_json for a strategy call at a given tree node
+// Per-thread progress slot — cache-line padded to prevent false sharing
 // ---------------------------------------------------------------------------
 
-static void build_board_vec(const bool      revealed[N_CELLS],
-                             const uint8_t   revealed_dc[N_CELLS],
+struct alignas(64) ProgressSlot {
+    double weight_done = 0.0;   // sum of (leaf_boards / total_boards) at terminals
+};
+
+// ---------------------------------------------------------------------------
+// Build board_vec and meta_json for a strategy call
+// ---------------------------------------------------------------------------
+
+static void build_board_vec(const bool         revealed[N_CELLS],
+                             const uint8_t      revealed_dc[N_CELLS],
                              const ColorAssign& ca,
                              std::vector<Cell>& out)
 {
@@ -250,72 +281,65 @@ static void build_board_vec(const bool      revealed[N_CELLS],
 }
 
 static std::string build_meta_json(int n_colors, int ships_hit, int blues_used) {
-    return "{\"n_colors\":"  + std::to_string(n_colors)
-         + ",\"ships_hit\":" + std::to_string(ships_hit)
+    return "{\"n_colors\":"   + std::to_string(n_colors)
+         + ",\"ships_hit\":"  + std::to_string(ships_hit)
          + ",\"blues_used\":" + std::to_string(blues_used)
          + ",\"max_clicks\":" + std::to_string(OT_BASE_CLICKS) + "}";
 }
 
 // ---------------------------------------------------------------------------
-// Per-ship hit tracking for all_ships_rate
-//   n_ships = 4 + n_var_rare
-//   ship_hit_mask: bit s set if ship s has been hit (at least one cell revealed)
-//   Ship index: 0=teal,1=green,2=yellow,3=spO,4+=var_rare_k
-// ---------------------------------------------------------------------------
-
-static inline uint32_t ship_index_mask_for_cell(const FlatBoardSet& fbs, int bi, int cell) {
-    int dc = cell_dc(fbs, bi, cell);
-    if (dc == 0) return 0;  // blue
-    return 1u << (dc - 1);  // teal→0, green→1, yellow→2, spO→3, var_k→4+k
-}
-
-// ---------------------------------------------------------------------------
-// tree_walk — recursive exact EV computation
+// tree_walk — recursive exact EV computation over a board subset
 //
-// board_indices: subset of boards consistent with the click history so far.
-// revealed[]:    which cells have been clicked (all boards share this history).
-// revealed_dc[]: detailed color at each revealed cell (relative to ColorAssign ca).
-// ships_hit:     number of ship cells revealed so far.
-// blues_used:    number of blue clicks spent so far (Extra Chance not counted).
-// game_over:     true if the game has ended before this node.
+// board_indices: subset of boards consistent with the click history.
+// revealed[]:    cells clicked so far (shared click history for this subtree).
+// revealed_dc[]: detailed color at each revealed cell.
+// ships_hit:     ship cells revealed so far.
+// blues_used:    blue clicks spent so far (Extra Chance not counted).
+// game_over:     true if the game ended before reaching this node.
 // ca:            current var-rare color assignment state.
+// total_boards:  size of the root board set for this thread (used for progress).
 // total_ship_cells: total ship cells on this board set.
-// ships_revealed:   ship cells revealed so far (for perfect_rate).
-// ship_hit_mask:    which distinct ships have been hit (for all_ships_rate).
-// click_count:   total clicks so far (for avg_clicks).
-// score_so_far:  accumulated score SP so far (for ev_sp2 propagation).
-// bridge:        strategy instance.
-// n_colors:      6/7/8/9.
+// ships_revealed:   ship cells revealed so far.
+// ship_hit_mask:    bitmask of distinct ships hit so far.
+// click_count:      total clicks so far.
+// bridge:           strategy instance (one per thread, never shared).
+// n_colors:         6/7/8/9.
+// progress:         per-thread progress slot; incremented at terminal nodes.
 // ---------------------------------------------------------------------------
 
 static NodeResult tree_walk(
-    const FlatBoardSet&    fbs,
+    const FlatBoardSet&     fbs,
     const std::vector<int>& board_indices,
-    const bool             revealed[N_CELLS],
-    const uint8_t          revealed_dc[N_CELLS],
-    int                    ships_hit,
-    int                    blues_used,
-    bool                   game_over,
-    ColorAssign            ca,
-    int                    total_ship_cells,
-    int                    ships_revealed,
-    uint32_t               ship_hit_mask,
-    int                    click_count,
-    double                 score_so_far,
-    StrategyBridge&        bridge,
-    int                    n_colors)
+    const bool              revealed[N_CELLS],
+    const uint8_t           revealed_dc[N_CELLS],
+    int                     ships_hit,
+    int                     blues_used,
+    bool                    game_over,
+    ColorAssign             ca,
+    int                     total_boards,
+    int                     total_ship_cells,
+    int                     ships_revealed,
+    uint32_t                ship_hit_mask,
+    int                     click_count,
+    StrategyBridge&         bridge,
+    int                     n_colors,
+    ProgressSlot&           progress)
 {
     int n_boards = (int)board_indices.size();
     if (n_boards == 0) return {};
 
-    // Terminal: game over or all cells revealed
-    if (game_over) {
-        int n_ships_total = 4 + fbs.n_var;
-        uint32_t all_ships_mask = (1u << n_ships_total) - 1u;
-        double perf = (ships_revealed == total_ship_cells) ? 1.0 : 0.0;
+    int n_ships_total    = 4 + fbs.n_var;
+    uint32_t all_ships_mask = (1u << n_ships_total) - 1u;
+
+    // Helper: record terminal node and return result.
+    // Adds (n_boards / total_boards) to the progress counter.
+    auto make_terminal = [&]() -> NodeResult {
+        double perf  = (ships_revealed == total_ship_cells) ? 1.0 : 0.0;
         double sfrac = (total_ship_cells > 0)
             ? (double)ships_revealed / total_ship_cells : 1.0;
         double all_s = ((ship_hit_mask & all_ships_mask) == all_ships_mask) ? 1.0 : 0.0;
+        // Progress: weight of this terminal = boards in this leaf / total boards for thread
+        progress.weight_done += (double)n_boards / (double)total_boards;
         return {
             .ev_sp      = 0.0,
             .ev_sp2     = 0.0,
@@ -325,7 +349,9 @@ static NodeResult tree_walk(
             .loss_5050  = 0.0,
             .all_ships  = all_s,
         };
-    }
+    };
+
+    if (game_over) return make_terminal();
 
     // Build unclicked list
     std::vector<int> unclicked;
@@ -333,42 +359,21 @@ static NodeResult tree_walk(
     for (int i = 0; i < N_CELLS; ++i)
         if (!revealed[i]) unclicked.push_back(i);
 
-    if (unclicked.empty()) {
-        // All cells clicked — treat as terminal
-        int n_ships_total = 4 + fbs.n_var;
-        uint32_t all_ships_mask = (1u << n_ships_total) - 1u;
-        double perf  = (ships_revealed == total_ship_cells) ? 1.0 : 0.0;
-        double sfrac = (total_ship_cells > 0)
-            ? (double)ships_revealed / total_ship_cells : 1.0;
-        double all_s = ((ship_hit_mask & all_ships_mask) == all_ships_mask) ? 1.0 : 0.0;
-        return {
-            .ev_sp      = 0.0,
-            .ev_sp2     = 0.0,
-            .ship_frac  = sfrac,
-            .perf_prob  = perf,
-            .avg_clicks = (double)click_count,
-            .loss_5050  = 0.0,
-            .all_ships  = all_s,
-        };
-    }
+    if (unclicked.empty()) return make_terminal();
 
-    // Ask the strategy which cell to click
+    // Ask the strategy which cell to click.
+    // The strategy only sees (revealed[], meta) — it has no knowledge of
+    // n_boards, the chunk size, or which thread is calling it.
     std::vector<Cell> board_vec;
     build_board_vec(revealed, revealed_dc, ca, board_vec);
     std::string meta = build_meta_json(n_colors, ships_hit, blues_used);
 
-    // init_game_payload is NOT called between boards in the tree walk —
-    // stateless strategies ignore game_state so this is correct.
     Click c = bridge.next_click(board_vec, meta);
-
     int cell = rc_to_idx(c.row, c.col);
-    // Validate: must be a valid unclicked cell
-    if (cell < 0 || cell >= N_CELLS || revealed[cell]) {
-        // Fall back to first unclicked cell
-        cell = unclicked[0];
-    }
+    if (cell < 0 || cell >= N_CELLS || revealed[cell])
+        cell = unclicked[0];  // fallback: first unclicked cell
 
-    // Partition boards by detailed color at this cell
+    // Partition boards by detailed color at the chosen cell
     std::vector<int> by_color[MAX_DC];
     for (int bi : board_indices)
         by_color[cell_dc(fbs, bi, cell)].push_back(bi);
@@ -381,7 +386,6 @@ static NodeResult tree_walk(
         double p_color = (double)by_color[color].size() / n_boards;
         bool   is_ship = (color != 0);
 
-        // Update revealed state for child
         bool    rev2[N_CELLS];
         uint8_t rev_dc2[N_CELLS];
         memcpy(rev2,    revealed,    sizeof(rev2));
@@ -389,98 +393,80 @@ static NodeResult tree_walk(
         rev2[cell]    = true;
         rev_dc2[cell] = (uint8_t)color;
 
-        int new_ships_hit    = ships_hit    + (is_ship ? 1 : 0);
-        int new_ships_rev    = ships_revealed + (is_ship ? 1 : 0);
-        int new_click_count  = click_count  + 1;
+        int new_ships_hit   = ships_hit    + (is_ship ? 1 : 0);
+        int new_ships_rev   = ships_revealed + (is_ship ? 1 : 0);
+        int new_click_count = click_count  + 1;
 
-        // Ship-hit mask update
         uint32_t new_ship_hit_mask = ship_hit_mask;
         if (is_ship) {
-            // dc 1..4 → ship indices 0..3; dc 5+k → ship index 4+k
-            int ship_idx = color - 1;  // 1→0, 2→1, ... valid for color 1..MAX_DC-1
+            int ship_idx = color - 1;  // teal→0, green→1, yellow→2, spO→3, var_k→4+k
             new_ship_hit_mask |= (1u << ship_idx);
         }
 
         if (color == 0) {
             // ---- Blue click ----
-            // Extra Chance: if blues_used==3 and ships_hit < SHIPS_THRESHOLD,
-            // this blue is free (blues_used stays at 3).
-            int new_blues_used;
+            int  new_blues_used;
             bool new_game_over;
             if (blues_used == 3 && ships_hit < SHIPS_THRESHOLD) {
-                // Free blue under Extra Chance
-                new_blues_used  = 3;
-                new_game_over   = false;
+                // Extra Chance: this blue is free
+                new_blues_used = 3;
+                new_game_over  = false;
             } else {
-                new_blues_used  = blues_used + 1;
-                new_game_over   = (new_blues_used >= OT_BASE_CLICKS &&
-                                   new_ships_hit  >= SHIPS_THRESHOLD);
+                new_blues_used = blues_used + 1;
+                new_game_over  = (new_blues_used >= OT_BASE_CLICKS &&
+                                  new_ships_hit  >= SHIPS_THRESHOLD);
             }
 
-            // loss_5050 diagnostic: at game-ending blue clicks,
-            // check whether the pre-click P(blue) was near 50/50.
-            // P(blue for this cell) = |by_color[0]| / n_boards (pre-click partition).
-            double this_loss_5050 = 0.0;
+            // loss_5050: was this a near-50/50 game-ending blue?
+            double extra_loss_5050 = 0.0;
             if (new_game_over && ships_revealed < total_ship_cells) {
                 double p_blue = (double)by_color[0].size() / n_boards;
                 if (p_blue > 0.25 && p_blue < 0.75)
-                    this_loss_5050 = 1.0;
+                    extra_loss_5050 = 1.0;
             }
 
-            double sp_delta = OT_BLUE_VALUE;
             NodeResult r = tree_walk(
                 fbs, by_color[color], rev2, rev_dc2,
                 new_ships_hit, new_blues_used, new_game_over, ca,
-                total_ship_cells, new_ships_rev, new_ship_hit_mask,
-                new_click_count, score_so_far + sp_delta, bridge, n_colors);
-            // Inject loss_5050 at this node
-            r.loss_5050 += this_loss_5050;
-            accumulate(result, p_color, r, sp_delta);
+                total_boards, total_ship_cells, new_ships_rev, new_ship_hit_mask,
+                new_click_count, bridge, n_colors, progress);
+            r.loss_5050 += extra_loss_5050;
+            accumulate(result, p_color, r, (double)OT_BLUE_VALUE);
 
         } else if (color <= 4) {
             // ---- Fixed-ship click (teal/green/yellow/spO) ----
-            double sp_delta = FIXED_SP[color];
             NodeResult r = tree_walk(
                 fbs, by_color[color], rev2, rev_dc2,
                 new_ships_hit, blues_used, false, ca,
-                total_ship_cells, new_ships_rev, new_ship_hit_mask,
-                new_click_count, score_so_far + sp_delta, bridge, n_colors);
-            accumulate(result, p_color, r, sp_delta);
+                total_boards, total_ship_cells, new_ships_rev, new_ship_hit_mask,
+                new_click_count, bridge, n_colors, progress);
+            accumulate(result, p_color, r, (double)FIXED_SP[color]);
 
         } else {
             // ---- Var-rare slot click ----
             int slot = color - 5;
             if (ca.is_assigned(slot)) {
-                // Identity already known
                 int var_c = (int)ca.color[slot];
-                double sp_delta = VAR_SP[var_c];
                 NodeResult r = tree_walk(
                     fbs, by_color[color], rev2, rev_dc2,
                     new_ships_hit, blues_used, false, ca,
-                    total_ship_cells, new_ships_rev, new_ship_hit_mask,
-                    new_click_count, score_so_far + sp_delta, bridge, n_colors);
-                accumulate(result, p_color, r, sp_delta);
+                    total_boards, total_ship_cells, new_ships_rev, new_ship_hit_mask,
+                    new_click_count, bridge, n_colors, progress);
+                accumulate(result, p_color, r, (double)VAR_SP[var_c]);
             } else {
-                // Branch over all possible var-rare identities (without-replacement draw)
+                // Fan out over all possible var-rare identities (without-replacement draw)
                 double rem_w = ca.remaining_weight();
                 NodeResult var_result{};
                 for (int vc = 0; vc < N_VAR_COLORS; ++vc) {
                     if (ca.used_mask & (1u << vc)) continue;
-                    double wc        = VAR_WEIGHT[vc] / rem_w;
-                    double sp_delta  = VAR_SP[vc];
-                    ColorAssign ca2  = ca.with_assign(slot, vc);
-                    // When we assign this identity, update the revealed_dc for this
-                    // cell so the strategy sees the actual color string.
-                    uint8_t rev_dc3[N_CELLS];
-                    memcpy(rev_dc3, rev_dc2, sizeof(rev_dc3));
-                    // rev_dc3[cell] stays as color (5+slot), which build_board_vec
-                    // will resolve via ca2.  Already set above.
+                    double wc       = VAR_WEIGHT[vc] / rem_w;
+                    double sp_delta = (double)VAR_SP[vc];
+                    ColorAssign ca2 = ca.with_assign(slot, vc);
                     NodeResult r = tree_walk(
-                        fbs, by_color[color], rev2, rev_dc3,
+                        fbs, by_color[color], rev2, rev_dc2,
                         new_ships_hit, blues_used, false, ca2,
-                        total_ship_cells, new_ships_rev, new_ship_hit_mask,
-                        new_click_count, score_so_far + sp_delta, bridge, n_colors);
-                    // Accumulate into var_result with weight wc
+                        total_boards, total_ship_cells, new_ships_rev, new_ship_hit_mask,
+                        new_click_count, bridge, n_colors, progress);
                     double ev_child = r.ev_sp + sp_delta;
                     var_result.ev_sp      += wc * ev_child;
                     var_result.ev_sp2     += wc * (r.ev_sp2
@@ -492,7 +478,6 @@ static NodeResult tree_walk(
                     var_result.loss_5050  += wc * r.loss_5050;
                     var_result.all_ships  += wc * r.all_ships;
                 }
-                // Add var_result to main result with p_color weight (already folded sp_delta in)
                 result.ev_sp      += p_color * var_result.ev_sp;
                 result.ev_sp2     += p_color * var_result.ev_sp2;
                 result.ship_frac  += p_color * var_result.ship_frac;
@@ -508,89 +493,200 @@ static NodeResult tree_walk(
 }
 
 // ---------------------------------------------------------------------------
-// Evaluate one n_colors variant via tree walk
+// Evaluate one n_colors variant via parallel chunked tree walks
 // ---------------------------------------------------------------------------
 
 static OTVariantResult evaluate_variant_treewalk(
-    const FlatBoardSet&    fbs,
-    int                    n_colors,
-    const std::string&     strategy_path,
-    int                    n_threads)
+    const FlatBoardSet& fbs,
+    int                 n_colors,
+    const std::string&  strategy_path,
+    int                 n_threads,
+    double&             variant_elapsed_out)
 {
     int total_ship_cells = 4 + 3 + 3 + 2 + fbs.n_var * 2;
+    int n_boards         = fbs.n_boards;
 
-    printf("  n_colors=%d: %d boards  (treewalk, threads=%d)\n",
-           n_colors, fbs.n_boards, n_threads);
+    print_ts();
+    printf("  n_colors=%d: %d boards  (treewalk, %d thread%s)\n",
+           n_colors, n_boards, n_threads, n_threads == 1 ? "" : "s");
     fflush(stdout);
-
-    // -----------------------------------------------------------------------
-    // EV + stdev pass — single tree walk over ALL boards simultaneously.
-    // Computes E[score] and E[score²] in one pass; stdev = sqrt(E[sp²]-E[sp]²).
-    // -----------------------------------------------------------------------
 
     auto t0 = std::chrono::steady_clock::now();
 
-    // One bridge for the main EV tree walk
-    auto ev_bridge = StrategyBridge::load(strategy_path, "ot");
-    ev_bridge->init_evaluation_run();
+    // -----------------------------------------------------------------------
+    // Build per-thread bridges and board-index chunks
+    // -----------------------------------------------------------------------
 
-    // Prepare full board index list
-    std::vector<int> all_indices(fbs.n_boards);
-    for (int i = 0; i < fbs.n_boards; ++i) all_indices[i] = i;
+    std::vector<std::unique_ptr<StrategyBridge>> bridges(n_threads);
+    for (int t = 0; t < n_threads; ++t) {
+        bridges[t] = StrategyBridge::load(strategy_path, "ot");
+        bridges[t]->init_evaluation_run();
+    }
 
-    bool    revealed[N_CELLS]    = {};
-    uint8_t revealed_dc[N_CELLS] = {};
-    ColorAssign ca(fbs.n_var);
+    // Split board indices into n_threads equal chunks.
+    // Chunk t gets boards [chunk_start[t], chunk_start[t+1]).
+    std::vector<int> chunk_start(n_threads + 1);
+    for (int t = 0; t <= n_threads; ++t)
+        chunk_start[t] = (int)((int64_t)n_boards * t / n_threads);
 
-    // The EV tree walk is sequential (single bridge, shared state).
-    // It naturally accumulates per-board-weighted E[sp] and E[sp²].
-    NodeResult root = tree_walk(
-        fbs, all_indices, revealed, revealed_dc,
-        0, 0, false, ca,
-        total_ship_cells, 0, 0,
-        0, 0.0,
-        *ev_bridge, n_colors);
+    // -----------------------------------------------------------------------
+    // Per-thread progress slots (cache-line padded, no false sharing)
+    // -----------------------------------------------------------------------
+
+    std::vector<ProgressSlot> progress(n_threads);
+    // progress[t].weight_done accumulates (leaf_boards / chunk_size) during
+    // the walk.  Because each chunk's tree walk weights terminals by
+    // n_boards_at_leaf / chunk_size and the chunks partition the full board
+    // set, summing progress[t].weight_done / n_threads gives overall fraction.
+    // More precisely: overall fraction = Σ_t (chunk_size_t/n_boards) * progress[t].weight_done
+
+    // -----------------------------------------------------------------------
+    // Per-thread results
+    // -----------------------------------------------------------------------
+
+    std::vector<NodeResult> results(n_threads);
+
+    // -----------------------------------------------------------------------
+    // Background progress thread: prints every 10 s
+    // -----------------------------------------------------------------------
+
+    std::atomic<bool>       walk_done{false};
+    std::mutex              progress_mutex;
+    std::condition_variable progress_cv;
+
+    // Print a progress line when elapsed >= next_time_threshold OR
+    // progress >= next_pct_threshold, whichever comes first.
+    // Check frequently (every 1s) so neither threshold is missed.
+    std::thread progress_thread([&]() {
+        using namespace std::chrono;
+        auto     start              = steady_clock::now();
+        double   next_time_secs     = 10.0;   // print at least every 10s
+        double   next_pct_threshold = 5.0;    // print at every 5% milestone
+        std::unique_lock<std::mutex> lk(progress_mutex);
+        while (true) {
+            // Wake every 1s to check both thresholds, or immediately on done
+            progress_cv.wait_for(lk, milliseconds(1000),
+                [&]{ return walk_done.load(std::memory_order_relaxed); });
+            if (walk_done.load(std::memory_order_relaxed)) break;
+
+            double elapsed = duration<double>(steady_clock::now() - start).count();
+            double total_progress = 0.0;
+            for (int t = 0; t < n_threads; ++t) {
+                double chunk_frac = (double)(chunk_start[t+1] - chunk_start[t]) / n_boards;
+                total_progress += chunk_frac * progress[t].weight_done;
+            }
+            total_progress = std::min(total_progress, 1.0);
+            double pct = total_progress * 100.0;
+
+            bool time_trigger = (elapsed >= next_time_secs);
+            bool pct_trigger  = (pct    >= next_pct_threshold);
+            if (!time_trigger && !pct_trigger) continue;
+            // Suppress prints once progress has hit 100% — walk is just wrapping up
+            if (pct >= 100.0 - 1e-6) continue;
+
+            double eta = (total_progress > 1e-6 && total_progress < 1.0 - 1e-6)
+                       ? elapsed / total_progress * (1.0 - total_progress) : 0.0;
+            print_ts();
+            printf("  n_colors=%d:  elapsed=%.0fs  %.1f%%  eta=%.0fs\n",
+                   n_colors, elapsed, pct, eta);
+            fflush(stdout);
+
+            if (time_trigger) next_time_secs     = elapsed + 10.0;
+            if (pct_trigger)  next_pct_threshold = std::floor(pct / 5.0) * 5.0 + 5.0;
+        }
+    });
+
+    // -----------------------------------------------------------------------
+    // Launch worker threads
+    // -----------------------------------------------------------------------
+
+    std::vector<std::thread> workers;
+    workers.reserve(n_threads);
+
+    for (int t = 0; t < n_threads; ++t) {
+        workers.emplace_back([&, t]() {
+            int start = chunk_start[t];
+            int end   = chunk_start[t + 1];
+            int chunk_size = end - start;
+            if (chunk_size == 0) return;
+
+            std::vector<int> indices(chunk_size);
+            for (int i = 0; i < chunk_size; ++i) indices[i] = start + i;
+
+            bool    revealed[N_CELLS]    = {};
+            uint8_t revealed_dc[N_CELLS] = {};
+            ColorAssign ca(fbs.n_var);
+
+            results[t] = tree_walk(
+                fbs, indices, revealed, revealed_dc,
+                0, 0, false, ca,
+                chunk_size,          // total_boards for this thread (for progress weights)
+                total_ship_cells, 0, 0,
+                0, *bridges[t], n_colors, progress[t]);
+        });
+    }
+
+    for (auto& w : workers) w.join();
+
+    // Signal progress thread to wake and exit, then join it
+    {
+        std::lock_guard<std::mutex> lk(progress_mutex);
+        walk_done.store(true, std::memory_order_relaxed);
+    }
+    progress_cv.notify_all();
+    progress_thread.join();
 
     double elapsed_ev = std::chrono::duration<double>(
         std::chrono::steady_clock::now() - t0).count();
+    variant_elapsed_out = elapsed_ev;
 
-    // root.ev_sp  = sum over all boards of board_ev / n_boards  (already normalised
-    //               because the tree walk weights by 1/n_boards at each split)
-    // Actually: the tree walk does NOT divide by n_boards — it works in absolute
-    // probability-weighted sums.  At the root, each board contributes 1/n_boards
-    // to the partition weight.  We divide by n_boards here.
-    double mean_sp     = root.ev_sp     / fbs.n_boards;
-    double mean_sp2    = root.ev_sp2    / fbs.n_boards;
-    double ship_frac   = root.ship_frac / fbs.n_boards;
-    double perf_prob   = root.perf_prob / fbs.n_boards;
-    double avg_clicks  = root.avg_clicks / fbs.n_boards;
-    double loss_5050   = root.loss_5050 / fbs.n_boards;
-    double all_ships   = root.all_ships / fbs.n_boards;
+    // -----------------------------------------------------------------------
+    // Combine per-chunk NodeResults into the population mean.
+    //
+    // Each chunk t has chunk_weight = chunk_size_t / n_boards.
+    // E[X] = Σ_t chunk_weight_t * E_t[X]
+    //
+    // ev_sp2 combination for stdev:
+    //   E[X²] = Σ_t chunk_weight_t * E_t[X²]
+    //   (This is correct because expectations are linear; each chunk's E_t[X²]
+    //    is the conditional second moment over that chunk's board subset.)
+    // -----------------------------------------------------------------------
 
-    double variance    = mean_sp2 - mean_sp * mean_sp;
-    double stdev_ev    = (variance > 0.0) ? std::sqrt(variance) : 0.0;
+    NodeResult combined{};
+    for (int t = 0; t < n_threads; ++t) {
+        int    csz    = chunk_start[t+1] - chunk_start[t];
+        if (csz == 0) continue;
+        double cw     = (double)csz / n_boards;
+        combined.ev_sp      += cw * results[t].ev_sp;
+        combined.ev_sp2     += cw * results[t].ev_sp2;
+        combined.ship_frac  += cw * results[t].ship_frac;
+        combined.perf_prob  += cw * results[t].perf_prob;
+        combined.avg_clicks += cw * results[t].avg_clicks;
+        combined.loss_5050  += cw * results[t].loss_5050;
+        combined.all_ships  += cw * results[t].all_ships;
+    }
 
-    printf("  n_colors=%d: EV pass done in %.1fs  mean_sp=%.4f  stdev=%.4f\n",
+    double mean_sp   = combined.ev_sp;
+    double variance  = combined.ev_sp2 - mean_sp * mean_sp;
+    double stdev_ev  = (variance > 0.0) ? std::sqrt(variance) : 0.0;
+
+    print_ts();
+    printf("  n_colors=%d: done in %.1fs  ev=%.4f  stdev=%.4f\n",
            n_colors, elapsed_ev, mean_sp, stdev_ev);
     fflush(stdout);
 
-    // avg_clicks and ship stats don't have a meaningful stdev in the treewalk
-    // (we only track E[clicks], not Var[clicks]).  Report 0.0 for stdev_clicks
-    // and stdev_ship_clicks — these fields exist in OTVariantResult for
-    // compatibility with the sequential evaluator but are not computed here.
-
     OTVariantResult r;
     r.n_colors          = n_colors;
-    r.n_boards          = (uint64_t)fbs.n_boards;
+    r.n_boards          = (uint64_t)n_boards;
     r.ev                = mean_sp;
     r.stdev_ev          = stdev_ev;
-    r.avg_clicks        = avg_clicks;
-    r.stdev_clicks      = 0.0;   // not computed by treewalk
-    r.avg_ship_clicks   = ship_frac * total_ship_cells;  // approx: E[ship_cells_revealed]
-    r.stdev_ship_clicks = 0.0;   // not computed by treewalk
-    r.perfect_rate      = perf_prob;
-    r.all_ships_rate    = all_ships;
-    r.loss_5050_rate    = loss_5050;
+    r.avg_clicks        = combined.avg_clicks;
+    r.stdev_clicks      = 0.0;
+    r.avg_ship_clicks   = combined.ship_frac * total_ship_cells;
+    r.stdev_ship_clicks = 0.0;
+    r.perfect_rate      = combined.perf_prob;
+    r.all_ships_rate    = combined.all_ships;
+    r.loss_5050_rate    = combined.loss_5050;
     return r;
 }
 
@@ -602,18 +698,23 @@ int main(int argc, char* argv[]) {
     setvbuf(stdout, nullptr, _IOLBF, 0);
 
     std::string strategy_path;
-    std::string boards_dir  = std::string(REPO_ROOT) + "/boards";
+    std::string boards_dir   = std::string(REPO_ROOT) + "/boards";
     std::string n_colors_arg = "all";
     int n_threads = 1;
 #ifdef _OPENMP
     n_threads = omp_get_max_threads();
+#else
+    {
+        int hw = (int)std::thread::hardware_concurrency();
+        if (hw > 0) n_threads = hw;
+    }
 #endif
 
     for (int i = 1; i < argc; ++i) {
-        if      (!strcmp(argv[i], "--strategy")  && i+1 < argc) strategy_path = argv[++i];
-        else if (!strcmp(argv[i], "--boards-dir") && i+1 < argc) boards_dir   = argv[++i];
-        else if (!strcmp(argv[i], "--n-colors")   && i+1 < argc) n_colors_arg = argv[++i];
-        else if (!strcmp(argv[i], "--threads")    && i+1 < argc) n_threads    = atoi(argv[++i]);
+        if      (!strcmp(argv[i], "--strategy")   && i+1 < argc) strategy_path = argv[++i];
+        else if (!strcmp(argv[i], "--boards-dir")  && i+1 < argc) boards_dir    = argv[++i];
+        else if (!strcmp(argv[i], "--n-colors")    && i+1 < argc) n_colors_arg  = argv[++i];
+        else if (!strcmp(argv[i], "--threads")     && i+1 < argc) n_threads     = atoi(argv[++i]);
     }
 
     if (strategy_path.empty()) {
@@ -622,16 +723,19 @@ int main(int argc, char* argv[]) {
             "                            [--n-colors 6|7|8|9|all] [--threads N]\n");
         return 1;
     }
+    if (n_threads < 1) n_threads = 1;
+    if (n_threads > MAX_THREADS) n_threads = MAX_THREADS;
 
     std::vector<int> variants;
     if (n_colors_arg == "all") variants = {6, 7, 8, 9};
     else                       variants = {atoi(n_colors_arg.c_str())};
 
+    print_ts();
     printf("evaluate_ot_treewalk  strategy=%s  threads=%d\n",
            strategy_path.c_str(), n_threads);
     fflush(stdout);
 
-    // Verify the strategy loads
+    // Verify the strategy loads before committing to loading N copies of it
     printf("Loading strategy %s ...\n", strategy_path.c_str());
     fflush(stdout);
     {
@@ -644,7 +748,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Release Python GIL for the evaluation passes (same pattern as evaluate_ot.cpp)
+    // Release Python GIL (same pattern as evaluate_ot.cpp)
     PyThreadState* _tstate = Py_IsInitialized() ? PyEval_SaveThread() : nullptr;
 
     OTResult overall_result;
@@ -652,10 +756,12 @@ int main(int argc, char* argv[]) {
     double   weighted_ev           = 0.0;
 
     auto run_start = std::chrono::steady_clock::now();
+    std::vector<std::pair<int,double>> variant_timings;
 
     for (int nc : variants) {
         int n_rare = nc - 4;
         std::string board_path = boards_dir + "/ot_boards_" + std::to_string(n_rare) + ".bin.lzma";
+        print_ts();
         printf("Loading %s ...\n", board_path.c_str());
         fflush(stdout);
         auto boards = load_ot_boards(board_path, n_rare);
@@ -663,33 +769,40 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "WARNING: could not load boards for n_colors=%d, skipping.\n", nc);
             continue;
         }
+        print_ts();
         printf("Loaded %zu boards for n_colors=%d\n", boards.size(), nc);
         fflush(stdout);
 
         FlatBoardSet fbs = build_flat(boards, n_rare);
-        boards.clear();  // free OTBoard memory — FlatBoardSet owns the data now
+        boards.clear();
 
-        OTVariantResult vr = evaluate_variant_treewalk(fbs, nc, strategy_path, n_threads);
+        double variant_elapsed = 0.0;
+        OTVariantResult vr = evaluate_variant_treewalk(fbs, nc, strategy_path,
+                                                       n_threads, variant_elapsed);
         int vi = nc - 6;
         overall_result.variants[vi] = vr;
+        variant_timings.emplace_back(nc, variant_elapsed);
 
         weighted_ev           += vr.ev * (double)vr.n_boards;
         total_boards_weighted += (double)vr.n_boards;
     }
 
-    {
-        double run_secs = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - run_start).count() / 1000.0;
-        printf("  [done] total elapsed=%.1fs\n", run_secs);
-        fflush(stdout);
-    }
+    double total_run_secs = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - run_start).count();
 
     if (_tstate) PyEval_RestoreThread(_tstate);
 
     if (total_boards_weighted > 0.0)
         overall_result.aggregate_ev = weighted_ev / total_boards_weighted;
 
-    // Emit RESULT_JSON — same format as evaluate_ot, plus "evaluator":"treewalk"
+    // Timing summary
+    printf("\n  Timing summary:\n");
+    for (auto& [nc, secs] : variant_timings)
+        printf("    n_colors=%d:  %.1fs\n", nc, secs);
+    printf("    total:        %.1fs\n", total_run_secs);
+    fflush(stdout);
+
+    // RESULT_JSON — same format as evaluate_ot, plus "evaluator":"treewalk"
     printf("\nRESULT_JSON: {\"game\":\"ot\",\"strategy\":\"%s\","
            "\"aggregate_ev\":%.4f,\"evaluator\":\"treewalk\",\"variants\":[",
            strategy_path.c_str(), overall_result.aggregate_ev);
