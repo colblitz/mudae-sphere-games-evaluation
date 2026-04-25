@@ -675,8 +675,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate a sphere mini-game strategy.")
     parser.add_argument("--game",            required=True, choices=GAMES)
     parser.add_argument("--strategy",        required=True)
-    parser.add_argument("--games",           type=int, default=100000,
-                        help="(oh) number of Monte Carlo games  default: 100000")
+    parser.add_argument("--games",           type=int, default=1000000,
+                        help="(oh) number of Monte Carlo games  default: 1000000")
     parser.add_argument("--seed",            type=int, default=42,
                         help="RNG seed (evaluation and trace mode)  default: 42")
     parser.add_argument("--n-colors",        default="all",

@@ -530,7 +530,7 @@ int main(int argc, char* argv[]) {
     setvbuf(stdout, nullptr, _IOLBF, 0);  // line-buffer stdout so progress streams through pipes
     std::string strategy_path;
     std::string dark_stats_path = std::string(REPO_ROOT) + "/boards/oh_dark_stats.json";
-    uint64_t    n_games         = 100000;
+    uint64_t    n_games         = 1000000;
     uint64_t    seed            = 42;
     int         n_threads       = 1;
 #ifdef _OPENMP
