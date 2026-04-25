@@ -157,15 +157,13 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | Rank | Strategy | EV | Stdev | OC Rate | Commit | Date |
 |------|----------|----|-------|---------|--------|------|
 | 1 | `colblitz_bellman.cpp` | 721.90 | 222.50 | 1.00% | `8f4e3b5` | 2026-04-25 |
-| 2 | `colblitz_bellman.cpp` | 721.90 | 222.50 | 1.00% | `8f4e3b5` | 2026-04-25 |
-| 3 | `random_clicks.py` | 117.63 | 224.46 | 4.09% | `e5b8664` | 2026-04-21 |
+| 2 | `random_clicks.py` | 117.63 | 224.46 | 4.09% | `e5b8664` | 2026-04-21 |
 
 <details>
 <summary>Performance</summary>
 
 | Strategy | Games/CPU-s | Setup CPU-s | Harness wall-s | Threads | CPU |
 |----------|-------------|-------------|----------------|---------|-----|
-| `colblitz_bellman.cpp` | 18298 | — | 2.7 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `colblitz_bellman.cpp` | 18514 | 0.02 | 2.7 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `random_clicks.py` | — | — | — | — | — |
 
@@ -176,19 +174,15 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
 |------|----------|----|-------|-------|--------|------|
 | 1 | `colblitz_bellman.cpp` | 344.73 | 57.97 | 99.98% | `8f4e3b5` | 2026-04-25 |
-| 2 | `colblitz_bellman.cpp` | 344.73 | 57.97 | 99.98% | `8f4e3b5` | 2026-04-25 |
-| 3 | `kelinimo_adaptive_ev.js` | 332.34 | 61.17 | 99.95% | `98cc571` | 2026-04-25 |
-| 4 | `kelinimo_adaptive_ev.js` | 332.34 | 61.17 | 99.95% | `98cc571` | 2026-04-25 |
-| 5 | `svessinn_solver.js` | 317.39 | 72.49 | 98.82% | `fb02619` | 2026-04-25 |
+| 2 | `kelinimo_adaptive_ev.js` | 332.34 | 61.17 | 99.95% | `98cc571` | 2026-04-25 |
+| 3 | `svessinn_solver.js` | 317.39 | 72.49 | 98.82% | `fb02619` | 2026-04-25 |
 
 <details>
 <summary>Performance</summary>
 
 | Strategy | Games/CPU-s | Setup CPU-s | Harness wall-s | Threads | CPU |
 |----------|-------------|-------------|----------------|---------|-----|
-| `colblitz_bellman.cpp` | 87 | — | 9.7 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `colblitz_bellman.cpp` | 225 | 5.95 | 9.7 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
-| `kelinimo_adaptive_ev.js` | 1266 | — | 0.7 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `kelinimo_adaptive_ev.js` | 1463 | 0.04 | 0.6 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `svessinn_solver.js` | 1376 | — | 0.6 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 
@@ -201,8 +195,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | 1 | `zavex_book_heuristic.js` | 350.86 | 44.04 | 98.96% | `da54712` | 2026-04-25 |
 | 2 | `kelinimo_adaptive_ev.js` | 348.03 | 50.85 | 96.20% | `7ac88d8` | 2026-04-25 |
 | 3 | `gap22_backtrack_solver.js` | 346.59 | 58.72 | 92.66% | `daf7d9b` | 2026-04-25 |
-| 4 | `gap22_backtrack_solver.js` | 346.59 | 58.72 | 92.66% | `daf7d9b` | 2026-04-25 |
-| 5 | `colblitz_mixed_gini.cpp` | 342.56 | 52.18 | 95.35% | `37b0f7f` | 2026-04-25 |
+| 4 | `colblitz_mixed_gini.cpp` | 342.56 | 52.18 | 95.35% | `37b0f7f` | 2026-04-25 |
 
 <details>
 <summary>Performance</summary>
@@ -211,7 +204,6 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 |----------|-------------|-------------|----------------|---------|-----|
 | `zavex_book_heuristic.js` | 919 | 1.91 | 2.6 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `kelinimo_adaptive_ev.js` | 47 | 0.04 | 13.5 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
-| `gap22_backtrack_solver.js` | 262 | 0.04 | 2.5 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `gap22_backtrack_solver.js` | 268 | 0.04 | 2.4 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `colblitz_mixed_gini.cpp` | 675 | — | 0.9 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 
