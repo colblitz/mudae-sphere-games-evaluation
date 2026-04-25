@@ -118,6 +118,7 @@ struct OTVariantResult {
     double   all_ships_rate      = 0.0;  // fraction of games where all ships were hit
     double   loss_5050_rate      = 0.0;  // fraction of games lost on a ~50/50 blue decision
     uint64_t n_boards            = 0;
+    uint64_t total_strategy_calls = 0;  // treewalk only: total next_click invocations
 };
 
 struct OTResult {

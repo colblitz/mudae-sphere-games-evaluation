@@ -33,11 +33,13 @@
  *   view of the game — it only sees (revealed[], meta), never the board counts.
  *
  * Progress reporting:
- *   Each thread accumulates a "terminal weight" counter: whenever a terminal
- *   node is reached, it adds (leaf_boards / total_boards) to its per-thread
- *   slot.  A background thread sums the slots every 10 s and prints elapsed
- *   time + percentage complete.  The per-thread slots are cache-line padded to
- *   avoid false sharing.  No atomic operations in the hot path.
+ *   Each thread maintains two atomic counters: strategy_calls (incremented at
+ *   every next_click invocation) and terminals (incremented at every terminal
+ *   node).  A background thread wakes every 10 s, sums the counters across all
+ *   threads, and prints elapsed time + cumulative calls + rolling calls/s.  If
+ *   a prior run's total call count is known (passed via --expected-calls-N),
+ *   the line also includes an estimated percentage and ETA.  The per-thread
+ *   slots are cache-line padded to avoid false sharing.
  *
  * Output: same RESULT_JSON format as evaluate_ot, with an additional
  *   "evaluator": "treewalk"  field.
@@ -240,7 +242,8 @@ static inline void accumulate(NodeResult& result,
 // ---------------------------------------------------------------------------
 
 struct alignas(64) ProgressSlot {
-    double weight_done = 0.0;   // sum of (leaf_boards / total_boards) at terminals
+    std::atomic<uint64_t> strategy_calls{0};  // incremented at every next_click call
+    std::atomic<uint64_t> terminals{0};       // incremented at every terminal node
 };
 
 // ---------------------------------------------------------------------------
@@ -297,7 +300,6 @@ static std::string build_meta_json(int n_colors, int ships_hit, int blues_used) 
 // blues_used:    blue clicks spent so far (Extra Chance not counted).
 // game_over:     true if the game ended before reaching this node.
 // ca:            current var-rare color assignment state.
-// total_boards:  size of the root board set for this thread (used for progress).
 // total_ship_cells: total ship cells on this board set.
 // ships_revealed:   ship cells revealed so far.
 // ship_hit_mask:    bitmask of distinct ships hit so far.
@@ -316,7 +318,6 @@ static NodeResult tree_walk(
     int                     blues_used,
     bool                    game_over,
     ColorAssign             ca,
-    int                     total_boards,
     int                     total_ship_cells,
     int                     ships_revealed,
     uint32_t                ship_hit_mask,
@@ -332,14 +333,12 @@ static NodeResult tree_walk(
     uint32_t all_ships_mask = (1u << n_ships_total) - 1u;
 
     // Helper: record terminal node and return result.
-    // Adds (n_boards / total_boards) to the progress counter.
     auto make_terminal = [&]() -> NodeResult {
         double perf  = (ships_revealed == total_ship_cells) ? 1.0 : 0.0;
         double sfrac = (total_ship_cells > 0)
             ? (double)ships_revealed / total_ship_cells : 1.0;
         double all_s = ((ship_hit_mask & all_ships_mask) == all_ships_mask) ? 1.0 : 0.0;
-        // Progress: weight of this terminal = boards in this leaf / total boards for thread
-        progress.weight_done += (double)n_boards / (double)total_boards;
+        progress.terminals.fetch_add(1, std::memory_order_relaxed);
         return {
             .ev_sp      = 0.0,
             .ev_sp2     = 0.0,
@@ -369,6 +368,7 @@ static NodeResult tree_walk(
     std::string meta = build_meta_json(n_colors, ships_hit, blues_used);
 
     Click c = bridge.next_click(board_vec, meta);
+    progress.strategy_calls.fetch_add(1, std::memory_order_relaxed);
     int cell = rc_to_idx(c.row, c.col);
     if (cell < 0 || cell >= N_CELLS || revealed[cell])
         cell = unclicked[0];  // fallback: first unclicked cell
@@ -428,7 +428,7 @@ static NodeResult tree_walk(
             NodeResult r = tree_walk(
                 fbs, by_color[color], rev2, rev_dc2,
                 new_ships_hit, new_blues_used, new_game_over, ca,
-                total_boards, total_ship_cells, new_ships_rev, new_ship_hit_mask,
+                total_ship_cells, new_ships_rev, new_ship_hit_mask,
                 new_click_count, bridge, n_colors, progress);
             r.loss_5050 += extra_loss_5050;
             accumulate(result, p_color, r, (double)OT_BLUE_VALUE);
@@ -438,7 +438,7 @@ static NodeResult tree_walk(
             NodeResult r = tree_walk(
                 fbs, by_color[color], rev2, rev_dc2,
                 new_ships_hit, blues_used, false, ca,
-                total_boards, total_ship_cells, new_ships_rev, new_ship_hit_mask,
+                total_ship_cells, new_ships_rev, new_ship_hit_mask,
                 new_click_count, bridge, n_colors, progress);
             accumulate(result, p_color, r, (double)FIXED_SP[color]);
 
@@ -450,7 +450,7 @@ static NodeResult tree_walk(
                 NodeResult r = tree_walk(
                     fbs, by_color[color], rev2, rev_dc2,
                     new_ships_hit, blues_used, false, ca,
-                    total_boards, total_ship_cells, new_ships_rev, new_ship_hit_mask,
+                    total_ship_cells, new_ships_rev, new_ship_hit_mask,
                     new_click_count, bridge, n_colors, progress);
                 accumulate(result, p_color, r, (double)VAR_SP[var_c]);
             } else {
@@ -465,7 +465,7 @@ static NodeResult tree_walk(
                     NodeResult r = tree_walk(
                         fbs, by_color[color], rev2, rev_dc2,
                         new_ships_hit, blues_used, false, ca2,
-                        total_boards, total_ship_cells, new_ships_rev, new_ship_hit_mask,
+                        total_ship_cells, new_ships_rev, new_ship_hit_mask,
                         new_click_count, bridge, n_colors, progress);
                     double ev_child = r.ev_sp + sp_delta;
                     var_result.ev_sp      += wc * ev_child;
@@ -502,7 +502,8 @@ static OTVariantResult evaluate_variant_treewalk(
     const std::string&  strategy_path,
     int                 n_threads,
     double&             variant_elapsed_out,
-    double&             init_elapsed_out)
+    double&             init_elapsed_out,
+    uint64_t            expected_calls = 0)  // from a prior run; 0 = unknown
 {
     int total_ship_cells = 4 + 3 + 3 + 2 + fbs.n_var * 2;
     int n_boards         = fbs.n_boards;
@@ -569,45 +570,56 @@ static OTVariantResult evaluate_variant_treewalk(
     std::mutex              progress_mutex;
     std::condition_variable progress_cv;
 
-    // Print a progress line when elapsed >= next_time_threshold OR
-    // progress >= next_pct_threshold, whichever comes first.
-    // Check frequently (every 1s) so neither threshold is missed.
+    // Background progress thread: wakes every 10 s and prints a heartbeat line
+    // showing cumulative strategy calls and rolling calls/s.  If expected_calls
+    // is known from a prior run it also shows percentage complete and ETA.
+    // Never suppressed — the loop only exits when walk_done is set after all
+    // workers join.
     std::thread progress_thread([&]() {
         using namespace std::chrono;
-        auto     start              = steady_clock::now();
-        double   next_time_secs     = 10.0;   // print at least every 10s
-        double   next_pct_threshold = 5.0;    // print at every 5% milestone
+        auto     start          = steady_clock::now();
+        double   next_time_secs = 10.0;
+        uint64_t prev_calls     = 0;
+        double   prev_elapsed   = 0.0;
+
         std::unique_lock<std::mutex> lk(progress_mutex);
         while (true) {
-            // Wake every 1s to check both thresholds, or immediately on done
             progress_cv.wait_for(lk, milliseconds(1000),
                 [&]{ return walk_done.load(std::memory_order_relaxed); });
             if (walk_done.load(std::memory_order_relaxed)) break;
 
             double elapsed = duration<double>(steady_clock::now() - start).count();
-            double total_progress = 0.0;
-            for (int t = 0; t < n_threads; ++t) {
-                double chunk_frac = (double)(chunk_start[t+1] - chunk_start[t]) / n_boards;
-                total_progress += chunk_frac * progress[t].weight_done;
-            }
-            total_progress = std::min(total_progress, 1.0);
-            double pct = total_progress * 100.0;
+            if (elapsed < next_time_secs) continue;
 
-            bool time_trigger = (elapsed >= next_time_secs);
-            bool pct_trigger  = (pct    >= next_pct_threshold);
-            if (!time_trigger && !pct_trigger) continue;
-            // Suppress prints once progress has hit 100% — walk is just wrapping up
-            if (pct >= 100.0 - 1e-6) continue;
+            // Sum strategy_calls across all threads
+            uint64_t total_calls = 0;
+            for (int t = 0; t < n_threads; ++t)
+                total_calls += progress[t].strategy_calls.load(std::memory_order_relaxed);
 
-            double eta = (total_progress > 1e-6 && total_progress < 1.0 - 1e-6)
-                       ? elapsed / total_progress * (1.0 - total_progress) : 0.0;
+            double interval    = elapsed - prev_elapsed;
+            double calls_per_s = (interval > 0.0)
+                ? (double)(total_calls - prev_calls) / interval : 0.0;
+
             print_ts();
-            printf("  n_colors=%d:  elapsed=%.0fs  %.1f%%  eta=%.0fs\n",
-                   n_colors, elapsed, pct, eta);
+            if (expected_calls > 0) {
+                double pct = std::min(100.0 * (double)total_calls / (double)expected_calls, 100.0);
+                double eta = (calls_per_s > 0.0 && pct < 100.0)
+                    ? (double)(expected_calls - total_calls) / calls_per_s : 0.0;
+                printf("  n_colors=%d:  elapsed=%.0fs  calls=%llu  calls/s=%.0f"
+                       "  %.1f%%  eta=%.0fs\n",
+                       n_colors, elapsed,
+                       (unsigned long long)total_calls, calls_per_s,
+                       pct, eta);
+            } else {
+                printf("  n_colors=%d:  elapsed=%.0fs  calls=%llu  calls/s=%.0f\n",
+                       n_colors, elapsed,
+                       (unsigned long long)total_calls, calls_per_s);
+            }
             fflush(stdout);
 
-            if (time_trigger) next_time_secs     = elapsed + 10.0;
-            if (pct_trigger)  next_pct_threshold = std::floor(pct / 5.0) * 5.0 + 5.0;
+            prev_calls   = total_calls;
+            prev_elapsed = elapsed;
+            next_time_secs = elapsed + 10.0;
         }
     });
 
@@ -635,7 +647,6 @@ static OTVariantResult evaluate_variant_treewalk(
             results[t] = tree_walk(
                 fbs, indices, revealed, revealed_dc,
                 0, 0, false, ca,
-                chunk_size,          // total_boards for this thread (for progress weights)
                 total_ship_cells, 0, 0,
                 0, *bridges[t], n_colors, progress[t]);
         });
@@ -647,8 +658,12 @@ static OTVariantResult evaluate_variant_treewalk(
     {
         double elapsed = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - t0).count();
+        uint64_t final_calls = 0;
+        for (int t = 0; t < n_threads; ++t)
+            final_calls += progress[t].strategy_calls.load(std::memory_order_relaxed);
         print_ts();
-        printf("  n_colors=%d:  elapsed=%.0fs  100.0%%\n", n_colors, elapsed);
+        printf("  n_colors=%d:  elapsed=%.0fs  calls=%llu  100.0%%\n",
+               n_colors, elapsed, (unsigned long long)final_calls);
         fflush(stdout);
     }
 
@@ -699,18 +714,24 @@ static OTVariantResult evaluate_variant_treewalk(
            n_colors, elapsed_ev, mean_sp, stdev_ev);
     fflush(stdout);
 
+    // Sum total strategy calls across all threads
+    uint64_t total_calls = 0;
+    for (int t = 0; t < n_threads; ++t)
+        total_calls += progress[t].strategy_calls.load(std::memory_order_relaxed);
+
     OTVariantResult r;
-    r.n_colors          = n_colors;
-    r.n_boards          = (uint64_t)n_boards;
-    r.ev                = mean_sp;
-    r.stdev_ev          = stdev_ev;
-    r.avg_clicks        = combined.avg_clicks;
-    r.stdev_clicks      = 0.0;
-    r.avg_ship_clicks   = combined.ship_frac * total_ship_cells;
-    r.stdev_ship_clicks = 0.0;
-    r.perfect_rate      = combined.perf_prob;
-    r.all_ships_rate    = combined.all_ships;
-    r.loss_5050_rate    = combined.loss_5050;
+    r.n_colors              = n_colors;
+    r.n_boards              = (uint64_t)n_boards;
+    r.ev                    = mean_sp;
+    r.stdev_ev              = stdev_ev;
+    r.avg_clicks            = combined.avg_clicks;
+    r.stdev_clicks          = 0.0;
+    r.avg_ship_clicks       = combined.ship_frac * total_ship_cells;
+    r.stdev_ship_clicks     = 0.0;
+    r.perfect_rate          = combined.perf_prob;
+    r.all_ships_rate        = combined.all_ships;
+    r.loss_5050_rate        = combined.loss_5050;
+    r.total_strategy_calls  = total_calls;
     return r;
 }
 
@@ -725,6 +746,8 @@ int main(int argc, char* argv[]) {
     std::string boards_dir   = std::string(REPO_ROOT) + "/boards";
     std::string n_colors_arg = "all";
     int n_threads = 1;
+    // expected_calls[i] = expected total strategy calls for n_colors = 6+i (0 = unknown)
+    uint64_t expected_calls[4] = {0, 0, 0, 0};
 #ifdef _OPENMP
     n_threads = omp_get_max_threads();
 #else
@@ -735,16 +758,22 @@ int main(int argc, char* argv[]) {
 #endif
 
     for (int i = 1; i < argc; ++i) {
-        if      (!strcmp(argv[i], "--strategy")   && i+1 < argc) strategy_path = argv[++i];
-        else if (!strcmp(argv[i], "--boards-dir")  && i+1 < argc) boards_dir    = argv[++i];
-        else if (!strcmp(argv[i], "--n-colors")    && i+1 < argc) n_colors_arg  = argv[++i];
-        else if (!strcmp(argv[i], "--threads")     && i+1 < argc) n_threads     = atoi(argv[++i]);
+        if      (!strcmp(argv[i], "--strategy")          && i+1 < argc) strategy_path = argv[++i];
+        else if (!strcmp(argv[i], "--boards-dir")         && i+1 < argc) boards_dir    = argv[++i];
+        else if (!strcmp(argv[i], "--n-colors")           && i+1 < argc) n_colors_arg  = argv[++i];
+        else if (!strcmp(argv[i], "--threads")            && i+1 < argc) n_threads     = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--expected-calls-6")   && i+1 < argc) expected_calls[0] = (uint64_t)atoll(argv[++i]);
+        else if (!strcmp(argv[i], "--expected-calls-7")   && i+1 < argc) expected_calls[1] = (uint64_t)atoll(argv[++i]);
+        else if (!strcmp(argv[i], "--expected-calls-8")   && i+1 < argc) expected_calls[2] = (uint64_t)atoll(argv[++i]);
+        else if (!strcmp(argv[i], "--expected-calls-9")   && i+1 < argc) expected_calls[3] = (uint64_t)atoll(argv[++i]);
     }
 
     if (strategy_path.empty()) {
         fprintf(stderr,
             "Usage: evaluate_ot_treewalk --strategy <path> [--boards-dir <dir>]\n"
-            "                            [--n-colors 6|7|8|9|all] [--threads N]\n");
+            "                            [--n-colors 6|7|8|9|all] [--threads N]\n"
+            "                            [--expected-calls-6 N] [--expected-calls-7 N]\n"
+            "                            [--expected-calls-8 N] [--expected-calls-9 N]\n");
         return 1;
     }
     if (n_threads < 1) n_threads = 1;
@@ -805,7 +834,8 @@ int main(int argc, char* argv[]) {
         double variant_init_elapsed = 0.0;
         OTVariantResult vr = evaluate_variant_treewalk(fbs, nc, strategy_path,
                                                        n_threads, variant_elapsed,
-                                                       variant_init_elapsed);
+                                                       variant_init_elapsed,
+                                                       expected_calls[nc - 6]);
         int vi = nc - 6;
         overall_result.variants[vi] = vr;
         variant_timings.emplace_back(nc, variant_elapsed);
@@ -846,13 +876,15 @@ int main(int argc, char* argv[]) {
                "\"avg_clicks\":%.4f,\"stdev_clicks\":%.4f,"
                "\"avg_ship_clicks\":%.4f,\"stdev_ship_clicks\":%.4f,"
                "\"perfect_rate\":%.4f,"
-               "\"all_ships_rate\":%.4f,\"loss_5050_rate\":%.4f}",
+               "\"all_ships_rate\":%.4f,\"loss_5050_rate\":%.4f,"
+               "\"total_strategy_calls\":%llu}",
                vr.n_colors, (unsigned long long)vr.n_boards,
                vr.ev, vr.stdev_ev,
                vr.avg_clicks, vr.stdev_clicks,
                vr.avg_ship_clicks, vr.stdev_ship_clicks,
                vr.perfect_rate,
-               vr.all_ships_rate, vr.loss_5050_rate);
+               vr.all_ships_rate, vr.loss_5050_rate,
+               (unsigned long long)vr.total_strategy_calls);
     }
     printf("]}\n");
     fflush(stdout);
