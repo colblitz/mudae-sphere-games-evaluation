@@ -28,6 +28,18 @@
       "ev": 1513.5832
     },
     {
+      "filename": "tksglass_4.cpp",
+      "commit": "25f4aef",
+      "date": "2026-04-25",
+      "aggregate_ev": 1267.9349,
+      "games_per_cpu_s": 1796.3,
+      "setup_cpu_s": 0.0,
+      "harness_elapsed_s": 880.243,
+      "n_threads": 20,
+      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+      "ev": 1267.9349
+    },
+    {
       "filename": "svessinn_solver_fast.cpp",
       "commit": "c0ad8f7",
       "date": "2026-04-25",
@@ -50,13 +62,6 @@
       "n_threads": 20,
       "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
       "ev": 1215.6034
-    },
-    {
-      "filename": "random_clicks.cpp",
-      "commit": "9cf69e2",
-      "date": "2026-04-21",
-      "aggregate_ev": 688.3733,
-      "ev": 688.3733
     }
   ],
   "by_variant": {
@@ -156,18 +161,27 @@
           "total_strategy_calls": 8211305
         },
         {
-          "filename": "random_clicks.cpp",
-          "commit": "9cf69e2",
-          "date": "2026-04-21",
-          "aggregate_ev": 688.3733,
+          "filename": "tksglass_4.cpp",
+          "commit": "25f4aef",
+          "date": "2026-04-25",
+          "aggregate_ev": 1267.9349,
+          "games_per_cpu_s": 1796.3,
+          "setup_cpu_s": 0.0,
+          "harness_elapsed_s": 880.243,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
           "n_colors": 6,
           "n_boards": 1194816,
-          "ev": 270.3945,
-          "stdev": 72.4643,
-          "avg_clicks": 10.6899,
-          "perfect_rate": 0.0,
-          "all_ships_rate": 0.1596,
-          "loss_5050_rate": 0.9566
+          "ev": 545.1719,
+          "stdev_ev": 192.6843,
+          "avg_clicks": 15.4492,
+          "stdev_clicks": 0.0,
+          "avg_ship_clicks": 10.2879,
+          "stdev_ship_clicks": 0.0,
+          "perfect_rate": 0.1138,
+          "all_ships_rate": 0.3567,
+          "loss_5050_rate": 0.7141,
+          "total_strategy_calls": 5248036
         }
       ]
     },
@@ -244,6 +258,29 @@
           "total_strategy_calls": 178661448
         },
         {
+          "filename": "tksglass_4.cpp",
+          "commit": "25f4aef",
+          "date": "2026-04-25",
+          "aggregate_ev": 1267.9349,
+          "games_per_cpu_s": 1796.3,
+          "setup_cpu_s": 0.0,
+          "harness_elapsed_s": 880.243,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 7,
+          "n_boards": 5672880,
+          "ev": 702.1356,
+          "stdev_ev": 269.018,
+          "avg_clicks": 16.3446,
+          "stdev_clicks": 0.0,
+          "avg_ship_clicks": 11.9538,
+          "stdev_ship_clicks": 0.0,
+          "perfect_rate": 0.0962,
+          "all_ships_rate": 0.3634,
+          "loss_5050_rate": 0.6931,
+          "total_strategy_calls": 58929134
+        },
+        {
           "filename": "svessinn_solver_fast.cpp",
           "commit": "c0ad8f7",
           "date": "2026-04-25",
@@ -265,20 +302,6 @@
           "all_ships_rate": 0.4073,
           "loss_5050_rate": 0.553,
           "total_strategy_calls": 73129759
-        },
-        {
-          "filename": "random_clicks.cpp",
-          "commit": "9cf69e2",
-          "date": "2026-04-21",
-          "aggregate_ev": 688.3733,
-          "n_colors": 7,
-          "n_boards": 5672880,
-          "ev": 349.7047,
-          "stdev": 115.191,
-          "avg_clicks": 10.7532,
-          "perfect_rate": 0.0,
-          "all_ships_rate": 0.1175,
-          "loss_5050_rate": 0.8477
         }
       ]
     },
@@ -355,6 +378,29 @@
           "total_strategy_calls": 820644669
         },
         {
+          "filename": "tksglass_4.cpp",
+          "commit": "25f4aef",
+          "date": "2026-04-25",
+          "aggregate_ev": 1267.9349,
+          "games_per_cpu_s": 1796.3,
+          "setup_cpu_s": 0.0,
+          "harness_elapsed_s": 880.243,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 8,
+          "n_boards": 12328128,
+          "ev": 1052.7176,
+          "stdev_ev": 392.5046,
+          "avg_clicks": 18.8437,
+          "stdev_clicks": 0.0,
+          "avg_ship_clicks": 14.6033,
+          "stdev_ship_clicks": 0.0,
+          "perfect_rate": 0.1577,
+          "all_ships_rate": 0.5484,
+          "loss_5050_rate": 0.5631,
+          "total_strategy_calls": 454512182
+        },
+        {
           "filename": "svessinn_solver_fast.cpp",
           "commit": "c0ad8f7",
           "date": "2026-04-25",
@@ -376,20 +422,6 @@
           "all_ships_rate": 0.5288,
           "loss_5050_rate": 0.4425,
           "total_strategy_calls": 335750026
-        },
-        {
-          "filename": "random_clicks.cpp",
-          "commit": "9cf69e2",
-          "date": "2026-04-21",
-          "aggregate_ev": 688.3733,
-          "n_colors": 8,
-          "n_boards": 12328128,
-          "ev": 500.8768,
-          "stdev": 186.6947,
-          "avg_clicks": 11.7395,
-          "perfect_rate": 0.0001,
-          "all_ships_rate": 0.14,
-          "loss_5050_rate": 0.4433
         }
       ]
     },
@@ -466,6 +498,29 @@
           "total_strategy_calls": 1002094130
         },
         {
+          "filename": "tksglass_4.cpp",
+          "commit": "25f4aef",
+          "date": "2026-04-25",
+          "aggregate_ev": 1267.9349,
+          "games_per_cpu_s": 1796.3,
+          "setup_cpu_s": 0.0,
+          "harness_elapsed_s": 880.243,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 9,
+          "n_boards": 12428080,
+          "ev": 1809.1695,
+          "stdev_ev": 492.4056,
+          "avg_clicks": 21.8588,
+          "stdev_clicks": 0.0,
+          "avg_ship_clicks": 17.7655,
+          "stdev_ship_clicks": 0.0,
+          "perfect_rate": 0.3192,
+          "all_ships_rate": 0.7938,
+          "loss_5050_rate": 0.4191,
+          "total_strategy_calls": 1144490793
+        },
+        {
           "filename": "zavex_heuristic_fast.cpp",
           "commit": "c631f9b",
           "date": "2026-04-25",
@@ -487,20 +542,6 @@
           "all_ships_rate": 0.2025,
           "loss_5050_rate": 0.5323,
           "total_strategy_calls": 549177928
-        },
-        {
-          "filename": "random_clicks.cpp",
-          "commit": "9cf69e2",
-          "date": "2026-04-21",
-          "aggregate_ev": 688.3733,
-          "n_colors": 9,
-          "n_boards": 12428080,
-          "ev": 1069.1333,
-          "stdev": 463.7787,
-          "avg_clicks": 13.8616,
-          "perfect_rate": 0.0007,
-          "all_ships_rate": 0.2095,
-          "loss_5050_rate": 0.0994
         }
       ]
     }
