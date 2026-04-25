@@ -138,13 +138,25 @@ def get_cpu_model() -> str:
 # Build harness
 # ---------------------------------------------------------------------------
 
+def _harness_source_mtime(source: Path) -> float:
+    """Return the newest mtime across the given source file and all headers
+    in harness/common/, so that a header change triggers a rebuild."""
+    mtimes = [source.stat().st_mtime]
+    common_dir = HARNESS_DIR / "common"
+    if common_dir.is_dir():
+        for h in common_dir.iterdir():
+            if h.suffix in (".h", ".hpp"):
+                mtimes.append(h.stat().st_mtime)
+    return max(mtimes)
+
+
 def build_harness(game: str) -> Path:
     binary = HARNESS_DIR / f"evaluate_{game}"
     source = HARNESS_DIR / f"evaluate_{game}.cpp"
     if not source.exists():
         print(f"ERROR: harness source not found: {source}", file=sys.stderr)
         sys.exit(1)
-    if binary.exists() and binary.stat().st_mtime >= source.stat().st_mtime:
+    if binary.exists() and binary.stat().st_mtime >= _harness_source_mtime(source):
         return binary  # up to date
 
     print(f"[build] Building {binary.name} ...")
@@ -166,7 +178,7 @@ def build_harness_treewalk() -> Path:
     if not source.exists():
         print(f"ERROR: harness source not found: {source}", file=sys.stderr)
         sys.exit(1)
-    if binary.exists() and binary.stat().st_mtime >= source.stat().st_mtime:
+    if binary.exists() and binary.stat().st_mtime >= _harness_source_mtime(source):
         return binary  # up to date
 
     print("[build] Building evaluate_ot_treewalk ...")
