@@ -517,10 +517,24 @@ static OTVariantResult evaluate_variant_treewalk(
     // Build per-thread bridges and board-index chunks
     // -----------------------------------------------------------------------
 
+    print_ts();
+    printf("  n_colors=%d: initialising %d bridge%s ...\n",
+           n_colors, n_threads, n_threads == 1 ? "" : "s");
+    fflush(stdout);
+    auto tb0 = std::chrono::steady_clock::now();
+
     std::vector<std::unique_ptr<StrategyBridge>> bridges(n_threads);
     for (int t = 0; t < n_threads; ++t) {
         bridges[t] = StrategyBridge::load(strategy_path, "ot");
         bridges[t]->init_evaluation_run();
+    }
+
+    {
+        double tb = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - tb0).count();
+        print_ts();
+        printf("  n_colors=%d: bridges ready  (%.1fs)\n", n_colors, tb);
+        fflush(stdout);
     }
 
     // Split board indices into n_threads equal chunks.
@@ -627,6 +641,15 @@ static OTVariantResult evaluate_variant_treewalk(
     }
 
     for (auto& w : workers) w.join();
+
+    // Print a final 100% progress line now that all workers are done.
+    {
+        double elapsed = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - t0).count();
+        print_ts();
+        printf("  n_colors=%d:  elapsed=%.0fs  100.0%%\n", n_colors, elapsed);
+        fflush(stdout);
+    }
 
     // Signal progress thread to wake and exit, then join it
     {
