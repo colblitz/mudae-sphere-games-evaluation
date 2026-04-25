@@ -16,14 +16,17 @@
  *     tree-walk evaluator (which never calls init_game_payload between boards).
  *
  *   colblitz_v8_heuristics_stateless.cpp  (from-scratch, stateless)  ← this file
- *     On every next_click call, starts from a full copy of fullBoards_[idx] and
- *     re-applies ALL clicked cells from the board argument before scoring.
+ *     On every next_click call, starts from a full index list over fullBoards_[idx]
+ *     and re-applies ALL clicked cells from the board argument before scoring.
  *     Output is identical to the incremental version for any given (board, meta)
  *     input.  Compatible with the tree-walk evaluator.
  *
- * The per-call rebuild is O(all_reveals × boards) instead of O(new_reveals × boards),
- * but because the tree-walk evaluator calls next_click far fewer times than the
- * sequential runner, the net wall time is typically lower overall.
+ * Performance model (v2 — index-based filtering):
+ *   Instead of deep-copying the 24MB board data on every call, we maintain a
+ *   std::vector<int> of surviving row indices into the immutable fullBoards_[idx].
+ *   Filtering removes non-matching indices in-place.  No heap allocation beyond
+ *   the index vector itself (~4.8MB for n_colors=6 at the start, shrinking fast).
+ *   Per-call cost: O(N_reveals × N_surviving) with no memcpy of board data.
  *
  * External data files (same as colblitz_v8_heuristics.cpp):
  *   data/sphere_trace_boards_2.bin.lzma  (~874 KB)  n_colors=6
@@ -39,6 +42,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <numeric>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -118,7 +122,8 @@ struct AdjMaskInit {
 static AdjMaskInit _adjInit;
 
 // ---------------------------------------------------------------------------
-// Board storage
+// Board storage — fullBoards_ is immutable after init_evaluation_run.
+// Filtering operates on a std::vector<int> of surviving row indices.
 // ---------------------------------------------------------------------------
 
 struct BoardSet {
@@ -193,32 +198,140 @@ static std::string repoPath(const std::string& rel) {
 }
 
 // ---------------------------------------------------------------------------
-// Outcome counts
+// Index-based filtering
+//
+// All filter functions take:
+//   const BoardSet& fbs   — immutable full board data (never modified)
+//   std::vector<int>& sv  — surviving row indices (modified in-place)
 // ---------------------------------------------------------------------------
 
-static void computeOutcomeCounts6(
-    const BoardSet& bs,
-    const std::vector<int32_t>& occ,
+static void filterBlueIdx(const BoardSet& fbs, std::vector<int>& sv, int32_t bit) {
+    const int32_t* data   = fbs.data.data();
+    int            fields = fbs.fields;
+    int out = 0;
+    for (int i = 0, n = (int)sv.size(); i < n; ++i) {
+        const int32_t* rowp = data + sv[i] * fields;
+        int32_t occ = 0;
+        for (int c = 0; c < fields; ++c) occ |= rowp[c];
+        if ((occ & bit) == 0) sv[out++] = sv[i];
+    }
+    sv.resize(out);
+}
+
+static void filterFixedIdx(const BoardSet& fbs, std::vector<int>& sv, int32_t bit, int col) {
+    const int32_t* data   = fbs.data.data();
+    int            fields = fbs.fields;
+    int out = 0;
+    for (int i = 0, n = (int)sv.size(); i < n; ++i) {
+        if (data[sv[i] * fields + col] & bit) sv[out++] = sv[i];
+    }
+    sv.resize(out);
+}
+
+static void filterVarRareIdx(
+    const BoardSet& fbs, std::vector<int>& sv, int32_t bit,
+    const std::string& color,
+    std::unordered_map<std::string, int32_t>& rareColorGroups,
+    int n_rare)
+{
+    int n_var_rare = n_rare - 1;
+    if (n_var_rare <= 0) { filterFixedIdx(fbs, sv, bit, COL_RARE_START); return; }
+    int var_start  = COL_RARE_START + 1;
+    const int32_t* data   = fbs.data.data();
+    int            fields = fbs.fields;
+
+    // Step 1: keep rows where any var-rare column has this bit
+    {
+        int out = 0;
+        for (int i = 0, n = (int)sv.size(); i < n; ++i) {
+            const int32_t* rowp = data + sv[i] * fields;
+            bool found = false;
+            for (int k = 0; k < n_var_rare; ++k)
+                if (rowp[var_start + k] & bit) { found = true; break; }
+            if (found) sv[out++] = sv[i];
+        }
+        sv.resize(out);
+    }
+    if (sv.empty()) return;
+
+    // Update color group
+    int32_t existing = 0;
+    auto it = rareColorGroups.find(color);
+    if (it != rareColorGroups.end()) existing = it->second;
+    rareColorGroups[color] = existing | bit;
+
+    // Step 2: grouping permutation constraint
+    std::vector<int32_t> group_bits;
+    group_bits.reserve(rareColorGroups.size());
+    for (const auto& kv : rareColorGroups) group_bits.push_back(kv.second);
+    int n_groups = (int)group_bits.size();
+
+    std::function<bool(int, uint32_t, const int32_t*)> hasPerm;
+    hasPerm = [&](int g, uint32_t used_mask, const int32_t* rowp) -> bool {
+        if (g == n_groups) return true;
+        for (int k = 0; k < n_var_rare; ++k) {
+            if (used_mask & (1u << k)) continue;
+            int32_t colval = rowp[var_start + k];
+            if ((colval & group_bits[g]) == group_bits[g])
+                if (hasPerm(g + 1, used_mask | (1u << k), rowp)) return true;
+        }
+        return false;
+    };
+
+    int out = 0;
+    for (int i = 0, n = (int)sv.size(); i < n; ++i) {
+        const int32_t* rowp = data + sv[i] * fields;
+        if (hasPerm(0, 0, rowp)) sv[out++] = sv[i];
+    }
+    sv.resize(out);
+}
+
+// Apply a single reveal to the surviving index list.
+static void applyRevealIdx(const BoardSet& fbs,
+                            std::vector<int>& sv,
+                            std::unordered_map<std::string, int32_t>& rareColorGroups,
+                            int cell_idx, const std::string& color, int n_rare)
+{
+    if (sv.empty()) return;
+    int32_t bit = (int32_t)(1 << cell_idx);
+    if      (color == "spB") filterBlueIdx (fbs, sv, bit);
+    else if (color == "spT") filterFixedIdx(fbs, sv, bit, COL_TEAL);
+    else if (color == "spG") filterFixedIdx(fbs, sv, bit, COL_GREEN);
+    else if (color == "spY") filterFixedIdx(fbs, sv, bit, COL_YELLOW);
+    else if (color == "spO") filterFixedIdx(fbs, sv, bit, COL_RARE_START);
+    else if (color == "spL" || color == "spD" || color == "spR" || color == "spW")
+        filterVarRareIdx(fbs, sv, bit, color, rareColorGroups, n_rare);
+    // "spU" (still covered) is ignored
+}
+
+// ---------------------------------------------------------------------------
+// Outcome counts — index-based
+// ---------------------------------------------------------------------------
+
+static void computeOutcomeCounts6Idx(
+    const BoardSet& fbs,
+    const std::vector<int>& sv,
+    const std::vector<int32_t>& occ_sv,  // precomputed occ per surviving row
     const std::vector<int>& unclicked,
     std::vector<int>& counts6)
 {
     int nu = (int)unclicked.size();
+    int n  = (int)sv.size();
     counts6.assign(nu * 6, 0);
-    const int32_t* data = bs.data.data();
-    const int fields    = bs.fields;
-    const int n         = bs.n;
+    const int32_t* data   = fbs.data.data();
+    int            fields = fbs.fields;
     for (int ii = 0; ii < nu; ++ii) {
-        int cell = unclicked[ii];
+        int cell    = unclicked[ii];
         int32_t bit = (int32_t)(1 << cell);
-        int* c = &counts6[ii * 6];
+        int* c      = &counts6[ii * 6];
         int n_blue=0, n_teal=0, n_green=0, n_yellow=0, n_spo=0, n_var=0;
-        for (int row = 0; row < n; ++row) {
-            const int32_t* rowp = data + row * fields;
-            if ((occ[row] & bit) == 0) { ++n_blue; continue; }
-            if (rowp[COL_TEAL]        & bit) { ++n_teal;   continue; }
-            if (rowp[COL_GREEN]       & bit) { ++n_green;  continue; }
-            if (rowp[COL_YELLOW]      & bit) { ++n_yellow; continue; }
-            if (rowp[COL_RARE_START]  & bit) { ++n_spo;    continue; }
+        for (int i = 0; i < n; ++i) {
+            const int32_t* rowp = data + sv[i] * fields;
+            if ((occ_sv[i] & bit) == 0) { ++n_blue; continue; }
+            if (rowp[COL_TEAL]       & bit) { ++n_teal;   continue; }
+            if (rowp[COL_GREEN]      & bit) { ++n_green;  continue; }
+            if (rowp[COL_YELLOW]     & bit) { ++n_yellow; continue; }
+            if (rowp[COL_RARE_START] & bit) { ++n_spo;    continue; }
             ++n_var;
         }
         c[0]=n_blue; c[1]=n_teal; c[2]=n_green;
@@ -226,26 +339,27 @@ static void computeOutcomeCounts6(
     }
 }
 
-static void computeOutcomeCountsDetailed(
-    const BoardSet& bs,
-    const std::vector<int32_t>& occ,
+static void computeOutcomeCountsDetailedIdx(
+    const BoardSet& fbs,
+    const std::vector<int>& sv,
+    const std::vector<int32_t>& occ_sv,
     const std::vector<int>& unclicked,
     std::vector<int>& counts_dc,
     int& slot_stride)
 {
     int nu     = (int)unclicked.size();
-    int fields = bs.fields;
+    int fields = fbs.fields;
     slot_stride = 1 + fields;
     counts_dc.assign(nu * slot_stride, 0);
-    const int32_t* data = bs.data.data();
-    const int n         = bs.n;
+    const int32_t* data = fbs.data.data();
+    int n = (int)sv.size();
     for (int ii = 0; ii < nu; ++ii) {
         int cell    = unclicked[ii];
         int32_t bit = (int32_t)(1 << cell);
         int* c      = &counts_dc[ii * slot_stride];
-        for (int row = 0; row < n; ++row) {
-            const int32_t* rowp = data + row * fields;
-            if ((occ[row] & bit) == 0) { ++c[0]; continue; }
+        for (int i = 0; i < n; ++i) {
+            const int32_t* rowp = data + sv[i] * fields;
+            if ((occ_sv[i] & bit) == 0) { ++c[0]; continue; }
             for (int col = 0; col < fields; ++col)
                 if (rowp[col] & bit) { ++c[1 + col]; break; }
         }
@@ -253,7 +367,7 @@ static void computeOutcomeCountsDetailed(
 }
 
 // ---------------------------------------------------------------------------
-// Score terms
+// Score terms (unchanged — operate on counts arrays, not board data)
 // ---------------------------------------------------------------------------
 
 static inline double termInfo6(const int* c6, int n) {
@@ -319,27 +433,29 @@ static inline double termRareId(const int* cdc, int slots, int n,
 }
 
 // ---------------------------------------------------------------------------
-// Identified slots
+// Identified slots — index-based
 // ---------------------------------------------------------------------------
 
-static std::vector<bool> getIdentifiedSlots(
-    const BoardSet& bs,
+static std::vector<bool> getIdentifiedSlotsIdx(
+    const BoardSet& fbs,
+    const std::vector<int>& sv,
     const std::unordered_map<std::string, int32_t>& rareColorGroups,
     int n_rare)
 {
     int n_var = n_rare - 1;
     std::vector<bool> identified(n_var, false);
-    if (n_var <= 0 || rareColorGroups.empty() || bs.n == 0) return identified;
-    int var_start = COL_RARE_START + 1;
-    const int32_t* data = bs.data.data();
-    int fields = bs.fields, n = bs.n;
+    if (n_var <= 0 || rareColorGroups.empty() || sv.empty()) return identified;
+    int var_start   = COL_RARE_START + 1;
+    const int32_t* data   = fbs.data.data();
+    int            fields = fbs.fields;
+    int            n      = (int)sv.size();
     for (int k = 0; k < n_var; ++k) {
         int col = var_start + k;
         for (const auto& kv : rareColorGroups) {
             int32_t bits = kv.second;
             bool all_match = true, any_found = false;
-            for (int row = 0; row < n; ++row) {
-                int32_t colval = data[row * fields + col];
+            for (int i = 0; i < n; ++i) {
+                int32_t colval = data[sv[i] * fields + col];
                 bool has_any = (colval & bits) != 0;
                 bool has_all = (colval & bits) == bits;
                 if (has_any) any_found = true;
@@ -358,7 +474,25 @@ static std::vector<double> buildSlotSp(int n_rare) {
 }
 
 // ---------------------------------------------------------------------------
-// CP pre-filter
+// Compute occ (bitmask of all occupied cells) for each surviving row
+// ---------------------------------------------------------------------------
+
+static void computeOccIdx(const BoardSet& fbs, const std::vector<int>& sv,
+                           std::vector<int32_t>& occ_sv) {
+    int            fields = fbs.fields;
+    const int32_t* data   = fbs.data.data();
+    int            n      = (int)sv.size();
+    occ_sv.resize(n);
+    for (int i = 0; i < n; ++i) {
+        const int32_t* rowp = data + sv[i] * fields;
+        int32_t o = 0;
+        for (int c = 0; c < fields; ++c) o |= rowp[c];
+        occ_sv[i] = o;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CP pre-filter — unchanged interface (works on counts6 arrays)
 // ---------------------------------------------------------------------------
 
 static int cpPrefilter(
@@ -395,21 +529,25 @@ static int cpPrefilter(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 1 cell picker — CORTANA_V8
+// Phase 1 cell picker — CORTANA_V8 (index-based)
 // ---------------------------------------------------------------------------
 
-static int pickPhase1CellV8(
-    const BoardSet& bs,
-    const std::vector<int32_t>& occ,
+static int pickPhase1CellV8Idx(
+    const BoardSet& fbs,
+    const std::vector<int>& sv,
     const std::vector<int>& unclicked,
     int n_rare, int ships_hit, int blues_used,
     const std::unordered_map<std::string, int32_t>& rareColorGroups,
     const std::array<double, V8_N_WEIGHTS>& weights)
 {
     if (unclicked.empty()) return -1;
-    int n = bs.n;
+    int n = (int)sv.size();
+
+    std::vector<int32_t> occ_sv;
+    computeOccIdx(fbs, sv, occ_sv);
+
     std::vector<int> counts6;
-    computeOutcomeCounts6(bs, occ, unclicked, counts6);
+    computeOutcomeCounts6Idx(fbs, sv, occ_sv, unclicked, counts6);
     int forced = cpPrefilter(unclicked, counts6, n);
     if (forced >= 0) return forced;
 
@@ -430,14 +568,14 @@ static int pickPhase1CellV8(
 
     std::vector<int> counts_dc;
     int slot_stride = 0;
-    if (need_dc) computeOutcomeCountsDetailed(bs, occ, unclicked, counts_dc, slot_stride);
+    if (need_dc) computeOutcomeCountsDetailedIdx(fbs, sv, occ_sv, unclicked, counts_dc, slot_stride);
 
     std::vector<double> slot_sp;
     std::vector<bool>   identified;
     int n_var = n_rare - 1;
     if (need_dc && (std::abs(w_ev) > 1e-15 || std::abs(w_var_sp) > 1e-15 ||
                     std::abs(w_rare_id) > 1e-15)) {
-        identified = getIdentifiedSlots(bs, rareColorGroups, n_rare);
+        identified = getIdentifiedSlotsIdx(fbs, sv, rareColorGroups, n_rare);
         slot_sp    = buildSlotSp(n_rare);
     } else {
         identified.assign(n_var, false);
@@ -467,19 +605,23 @@ static int pickPhase1CellV8(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 1 cell picker — Phase-D fallback
+// Phase 1 cell picker — Phase-D fallback (index-based)
 // ---------------------------------------------------------------------------
 
-static int pickPhase1CellPhaseD(
-    const BoardSet& bs,
-    const std::vector<int32_t>& occ,
+static int pickPhase1CellPhaseDIdx(
+    const BoardSet& fbs,
+    const std::vector<int>& sv,
     const std::vector<int>& unclicked,
     int n_rare, int ships_hit)
 {
     if (unclicked.empty()) return -1;
-    int n = bs.n;
+    int n = (int)sv.size();
+
+    std::vector<int32_t> occ_sv;
+    computeOccIdx(fbs, sv, occ_sv);
+
     std::vector<int> counts6;
-    computeOutcomeCounts6(bs, occ, unclicked, counts6);
+    computeOutcomeCounts6Idx(fbs, sv, occ_sv, unclicked, counts6);
     int forced = cpPrefilter(unclicked, counts6, n);
     if (forced >= 0) return forced;
 
@@ -490,7 +632,7 @@ static int pickPhase1CellPhaseD(
 
     std::vector<int> counts_dc;
     int slot_stride = 0;
-    if (w_hfull > 0.0) computeOutcomeCountsDetailed(bs, occ, unclicked, counts_dc, slot_stride);
+    if (w_hfull > 0.0) computeOutcomeCountsDetailedIdx(fbs, sv, occ_sv, unclicked, counts_dc, slot_stride);
 
     double inv_n = (n > 0) ? 1.0 / n : 0.0;
     int best = unclicked[0]; double best_s = -1e18;
@@ -509,130 +651,27 @@ static int pickPhase1CellPhaseD(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2 — SafeP2
+// Phase 2 — SafeP2 (index-based)
 // ---------------------------------------------------------------------------
 
-static int pickSafeP2Cell(
-    const BoardSet& bs,
-    const std::vector<int32_t>& occ,
+static int pickSafeP2CellIdx(
+    const BoardSet& fbs,
+    const std::vector<int>& sv,
+    const std::vector<int32_t>& occ_sv,
     const std::vector<int>& unclicked)
 {
     if (unclicked.empty()) return -1;
-    int n = bs.n;
+    int n = (int)sv.size();
     if (n == 0) return unclicked[0];
     int best = unclicked[0], best_blue = n + 1;
     for (int cell : unclicked) {
         int32_t bit = (int32_t)(1 << cell);
         int n_blue = 0;
-        for (int row = 0; row < n; ++row)
-            if ((occ[row] & bit) == 0) ++n_blue;
+        for (int i = 0; i < n; ++i)
+            if ((occ_sv[i] & bit) == 0) ++n_blue;
         if (n_blue < best_blue) { best_blue = n_blue; best = cell; }
     }
     return best;
-}
-
-// ---------------------------------------------------------------------------
-// Board filtering helpers
-// ---------------------------------------------------------------------------
-
-static void filterBlue(BoardSet& bs, int32_t bit) {
-    const int32_t* src = bs.data.data();
-    int fields = bs.fields, n = bs.n;
-    std::vector<int32_t> tmp; tmp.reserve(n * fields);
-    int out_n = 0;
-    for (int row = 0; row < n; ++row) {
-        const int32_t* rowp = src + row * fields;
-        int32_t occ = 0;
-        for (int col = 0; col < fields; ++col) occ |= rowp[col];
-        if ((occ & bit) == 0) { tmp.insert(tmp.end(), rowp, rowp + fields); ++out_n; }
-    }
-    bs.data = std::move(tmp); bs.n = out_n;
-}
-
-static void filterFixed(BoardSet& bs, int32_t bit, int col) {
-    const int32_t* src = bs.data.data();
-    int fields = bs.fields, n = bs.n;
-    std::vector<int32_t> tmp; tmp.reserve(n * fields);
-    int out_n = 0;
-    for (int row = 0; row < n; ++row) {
-        const int32_t* rowp = src + row * fields;
-        if (rowp[col] & bit) { tmp.insert(tmp.end(), rowp, rowp + fields); ++out_n; }
-    }
-    bs.data = std::move(tmp); bs.n = out_n;
-}
-
-static void filterVarRare(
-    BoardSet& bs, int32_t bit,
-    const std::string& color,
-    std::unordered_map<std::string, int32_t>& rareColorGroups,
-    int n_rare)
-{
-    int n_var_rare = n_rare - 1;
-    if (n_var_rare <= 0) { filterFixed(bs, bit, COL_RARE_START); return; }
-    int var_start = COL_RARE_START + 1;
-
-    // Step 1: keep rows where any var-rare column has this bit
-    {
-        const int32_t* src = bs.data.data();
-        int fields = bs.fields, n = bs.n;
-        std::vector<int32_t> tmp; tmp.reserve(n * fields);
-        int out_n = 0;
-        for (int row = 0; row < n; ++row) {
-            const int32_t* rowp = src + row * fields;
-            bool found = false;
-            for (int k = 0; k < n_var_rare; ++k)
-                if (rowp[var_start + k] & bit) { found = true; break; }
-            if (found) { tmp.insert(tmp.end(), rowp, rowp + fields); ++out_n; }
-        }
-        bs.data = std::move(tmp); bs.n = out_n;
-    }
-    if (bs.n == 0) return;
-
-    // Update color group
-    int32_t existing = 0;
-    auto it = rareColorGroups.find(color);
-    if (it != rareColorGroups.end()) existing = it->second;
-    rareColorGroups[color] = existing | bit;
-
-    // Step 2: grouping permutation constraint
-    std::vector<int32_t> group_bits;
-    group_bits.reserve(rareColorGroups.size());
-    for (const auto& kv : rareColorGroups) group_bits.push_back(kv.second);
-    int n_groups = (int)group_bits.size();
-
-    const int32_t* src = bs.data.data();
-    int fields = bs.fields, n = bs.n;
-    std::vector<int32_t> tmp; tmp.reserve(n * fields);
-    int out_n = 0;
-
-    std::function<bool(int, uint32_t, const int32_t*)> hasPerm;
-    hasPerm = [&](int g, uint32_t used_mask, const int32_t* rowp) -> bool {
-        if (g == n_groups) return true;
-        for (int k = 0; k < n_var_rare; ++k) {
-            if (used_mask & (1u << k)) continue;
-            int32_t colval = rowp[var_start + k];
-            if ((colval & group_bits[g]) == group_bits[g])
-                if (hasPerm(g + 1, used_mask | (1u << k), rowp)) return true;
-        }
-        return false;
-    };
-    for (int row = 0; row < n; ++row) {
-        const int32_t* rowp = src + row * fields;
-        if (hasPerm(0, 0, rowp)) { tmp.insert(tmp.end(), rowp, rowp + fields); ++out_n; }
-    }
-    bs.data = std::move(tmp); bs.n = out_n;
-}
-
-static void computeOcc(const BoardSet& bs, std::vector<int32_t>& occ) {
-    int n = bs.n, fields = bs.fields;
-    const int32_t* data = bs.data.data();
-    occ.resize(n);
-    for (int row = 0; row < n; ++row) {
-        const int32_t* rowp = data + row * fields;
-        int32_t o = 0;
-        for (int col = 0; col < fields; ++col) o |= rowp[col];
-        occ[row] = o;
-    }
 }
 
 static int jsonGetInt(const char* json, const char* key, int def = 0) {
@@ -644,27 +683,7 @@ static int jsonGetInt(const char* json, const char* key, int def = 0) {
 }
 
 // ---------------------------------------------------------------------------
-// Apply a single reveal to a BoardSet (used in from-scratch rebuild)
-// ---------------------------------------------------------------------------
-
-static void applyReveal(BoardSet& arr,
-                        std::unordered_map<std::string, int32_t>& rareColorGroups,
-                        int cell_idx, const std::string& color, int n_rare)
-{
-    if (arr.n == 0) return;
-    int32_t bit = (int32_t)(1 << cell_idx);
-    if      (color == "spB") filterBlue(arr, bit);
-    else if (color == "spT") filterFixed(arr, bit, COL_TEAL);
-    else if (color == "spG") filterFixed(arr, bit, COL_GREEN);
-    else if (color == "spY") filterFixed(arr, bit, COL_YELLOW);
-    else if (color == "spO") filterFixed(arr, bit, COL_RARE_START);
-    else if (color == "spL" || color == "spD" || color == "spR" || color == "spW")
-        filterVarRare(arr, bit, color, rareColorGroups, n_rare);
-    // "spU" (still covered) is ignored
-}
-
-// ---------------------------------------------------------------------------
-// Strategy class — stateless version
+// Strategy class — stateless, index-based filtering version
 // ---------------------------------------------------------------------------
 
 class ColblitzV8StatelessOTStrategy : public OTStrategy {
@@ -719,7 +738,8 @@ public:
     // init_game_payload is a no-op — all state is rebuilt from board each call.
 
     // -----------------------------------------------------------------------
-    // next_click — rebuilds filtered board set from scratch on every call
+    // next_click — rebuilds surviving index list from scratch on every call,
+    // applying reveals against the immutable fullBoards_ data (no data copy).
     // -----------------------------------------------------------------------
 
     void next_click(const std::vector<Cell>& board,
@@ -732,8 +752,7 @@ public:
         int n_rare     = n_colors - 4;
         int bs_idx     = n_rare - 2;
 
-        // Build unclicked list; also collect sorted reveals for deterministic
-        // filter application order (sort by flat index ascending).
+        // Build unclicked list and sorted reveals list.
         std::vector<int> unclicked;
         unclicked.reserve(25);
         std::vector<std::pair<int, std::string>> reveals; // (cell_idx, color)
@@ -748,9 +767,7 @@ public:
             }
         }
 
-        // Sort both for determinism (same order as the incremental version,
-        // which processes reveals in the order they appear in board iteration,
-        // which itself is sorted by cell index by the harness).
+        // Sort for determinism (same order as incremental version).
         std::sort(reveals.begin(),   reveals.end(),
                   [](const auto& a, const auto& b){ return a.first < b.first; });
         std::sort(unclicked.begin(), unclicked.end());
@@ -763,34 +780,39 @@ public:
             return;
         }
 
-        // Start from a fresh copy of the full board set for this variant.
-        BoardSet arr = fullBoards_[bs_idx];
+        const BoardSet& fbs = fullBoards_[bs_idx];
+
+        // Start with all row indices surviving — no data copy.
+        std::vector<int> sv(fbs.n);
+        std::iota(sv.begin(), sv.end(), 0);
 
         // Apply all reveals in cell-index order.
         std::unordered_map<std::string, int32_t> rareColorGroups;
         for (const auto& [cidx, color] : reveals)
-            applyReveal(arr, rareColorGroups, cidx, color, n_rare);
+            applyRevealIdx(fbs, sv, rareColorGroups, cidx, color, n_rare);
 
-        if (arr.n == 0) {
+        if (sv.empty()) {
             out.row = unclicked[0] / GRID;
             out.col = unclicked[0] % GRID;
             return;
         }
 
-        std::vector<int32_t> occ;
-        computeOcc(arr, occ);
-
+        int n = (int)sv.size();
         int chosen = -1;
+
         if (ships_hit < SHIPS_HIT_THRESHOLD) {
             if (weightsLoaded_[bs_idx]) {
-                chosen = pickPhase1CellV8(arr, occ, unclicked, n_rare,
-                                          ships_hit, blues_used,
-                                          rareColorGroups, weights_[bs_idx]);
+                chosen = pickPhase1CellV8Idx(fbs, sv, unclicked, n_rare,
+                                              ships_hit, blues_used,
+                                              rareColorGroups, weights_[bs_idx]);
             } else {
-                chosen = pickPhase1CellPhaseD(arr, occ, unclicked, n_rare, ships_hit);
+                chosen = pickPhase1CellPhaseDIdx(fbs, sv, unclicked, n_rare, ships_hit);
             }
         } else {
-            chosen = pickSafeP2Cell(arr, occ, unclicked);
+            // Phase 2: need occ for SafeP2
+            std::vector<int32_t> occ_sv;
+            computeOccIdx(fbs, sv, occ_sv);
+            chosen = pickSafeP2CellIdx(fbs, sv, occ_sv, unclicked);
         }
 
         if (chosen < 0) chosen = unclicked[0];
