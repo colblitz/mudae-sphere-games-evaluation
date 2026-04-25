@@ -154,62 +154,104 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 <!-- LEADERBOARD_START -->
 ### /sphere harvest (oh)
 
-| Rank | Strategy | EV | Stdev | OC Rate | Games/CPU-s | CPU | Commit | Date |
-|------|----------|----|-------|---------|-------------|-----|--------|------|
-| 1 | `colblitz_bellman.cpp` | 721.90 | 222.50 | 1.0% | 18298 | 13th Gen Intel(R) Core(TM) i7-13700K | `e9e503a` | 2026-04-25 |
-| 2 | `random_clicks.py` | 117.63 | 224.46 | 4.1% | — | — | `e5b8664` | 2026-04-21 |
+| Rank | Strategy | EV | Stdev | OC Rate | Commit | Date |
+|------|----------|----|-------|---------|--------|------|
+| 1 | `colblitz_bellman.cpp` | 721.90 | 222.50 | 1.0% | `e9e503a` | 2026-04-25 |
+| 2 | `random_clicks.py` | 117.63 | 224.46 | 4.1% | `e5b8664` | 2026-04-21 |
+
+<details>
+<summary>Performance</summary>
+
+| Strategy | Games/CPU-s | Setup CPU-s | Harness wall-s | Threads | CPU |
+|----------|-------------|-------------|----------------|---------|-----|
+| `colblitz_bellman.cpp` | 18298 | — | 2.7 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
+| `random_clicks.py` | — | — | — | — | — |
+
+</details>
 
 ### /sphere chest (oc)
 
-| Rank | Strategy | EV | Stdev | Red Rate | Games/CPU-s | CPU | Commit | Date |
-|------|----------|----|-------|-------|-------------|-----|--------|------|
-| 1 | `colblitz_bellman.cpp` | 344.73 | 57.97 | 100.0% | 87 | 13th Gen Intel(R) Core(TM) i7-13700K | `8e636cd` | 2026-04-25 |
-| 2 | `kelinimo_adaptive_ev.js` | 332.34 | 61.17 | 100.0% | 1266 | 13th Gen Intel(R) Core(TM) i7-13700K | `270eefa` | 2026-04-25 |
-| 3 | `svessinn_solver.js` | 317.39 | 72.49 | 98.8% | 1376 | 13th Gen Intel(R) Core(TM) i7-13700K | `97cf4bb` | 2026-04-25 |
+| Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
+|------|----------|----|-------|-------|--------|------|
+| 1 | `colblitz_bellman.cpp` | 344.73 | 57.97 | 100.0% | `8e636cd` | 2026-04-25 |
+| 2 | `kelinimo_adaptive_ev.js` | 332.34 | 61.17 | 100.0% | `270eefa` | 2026-04-25 |
+| 3 | `svessinn_solver.js` | 317.39 | 72.49 | 98.8% | `97cf4bb` | 2026-04-25 |
+
+<details>
+<summary>Performance</summary>
+
+| Strategy | Games/CPU-s | Setup CPU-s | Harness wall-s | Threads | CPU |
+|----------|-------------|-------------|----------------|---------|-----|
+| `colblitz_bellman.cpp` | 87 | — | 9.7 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
+| `kelinimo_adaptive_ev.js` | 1266 | — | 0.7 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
+| `svessinn_solver.js` | 1376 | — | 0.6 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
+
+</details>
 
 ### /sphere quest (oq)
 
-| Rank | Strategy | EV | Stdev | Red Rate | Games/CPU-s | CPU | Commit | Date |
-|------|----------|----|-------|-------|-------------|-----|--------|------|
-| 1 | `zavex_book_heuristic.js` | 350.86 | 44.04 | 99.0% | — | — | `60a6ef8` | 2026-04-23 |
-| 2 | `kelinimo_adaptive_ev.js` | 348.03 | 50.85 | 96.2% | — | — | `1b9f1ac` | 2026-04-23 |
-| 3 | `colblitz_mixed_gini.cpp` | 342.56 | 52.18 | 95.3% | 675 | 13th Gen Intel(R) Core(TM) i7-13700K | `1a79a4a` | 2026-04-25 |
-| 4 | `svessinn_solver.js` | 301.53 | 79.95 | 71.9% | — | — | `029aba7` | 2026-04-23 |
+| Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
+|------|----------|----|-------|-------|--------|------|
+| 1 | `zavex_book_heuristic.js` | 350.86 | 44.04 | 99.0% | `60a6ef8` | 2026-04-23 |
+| 2 | `kelinimo_adaptive_ev.js` | 348.03 | 50.85 | 96.2% | `1b9f1ac` | 2026-04-23 |
+| 3 | `colblitz_mixed_gini.cpp` | 342.56 | 52.18 | 95.3% | `1a79a4a` | 2026-04-25 |
+| 4 | `svessinn_solver.js` | 301.53 | 79.95 | 71.9% | `029aba7` | 2026-04-23 |
+
+<details>
+<summary>Performance</summary>
+
+| Strategy | Games/CPU-s | Setup CPU-s | Harness wall-s | Threads | CPU |
+|----------|-------------|-------------|----------------|---------|-----|
+| `zavex_book_heuristic.js` | — | — | 3.1 | — | — |
+| `kelinimo_adaptive_ev.js` | — | — | 13.4 | — | — |
+| `colblitz_mixed_gini.cpp` | 675 | — | 0.9 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
+| `svessinn_solver.js` | — | — | 25.8 | — | — |
+
+</details>
 
 ### /sphere trace (ot)
 
 **Aggregate (board-count weighted EV across all variants)**
 
-| Rank | Strategy | Agg EV | Games/CPU-s | CPU | Commit | Date |
-|------|----------|--------|-------------|-----|--------|------|
-| 1 | `random_clicks.cpp` | 688.37 | — | — | `9cf69e2` | 2026-04-21 |
+| Rank | Strategy | Agg EV | Commit | Date |
+|------|----------|--------|--------|------|
+| 1 | `random_clicks.cpp` | 688.37 | `9cf69e2` | 2026-04-21 |
 
 <details>
 <summary>Per-color variant breakdown</summary>
 
 **6-color variant**
 
-| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Games/CPU-s | CPU | Commit | Date |
-|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|-------------|-----|--------|------|
-| 1 | `random_clicks.cpp` | 270.39 | — | 0.0% | 16.0% | 95.7% | 10.69 | — | — | — | — | — | `9cf69e2` | 2026-04-21 |
+| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
+|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
+| 1 | `random_clicks.cpp` | 270.39 | — | 0.0% | 16.0% | 95.7% | 10.69 | — | — | — | `9cf69e2` | 2026-04-21 |
 
 **7-color variant**
 
-| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Games/CPU-s | CPU | Commit | Date |
-|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|-------------|-----|--------|------|
-| 1 | `random_clicks.cpp` | 349.70 | — | 0.0% | 11.8% | 84.8% | 10.75 | — | — | — | — | — | `9cf69e2` | 2026-04-21 |
+| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
+|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
+| 1 | `random_clicks.cpp` | 349.70 | — | 0.0% | 11.8% | 84.8% | 10.75 | — | — | — | `9cf69e2` | 2026-04-21 |
 
 **8-color variant**
 
-| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Games/CPU-s | CPU | Commit | Date |
-|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|-------------|-----|--------|------|
-| 1 | `random_clicks.cpp` | 500.88 | — | 0.0% | 14.0% | 44.3% | 11.74 | — | — | — | — | — | `9cf69e2` | 2026-04-21 |
+| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
+|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
+| 1 | `random_clicks.cpp` | 500.88 | — | 0.0% | 14.0% | 44.3% | 11.74 | — | — | — | `9cf69e2` | 2026-04-21 |
 
 **9-color variant**
 
-| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Games/CPU-s | CPU | Commit | Date |
-|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|-------------|-----|--------|------|
-| 1 | `random_clicks.cpp` | 1069.13 | — | 0.1% | 20.9% | 9.9% | 13.86 | — | — | — | — | — | `9cf69e2` | 2026-04-21 |
+| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
+|------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
+| 1 | `random_clicks.cpp` | 1069.13 | — | 0.1% | 20.9% | 9.9% | 13.86 | — | — | — | `9cf69e2` | 2026-04-21 |
+
+</details>
+
+<details>
+<summary>Performance</summary>
+
+| Strategy | Games/CPU-s | Setup CPU-s | Harness wall-s | Threads | CPU |
+|----------|-------------|-------------|----------------|---------|-----|
+| `random_clicks.cpp` | — | — | — | — | — |
 
 </details>
 
