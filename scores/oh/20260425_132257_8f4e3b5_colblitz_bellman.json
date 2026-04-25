@@ -1,7 +1,7 @@
 {
   "timestamp": "2026-04-25T13:22:57",
   "commit": "8f4e3b5",
-  "filename": "strategies/oh/colblitz_bellman.cpp",
+  "filename": "colblitz_bellman.cpp",
   "game": "oh",
   "strategy": "/home/colblitz/mudae-sphere-games-evaluation/strategies/oh/colblitz_bellman.cpp",
   "n_games": 1000000,

@@ -1,7 +1,7 @@
 {
   "timestamp": "2026-04-25T13:23:09",
   "commit": "37b0f7f",
-  "filename": "strategies/oq/colblitz_mixed_gini.cpp",
+  "filename": "colblitz_mixed_gini.cpp",
   "game": "oq",
   "strategy": "/home/colblitz/mudae-sphere-games-evaluation/strategies/oq/colblitz_mixed_gini.cpp",
   "n_boards": 12650,

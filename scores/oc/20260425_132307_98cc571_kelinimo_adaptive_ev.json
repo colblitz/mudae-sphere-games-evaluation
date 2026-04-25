@@ -1,7 +1,7 @@
 {
   "timestamp": "2026-04-25T13:23:07",
   "commit": "98cc571",
-  "filename": "strategies/oc/kelinimo_adaptive_ev.js",
+  "filename": "kelinimo_adaptive_ev.js",
   "game": "oc",
   "strategy": "/home/colblitz/mudae-sphere-games-evaluation/strategies/oc/kelinimo_adaptive_ev.js",
   "n_boards": 16800,

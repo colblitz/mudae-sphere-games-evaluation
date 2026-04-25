@@ -1,7 +1,7 @@
 {
   "timestamp": "2026-04-25T13:23:50",
   "commit": "da54712",
-  "filename": "strategies/oq/svessinn_solver.js",
+  "filename": "svessinn_solver.js",
   "game": "oq",
   "strategy": "/home/colblitz/mudae-sphere-games-evaluation/strategies/oq/svessinn_solver.js",
   "n_boards": 12650,

@@ -1,7 +1,7 @@
 {
   "timestamp": "2026-04-25T13:23:11",
   "commit": "daf7d9b",
-  "filename": "strategies/oq/gap22_backtrack_solver.js",
+  "filename": "gap22_backtrack_solver.js",
   "game": "oq",
   "strategy": "/home/colblitz/mudae-sphere-games-evaluation/strategies/oq/gap22_backtrack_solver.js",
   "n_boards": 12650,
