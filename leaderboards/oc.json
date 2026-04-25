@@ -28,6 +28,19 @@
       "harness_elapsed_s": 0.664,
       "n_threads": 20,
       "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+    },
+    {
+      "filename": "svessinn_solver.js",
+      "commit": "97cf4bb",
+      "date": "2026-04-25",
+      "ev": 317.394,
+      "stdev": 72.4942,
+      "red_rate": 0.9882,
+      "n_boards": 16800,
+      "games_per_cpu_s": 1376.4,
+      "harness_elapsed_s": 0.61,
+      "n_threads": 20,
+      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
     }
   ]
 }

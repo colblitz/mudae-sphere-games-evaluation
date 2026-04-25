@@ -1,0 +1,15 @@
+{
+  "timestamp": "2026-04-25T00:11:53",
+  "commit": "97cf4bb",
+  "filename": "svessinn_solver.js",
+  "game": "oc",
+  "strategy": "/home/colblitz/mudae-sphere-games-evaluation/strategies/oc/svessinn_solver.js",
+  "n_boards": 16800,
+  "ev": 317.394,
+  "stdev": 72.4942,
+  "red_rate": 0.9882,
+  "harness_elapsed_s": 0.61,
+  "n_threads": 20,
+  "games_per_cpu_s": 1376.4,
+  "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+}

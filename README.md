@@ -165,6 +165,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 |------|----------|----|-------|-------|-------------|-----|--------|------|
 | 1 | `colblitz_bellman.cpp` | 344.73 | 57.97 | 100.0% | 87 | 13th Gen Intel(R) Core(TM) i7-13700K | `8e636cd` | 2026-04-25 |
 | 2 | `kelinimo_adaptive_ev.js` | 332.34 | 61.17 | 100.0% | 1266 | 13th Gen Intel(R) Core(TM) i7-13700K | `270eefa` | 2026-04-25 |
+| 3 | `svessinn_solver.js` | 317.39 | 72.49 | 98.8% | 1376 | 13th Gen Intel(R) Core(TM) i7-13700K | `97cf4bb` | 2026-04-25 |
 
 ### /sphere quest (oq)
 
