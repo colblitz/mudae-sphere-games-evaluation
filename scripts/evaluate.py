@@ -342,7 +342,7 @@ def write_scores_artifact(
     artifact: dict[str, Any] = {
         "timestamp": now.isoformat(timespec="seconds"),
         "commit": commit_hash,
-        "filename": strategy_path,
+        "filename": Path(strategy_path).name,
         "game": game,
     }
     # Merge all harness result fields (ev, stdev, red_rate, variants, etc.)
@@ -362,7 +362,7 @@ def write_scores_artifact(
 def make_entry(result: dict[str, Any], strategy_path: str) -> dict[str, Any]:
     """Build a leaderboard entry from a harness result."""
     entry: dict[str, Any] = {
-        "filename": strategy_path,
+        "filename": Path(strategy_path).name,
         "commit": git_short_hash(),
         "date": str(date.today()),
     }
@@ -913,8 +913,9 @@ def main() -> None:
     if args.game == "ot":
         for _v in lb_dry.get("by_variant", {}).values():
             _dry_all.extend(_v.get("top5", []))
+    _strategy_basename = Path(args.strategy).name
     _would_be_update = _precomputed_file_hash is not None and any(
-        e.get("filename") == args.strategy and e.get("commit") == _precomputed_file_hash
+        e.get("filename") == _strategy_basename and e.get("commit") == _precomputed_file_hash
         for e in _dry_all
     )
 
@@ -1004,7 +1005,7 @@ def main() -> None:
     # Use the strategy commit hash in the leaderboard entry (not the scores commit).
     def _make_entry_with_hash(res: dict[str, Any], spath: str) -> dict[str, Any]:
         entry: dict[str, Any] = {
-            "filename": spath,
+            "filename": Path(spath).name,
             "commit": commit_for_entry,
             "date": str(date.today()),
         }
