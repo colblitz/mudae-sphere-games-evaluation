@@ -6,6 +6,7 @@ harness/evaluate_oh
 harness/evaluate_oc
 harness/evaluate_oq
 harness/evaluate_ot
+harness/evaluate_ot_treewalk
 scripts/generate_boards
 
 # Compiled strategy shared libraries
