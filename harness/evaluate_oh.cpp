@@ -7,28 +7,30 @@
  *   stdev    — standard deviation of per-game scores
  *   oc_rate  — fraction of games where the strategy actually clicked the chest cell
  *
- * Board model (corrected, matches cortana3 evaluate_harvest_strategies.cpp):
- *   25 cells: 10 are revealed at game start, 15 start covered (spU).
- *   The 10 initially revealed cells are included in `revealed` on the first
- *   next_click call — strategies can read them before making any decision.
- *   50% of boards have one "chest" covered cell worth ~345 SP on average.
+ * Board model (matches magibot harvest.py random board generator):
+ *   All 25 cells are assigned a true color by sampling from the empirical
+ *   appearance distribution (boards/oh_appearance_stats.json).
+ *   50% of boards have one "chest" cell (OC) placed uniformly at random
+ *   among all 25 positions.  10 cells are then randomly revealed at game
+ *   start, chosen from the other 24 (chest cell is never pre-revealed).
+ *   The remaining 15 cells start covered (spU) — their true color is known
+ *   to the harness but hidden from the strategy.
+ *
  *   Blue  (spB) reveals 3 random covered cells when clicked.
  *   Teal  (spT) reveals 1 random covered cell when clicked.
  *   Purple (spP) clicks are FREE (do not cost a click from the budget).
- *   Dark  (spD) transforms into another color stochastically when clicked.
+ *   Dark  (spD) transforms into another color stochastically when clicked;
+ *         transform distribution loaded from boards/oh_dark_stats.json.
  *   Dark → purple: the click is refunded (free click on the transform result).
- *   Light (spL) has a fixed mean value (~76 SP) — treated as flat for simulation.
- *   Covered (spU) resolves stochastically when clicked directly.
+ *   Light (spL) has a fixed mean value (76.2208 SP) — treated as flat.
+ *   Clicking a covered cell reveals its true pre-assigned color (no sampling).
  *   Chest covered cell: resolves to a high-value outcome (~345 SP average).
- *
- * Cell appearance rates and dark transform distribution are loaded from
- * boards/oh_dark_stats.json.  Covered cell resolution uses a flat
- * approximation based on the same appearance rates.
  *
  * Output: JSON to stdout on completion.
  *
  * Usage:
  *   evaluate_oh --strategy <path> [--games N] [--seed S] [--threads N]
+ *               [--appearance-stats path/to/oh_appearance_stats.json]
  *               [--dark-stats path/to/oh_dark_stats.json]
  *               [--trace N]   (trace mode: sample N games, emit TRACE_JSON)
  */
@@ -128,7 +130,7 @@ static double oh_base_ev(OHColor c) {
         case OH_SPT:  return 20.0;
         case OH_SPG:  return 35.0;
         case OH_SPY:  return 55.0;
-        case OH_SPL:  return 76.0;
+        case OH_SPL:  return 76.2208;
         case OH_SPO:  return 90.0;
         case OH_SPR:  return 150.0;
         case OH_SPW:  return 300.0;
@@ -230,6 +232,43 @@ static std::map<std::string, double> parse_distribution(const std::string& json)
     return result;
 }
 
+// Parse {"colors": {"spX": {"appearance_rate": N}, ...}} → map<color, rate>
+// Used for harvest_appearance_stats.json (different schema from dark stats).
+static std::map<std::string, double> parse_appearance_stats(const std::string& json) {
+    std::map<std::string, double> result;
+    const char* p = strstr(json.c_str(), "\"colors\"");
+    if (!p) return result;
+    p = strchr(p, '{');
+    if (!p) return result;
+    ++p;
+    while (*p && *p != '}') {
+        while (*p && (*p == ' ' || *p == '\t' || *p == '\n' || *p == ',' || *p == '\r')) ++p;
+        if (*p != '"') break;
+        ++p;
+        const char* ns = p;
+        while (*p && *p != '"') ++p;
+        std::string name(ns, p - ns);
+        if (*p) ++p;
+        while (*p && *p != '{') ++p;
+        if (*p != '{') break;
+        const char* inner = p + 1;
+        const char* rp = strstr(inner, "\"appearance_rate\"");
+        double rate = 0.0;
+        if (rp) {
+            rp = strchr(rp, ':');
+            if (rp) rate = strtod(rp + 1, nullptr);
+        }
+        result[name] = rate;
+        int depth = 1; ++p;
+        while (*p && depth > 0) {
+            if (*p == '{') ++depth;
+            else if (*p == '}') --depth;
+            ++p;
+        }
+    }
+    return result;
+}
+
 // ---------------------------------------------------------------------------
 // oh board generation
 // ---------------------------------------------------------------------------
@@ -244,21 +283,31 @@ static OHBoard make_oh_board(const Dist& appearance_dist, std::mt19937_64& rng) 
     OHBoard b;
     b.has_chest = false;
 
-    // Assign colors to all 25 cells
+    // Assign true colors to all 25 cells from the empirical appearance distribution.
     for (int i = 0; i < N_SLOTS; ++i)
         b.slot_colors[i] = appearance_dist.sample(rng);
 
-    // Chest board: 50% chance
+    // Chest board: 50% chance.  Place chest at any of the 25 positions uniformly
+    // (matches magibot harvest.py — chest is not restricted to covered slots).
+    int chest_slot = -1;
     if (std::uniform_real_distribution<double>(0.0, 1.0)(rng) < CHEST_BOARD_PROB) {
-        int chest_slot = N_REVEALED_START
-            + std::uniform_int_distribution<int>(0, N_COV_START - 1)(rng);
+        chest_slot = std::uniform_int_distribution<int>(0, N_SLOTS - 1)(rng);
         b.slot_colors[chest_slot] = OH_CHEST;
         b.has_chest = true;
     }
 
-    // First 10 start revealed, last 15 start covered
-    for (int i = 0; i < N_REVEALED_START; ++i) b.revealed[i] = true;
-    for (int i = N_REVEALED_START; i < N_SLOTS;  ++i) b.revealed[i] = false;
+    // All cells start covered.
+    for (int i = 0; i < N_SLOTS; ++i) b.revealed[i] = false;
+
+    // Randomly reveal N_REVEALED_START cells, excluding the chest cell (chest cells
+    // are never passively revealed — they always remain covered until directly clicked).
+    std::vector<int> eligible;
+    eligible.reserve(N_SLOTS);
+    for (int i = 0; i < N_SLOTS; ++i)
+        if (i != chest_slot) eligible.push_back(i);
+    std::shuffle(eligible.begin(), eligible.end(), rng);
+    for (int k = 0; k < N_REVEALED_START && k < (int)eligible.size(); ++k)
+        b.revealed[eligible[k]] = true;
 
     return b;
 }
@@ -429,14 +478,11 @@ static OHGameResult run_oh_game(
                 do_reveal(idx);
                 break;
 
-            case OH_SPU: {
-                // Plain covered cell: resolves to a random color
-                OHColor resolved = dark_dist.sample(rng);  // use appearance dist as proxy
-                slot_colors[idx] = resolved;
-                game_board[idx].color = oh_color_name(resolved);  // update board color
-                color = resolved;
+            case OH_SPU:
+                // Covered cell — true color was pre-assigned in make_oh_board.
+                // slot_colors[idx] already holds the real color; just jump to handle it.
+                color = slot_colors[idx];
                 goto handle_click;
-            }
 
             default:
                 // Flat: spG spY spL spO spR spW
@@ -529,10 +575,11 @@ static void print_trace_json(const std::vector<GameTrace>& traces) {
 int main(int argc, char* argv[]) {
     setvbuf(stdout, nullptr, _IOLBF, 0);  // line-buffer stdout so progress streams through pipes
     std::string strategy_path;
-    std::string dark_stats_path = std::string(REPO_ROOT) + "/boards/oh_dark_stats.json";
-    uint64_t    n_games         = 1000000;
-    uint64_t    seed            = 42;
-    int         n_threads       = 1;
+    std::string appearance_stats_path = std::string(REPO_ROOT) + "/boards/oh_appearance_stats.json";
+    std::string dark_stats_path       = std::string(REPO_ROOT) + "/boards/oh_dark_stats.json";
+    uint64_t    n_games               = 1000000;
+    uint64_t    seed                  = 42;
+    int         n_threads             = 1;
 #ifdef _OPENMP
     n_threads = omp_get_max_threads();
 #endif
@@ -540,23 +587,38 @@ int main(int argc, char* argv[]) {
 
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--strategy") && i + 1 < argc)  strategy_path  = argv[++i];
-        else if (!strcmp(argv[i], "--games")    && i + 1 < argc)  n_games    = strtoull(argv[++i], nullptr, 10);
-        else if (!strcmp(argv[i], "--seed")     && i + 1 < argc)  seed       = strtoull(argv[++i], nullptr, 10);
-        else if (!strcmp(argv[i], "--threads")  && i + 1 < argc)  n_threads  = atoi(argv[++i]);
-        else if (!strcmp(argv[i], "--dark-stats") && i + 1 < argc) dark_stats_path = argv[++i];
-        else if (!strcmp(argv[i], "--trace")    && i + 1 < argc)  trace_n    = atoi(argv[++i]);
-        else if (!strcmp(argv[i], "--boards-dir") && i + 1 < argc) {
-            // derive dark-stats path from boards-dir
-            dark_stats_path = std::string(argv[++i]) + "/oh_dark_stats.json";
+        else if (!strcmp(argv[i], "--games")         && i + 1 < argc)  n_games    = strtoull(argv[++i], nullptr, 10);
+        else if (!strcmp(argv[i], "--seed")          && i + 1 < argc)  seed       = strtoull(argv[++i], nullptr, 10);
+        else if (!strcmp(argv[i], "--threads")       && i + 1 < argc)  n_threads  = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--appearance-stats") && i + 1 < argc) appearance_stats_path = argv[++i];
+        else if (!strcmp(argv[i], "--dark-stats")    && i + 1 < argc)  dark_stats_path = argv[++i];
+        else if (!strcmp(argv[i], "--trace")         && i + 1 < argc)  trace_n    = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--boards-dir")    && i + 1 < argc) {
+            std::string bdir = argv[++i];
+            appearance_stats_path = bdir + "/oh_appearance_stats.json";
+            dark_stats_path       = bdir + "/oh_dark_stats.json";
         }
     }
     if (strategy_path.empty()) {
         fprintf(stderr, "Usage: evaluate_oh --strategy <path> [--games N] [--seed S] [--threads N]\n"
-                        "                   [--trace N]\n");
+                        "                   [--appearance-stats path] [--dark-stats path] [--trace N]\n");
         return 1;
     }
 
-    // Load dark stats
+    // Load appearance stats (board cell color distribution)
+    print_ts(); printf("Loading appearance stats from %s ...\n", appearance_stats_path.c_str());
+    fflush(stdout);
+    std::string appearance_json = read_file(appearance_stats_path);
+    if (appearance_json.empty()) {
+        fprintf(stderr, "ERROR: cannot read %s\n", appearance_stats_path.c_str());
+        return 1;
+    }
+    auto appearance_rates = parse_appearance_stats(appearance_json);
+    // spU is excluded from board generation (it represents unknown/covered cells in source data,
+    // not a real color that gets assigned to a cell).
+    appearance_rates.erase("spU");
+
+    // Load dark stats (dark cell transform distribution)
     print_ts(); printf("Loading dark stats from %s ...\n", dark_stats_path.c_str());
     fflush(stdout);
     std::string dark_json = read_file(dark_stats_path);
@@ -565,9 +627,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     auto dark_rates = parse_distribution(dark_json);
-    // Build appearance distribution from dark stats (both use similar color sets)
+
     Dist appearance_dist, dark_dist;
-    appearance_dist.build(dark_rates);
+    appearance_dist.build(appearance_rates);
     dark_dist.build(dark_rates);
 
     // Load strategy

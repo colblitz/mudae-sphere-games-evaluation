@@ -1,0 +1,52 @@
+{
+  "generated_at": "2026-04-20T13:44:11+00:00",
+  "source": "data/sphere_harvest.jsonl",
+  "total_games": 12670,
+  "total_slots": 316750,
+  "colors": {
+    "spB": {
+      "count": 172691,
+      "appearance_rate": 0.54519653
+    },
+    "spT": {
+      "count": 74314,
+      "appearance_rate": 0.23461405
+    },
+    "spG": {
+      "count": 24893,
+      "appearance_rate": 0.07858879
+    },
+    "spP": {
+      "count": 12419,
+      "appearance_rate": 0.03920758
+    },
+    "spL": {
+      "count": 9389,
+      "appearance_rate": 0.02964167
+    },
+    "spY": {
+      "count": 8186,
+      "appearance_rate": 0.02584373
+    },
+    "spU": {
+      "count": 6296,
+      "appearance_rate": 0.01987687
+    },
+    "spD": {
+      "count": 4623,
+      "appearance_rate": 0.01459511
+    },
+    "spO": {
+      "count": 3094,
+      "appearance_rate": 0.00976796
+    },
+    "spR": {
+      "count": 721,
+      "appearance_rate": 0.00227624
+    },
+    "spW": {
+      "count": 124,
+      "appearance_rate": 0.00039148
+    }
+  }
+}
