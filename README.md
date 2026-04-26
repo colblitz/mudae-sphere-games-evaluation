@@ -154,17 +154,17 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 <!-- LEADERBOARD_START -->
 ### /sphere harvest (oh)
 
-| Rank | Strategy | EV | Stdev | OC Rate | Commit | Date |
-|------|----------|----|-------|---------|--------|------|
-| 1 | `colblitz_bellman.cpp` | 721.90 | 222.50 | 1.00% | `8f4e3b5` | 2026-04-25 |
-| 2 | `random_clicks.py` | 117.63 | 224.46 | 4.09% | `e5b8664` | 2026-04-21 |
+| Rank | Strategy | EV | Stdev | EV (no chest) | Stdev (no chest) | OC Rate | Commit | Date |
+|------|----------|----|-------|---------------|------------------|---------|--------|------|
+| 1 | `colblitz_bellman.cpp` | 235.75 | 152.92 | 155.34 | 89.92 | 23.33% | `8f4e3b5` | 2026-04-25 |
+| 2 | `random_clicks.py` | 117.63 | 224.46 | — | — | 4.09% | `e5b8664` | 2026-04-21 |
 
 <details>
 <summary>Performance</summary>
 
 | Strategy | Games/CPU-s | Setup CPU-s | Harness wall-s | Threads | CPU |
 |----------|-------------|-------------|----------------|---------|-----|
-| `colblitz_bellman.cpp` | 18514 | 0.02 | 2.7 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
+| `colblitz_bellman.cpp` | 14167 | 0.01 | 8.8 | 8 | 12th Gen Intel(R) Core(TM) i3-12100 |
 | `random_clicks.py` | — | — | — | — | — |
 
 </details>
@@ -215,7 +215,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 > **Note:** `zavex_heuristic_fast.cpp` does not appear in the aggregate leaderboard due to its low 9-color EV, but has competitive scores in the 6, 7, and 8-color variants.
 
-**Aggregate (board-count weighted EV across all variants)**
+**Aggregate (empirically weighted EV — weights from observed mode frequencies in real play)**
 
 | Rank | Strategy | Agg EV | Commit | Date |
 |------|----------|--------|--------|------|

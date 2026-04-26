@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-04-25T23:39:50",
+  "commit": "8f4e3b5",
+  "filename": "colblitz_bellman.cpp",
+  "game": "oh",
+  "strategy": "/home/colblitz/projects/mudae-sphere-games-evaluation/strategies/oh/colblitz_bellman.cpp",
+  "n_games": 1000000,
+  "seed": 42,
+  "ev": 235.75,
+  "stdev": 152.9199,
+  "ev_no_chest": 155.345,
+  "stdev_no_chest": 89.9159,
+  "oc_rate": 0.2333,
+  "init_run_elapsed_s": 0.014,
+  "harness_elapsed_s": 8.837,
+  "n_threads": 8,
+  "games_per_cpu_s": 14167.1,
+  "setup_cpu_s": 0.014,
+  "cpu_model": "12th Gen Intel(R) Core(TM) i3-12100"
+}
