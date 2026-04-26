@@ -64,6 +64,7 @@ REPO_ROOT = Path(__file__).parent.parent.resolve()
 LEADERBOARD_DIR = REPO_ROOT / "leaderboards"
 SCORES_DIR = REPO_ROOT / "scores"
 README_PATH = REPO_ROOT / "README.md"
+TRACE_BOARD_STATS_PATH = REPO_ROOT / "data" / "trace_board_stats.json"
 
 LEADERBOARD_SENTINEL_START = "<!-- LEADERBOARD_START -->"
 LEADERBOARD_SENTINEL_END = "<!-- LEADERBOARD_END -->"
@@ -367,11 +368,11 @@ def make_entry(result: dict[str, Any], strategy_path: str) -> dict[str, Any]:
         "date": str(date.today()),
     }
     # Copy all numeric stats
-    for key in ("ev", "stdev", "stdev_ev", "red_rate", "oc_rate",
+    for key in ("ev", "stdev", "ev_no_chest", "stdev_no_chest", "stdev_ev", "red_rate", "oc_rate",
                 "avg_clicks", "stdev_clicks", "avg_ship_clicks", "stdev_ship_clicks",
                 "perfect_rate", "all_ships_rate", "loss_5050_rate",
                 "n_games", "n_boards", "aggregate_ev", "seed",
-                "games_per_cpu_s", "setup_cpu_s", "harness_elapsed_s", "cpu_model"):
+                "games_per_cpu_s", "setup_cpu_s", "harness_elapsed_s", "cpu_model", "n_threads"):
         if key in result:
             entry[key] = result[key]
     return entry
@@ -417,6 +418,49 @@ def update_leaderboard_top5(top5: list[dict], new_entry: dict) -> tuple[list[dic
     new_top5 = filtered[:5]
     changed = new_top5 != top5
     return new_top5, changed
+
+
+def compute_ot_aggregate_ev(result: dict[str, Any]) -> float:
+    """Recompute ot aggregate_ev using empirical mode probabilities from
+    data/trace_board_stats.json instead of the harness's board-count weighting.
+
+    The harness weights variants by n_boards (number of board configurations),
+    which is dominated by rarer high-color variants.  The empirical rates reflect
+    how often each variant actually occurs in real Mudae play.
+
+    9-color has 0 observed occurrences; we assign it a tiny symbolic weight of
+    1 / (total_observed_games + 1) so it contributes a negligible trace amount.
+    """
+    variants = {v["n_colors"]: v for v in result.get("variants", [])}
+    if not variants:
+        return result.get("aggregate_ev", 0.0)
+
+    try:
+        with open(TRACE_BOARD_STATS_PATH) as f:
+            stats = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        # Fall back to harness board-count weighting if file is missing
+        return result.get("aggregate_ev", 0.0)
+
+    dist = stats.get("mode_distribution", {})
+    total_observed = stats.get("total_games", 1177)
+
+    # Raw empirical rates; 9-color gets a symbolic 1-game weight if unobserved
+    raw_weights: dict[int, float] = {}
+    for nc in [6, 7, 8, 9]:
+        key = f"{nc}-color"
+        rate = dist.get(key, {}).get("rate", 0.0)
+        if rate == 0.0 and nc == 9:
+            rate = 1.0 / (total_observed + 1)
+        raw_weights[nc] = rate
+
+    # Only include variants that the harness actually evaluated
+    active = {nc: w for nc, w in raw_weights.items() if nc in variants and variants[nc].get("ev") is not None}
+    total_w = sum(active.values())
+    if total_w == 0.0:
+        return result.get("aggregate_ev", 0.0)
+
+    return sum(variants[nc]["ev"] * w / total_w for nc, w in active.items())
 
 
 def update_leaderboard(game: str, result: dict[str, Any], strategy_path: str) -> bool:
@@ -499,13 +543,14 @@ def render_perf_section(entries: list[dict]) -> str:
 
 def render_oh_table(top5: list[dict]) -> str:
     lines = [
-        "| Rank | Strategy | EV | Stdev | OC Rate | Commit | Date |",
-        "|------|----------|----|-------|---------|--------|------|",
+        "| Rank | Strategy | EV | Stdev | EV (no chest) | Stdev (no chest) | OC Rate | Commit | Date |",
+        "|------|----------|----|-------|---------------|------------------|---------|--------|------|",
     ]
     for i, e in enumerate(top5, 1):
         fname = Path(e.get("filename", "")).name
         lines.append(
             f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} | {_fmt_f(e.get('stdev'))} "
+            f"| {_fmt_f(e.get('ev_no_chest', '—'))} | {_fmt_f(e.get('stdev_no_chest', '—'))} "
             f"| {_fmt_pct(e.get('oc_rate', '—'))} | `{e.get('commit','?')}` | {e.get('date','?')} |"
         )
     return "\n".join(lines)
@@ -539,7 +584,7 @@ def render_ot_tables(lb: dict[str, Any]) -> str:
 
     # Aggregate
     top5_agg = lb.get("top5", [])
-    sections.append("**Aggregate (board-count weighted EV across all variants)**\n")
+    sections.append("**Aggregate (empirically weighted EV — weights from observed mode frequencies in real play)**\n")
     agg_lines = [
         "| Rank | Strategy | Agg EV | Commit | Date |",
         "|------|----------|--------|--------|------|",
@@ -860,6 +905,13 @@ def main() -> None:
     else:
         result, harness_elapsed = run_harness(args.game, strategy_abs, extra)
 
+    # For ot: replace the harness's board-count-weighted aggregate_ev with an
+    # empirically-weighted one based on observed mode frequencies from real play.
+    if args.game == "ot" and "variants" in result:
+        empirical_agg = compute_ot_aggregate_ev(result)
+        result["aggregate_ev_board_count_weighted"] = result.get("aggregate_ev", 0.0)
+        result["aggregate_ev"] = empirical_agg
+
     print("\n--- Result ---")
     print(json.dumps(result, indent=2))
 
@@ -1009,7 +1061,7 @@ def main() -> None:
             "commit": commit_for_entry,
             "date": str(date.today()),
         }
-        for key in ("ev", "stdev", "stdev_ev", "red_rate", "oc_rate",
+        for key in ("ev", "stdev", "ev_no_chest", "stdev_no_chest", "stdev_ev", "red_rate", "oc_rate",
                     "avg_clicks", "stdev_clicks", "avg_ship_clicks", "stdev_ship_clicks",
                     "perfect_rate", "all_ships_rate", "loss_5050_rate",
                     "n_games", "n_boards", "aggregate_ev", "seed"):

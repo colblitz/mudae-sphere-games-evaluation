@@ -1,0 +1,49 @@
+{
+  "generated_at": "2026-04-26T02:46:08+00:00",
+  "source": "data/sphere_trace.jsonl",
+  "total_games": 1177,
+  "mode_distribution": {
+    "6-color": {
+      "n_rare": 2,
+      "count": 870,
+      "rate": 0.73916737
+    },
+    "7-color": {
+      "n_rare": 3,
+      "count": 276,
+      "rate": 0.23449448
+    },
+    "8-color": {
+      "n_rare": 4,
+      "count": 31,
+      "rate": 0.02633815
+    },
+    "9-color": {
+      "n_rare": 5,
+      "count": 0,
+      "rate": 0.0
+    }
+  },
+  "rare_color_rates": {
+    "spL": {
+      "count": 832,
+      "rate": 0.7068819
+    },
+    "spO": {
+      "count": 1177,
+      "rate": 1.0
+    },
+    "spR": {
+      "count": 140,
+      "rate": 0.11894647
+    },
+    "spW": {
+      "count": 61,
+      "rate": 0.05182668
+    },
+    "spD": {
+      "count": 482,
+      "rate": 0.40951572
+    }
+  }
+}

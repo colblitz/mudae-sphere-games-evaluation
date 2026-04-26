@@ -86,10 +86,12 @@ struct WeightedWelford {
 // ---------------------------------------------------------------------------
 
 struct OHResult {
-    double   ev      = 0.0;
-    double   stdev   = 0.0;
-    double   oc_rate = 0.0;  // fraction of games containing a chest cell
-    uint64_t n_games = 0;
+    double   ev           = 0.0;
+    double   stdev        = 0.0;
+    double   ev_no_chest  = 0.0;    // EV excluding chest cell value (useful for comparing harvest-only performance)
+    double   stdev_no_chest = 0.0;
+    double   oc_rate      = 0.0;    // fraction of games where the chest cell was clicked
+    uint64_t n_games      = 0;
 };
 
 struct OCResult {
@@ -123,7 +125,7 @@ struct OTVariantResult {
 
 struct OTResult {
     OTVariantResult variants[4];  // indices 0..3 → n_colors 6..9
-    double          aggregate_ev = 0.0;  // board-count-weighted average EV across variants
+    double          aggregate_ev = 0.0;  // board-count-weighted average EV across variants (reweighted in evaluate.py using empirical mode frequencies)
 };
 
 }  // namespace sphere

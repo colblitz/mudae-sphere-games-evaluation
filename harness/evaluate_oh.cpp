@@ -628,6 +628,7 @@ int main(int argc, char* argv[]) {
 
     // Per-thread accumulators
     std::vector<Welford>  ev_acc(n_threads);
+    std::vector<Welford>  ev_no_chest_acc(n_threads);  // score excluding chest cell value
     std::vector<uint64_t> chest_clicked_count(n_threads, 0);
 
     // Per-thread strategy bridges and state (each thread needs its own instance)
@@ -676,6 +677,8 @@ int main(int argc, char* argv[]) {
         }
         if (result.clicked_chest) ++chest_clicked_count[tid];
         ev_acc[tid].update(result.score);
+        double score_no_chest = result.score - (result.clicked_chest ? CHEST_EV : 0.0);
+        ev_no_chest_acc[tid].update(score_no_chest);
 
         uint64_t d = done_count.fetch_add(1) + 1;
         if (d % prog.interval == 0)
@@ -688,22 +691,32 @@ int main(int argc, char* argv[]) {
 
     // Merge per-thread accumulators (Chan's parallel Welford)
     double   mean_total = 0.0, M2_total = 0.0;
+    double   mean_no_chest = 0.0, M2_no_chest = 0.0;
     uint64_t count_total = 0;
     uint64_t total_chest_clicks = 0;
     for (int t = 0; t < n_threads; ++t) {
         uint64_t nb = ev_acc[t].count;
         if (nb == 0) continue;
+        // Merge ev_acc
         double delta = ev_acc[t].mean - mean_total;
         uint64_t nc  = count_total + nb;
         mean_total  += delta * static_cast<double>(nb) / static_cast<double>(nc);
         M2_total    += ev_acc[t].M2 + delta * delta
                        * static_cast<double>(count_total)
                        * static_cast<double>(nb) / static_cast<double>(nc);
+        // Merge ev_no_chest_acc
+        double delta_nc = ev_no_chest_acc[t].mean - mean_no_chest;
+        mean_no_chest  += delta_nc * static_cast<double>(nb) / static_cast<double>(nc);
+        M2_no_chest    += ev_no_chest_acc[t].M2 + delta_nc * delta_nc
+                          * static_cast<double>(count_total)
+                          * static_cast<double>(nb) / static_cast<double>(nc);
         count_total  = nc;
         total_chest_clicks += chest_clicked_count[t];
     }
     double stdev_total = count_total > 1
         ? std::sqrt(M2_total / static_cast<double>(count_total - 1)) : 0.0;
+    double stdev_no_chest = count_total > 1
+        ? std::sqrt(M2_no_chest / static_cast<double>(count_total - 1)) : 0.0;
 
     double oc_rate = static_cast<double>(total_chest_clicks) / static_cast<double>(count_total);
     printf("\nRESULT_JSON: {\"game\":\"oh\","
@@ -712,6 +725,8 @@ int main(int argc, char* argv[]) {
            "\"seed\":%llu,"
            "\"ev\":%.4f,"
            "\"stdev\":%.4f,"
+           "\"ev_no_chest\":%.4f,"
+           "\"stdev_no_chest\":%.4f,"
            "\"oc_rate\":%.4f,"
            "\"init_run_elapsed_s\":%.4f}\n",
            strategy_path.c_str(),
@@ -719,6 +734,8 @@ int main(int argc, char* argv[]) {
            (unsigned long long)seed,
            mean_total,
            stdev_total,
+           mean_no_chest,
+           stdev_no_chest,
            oc_rate,
            init_run_elapsed);
     fflush(stdout);
