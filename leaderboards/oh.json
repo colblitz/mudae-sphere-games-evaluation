@@ -21,14 +21,21 @@
       "stdev_no_chest": 89.9159
     },
     {
-      "filename": "random_clicks.py",
-      "commit": "e5b8664",
-      "date": "2026-04-21",
-      "ev": 117.6297,
-      "stdev": 224.4632,
-      "oc_rate": 0.0409,
+      "filename": "load_data.py",
+      "commit": "da54712",
+      "date": "2026-04-25",
+      "ev": 196.2876,
+      "stdev": 103.1535,
+      "ev_no_chest": 175.678,
+      "stdev_no_chest": 74.2909,
+      "oc_rate": 0.0598,
       "n_games": 100000,
-      "seed": 42
+      "seed": 42,
+      "games_per_cpu_s": 628.3,
+      "setup_cpu_s": 0.0,
+      "harness_elapsed_s": 19.897,
+      "n_threads": 8,
+      "cpu_model": "12th Gen Intel(R) Core(TM) i3-12100"
     }
   ]
 }

@@ -157,7 +157,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | Rank | Strategy | EV | Stdev | EV (no chest) | Stdev (no chest) | OC Rate | Commit | Date |
 |------|----------|----|-------|---------------|------------------|---------|--------|------|
 | 1 | `colblitz_bellman.cpp` | 235.75 | 152.92 | 155.34 | 89.92 | 23.33% | `8f4e3b5` | 2026-04-25 |
-| 2 | `random_clicks.py` | 117.63 | 224.46 | — | — | 4.09% | `e5b8664` | 2026-04-21 |
+| 2 | `load_data.py` | 196.29 | 103.15 | 175.68 | 74.29 | 5.98% | `da54712` | 2026-04-25 |
 
 <details>
 <summary>Performance</summary>
@@ -165,7 +165,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | Strategy | Games/CPU-s | Setup CPU-s | Harness wall-s | Threads | CPU |
 |----------|-------------|-------------|----------------|---------|-----|
 | `colblitz_bellman.cpp` | 14167 | 0.01 | 8.8 | 8 | 12th Gen Intel(R) Core(TM) i3-12100 |
-| `random_clicks.py` | — | — | — | — | — |
+| `load_data.py` | 628 | 0.00 | 19.9 | 8 | 12th Gen Intel(R) Core(TM) i3-12100 |
 
 </details>
 
