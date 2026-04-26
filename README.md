@@ -219,11 +219,11 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | Agg EV | Commit | Date |
 |------|----------|--------|--------|------|
-| 1 | `colblitz_v8_heuristics_stateless.cpp` | 1579.05 | `ddbf2d3` | 2026-04-25 |
-| 2 | `kelinimo_expectimax_fast.cpp` | 1513.58 | `c09e6cd` | 2026-04-25 |
-| 3 | `tksglass_5.cpp` | 1318.03 | `25f4aef` | 2026-04-25 |
-| 4 | `tksglass_4.cpp` | 1267.93 | `25f4aef` | 2026-04-25 |
-| 5 | `svessinn_solver_fast.cpp` | 1259.21 | `c09e6cd` | 2026-04-25 |
+| 1 | `colblitz_v8_heuristics_stateless.cpp` | 827.26 | `ddbf2d3` | 2026-04-25 |
+| 2 | `zavex_heuristic_fast.cpp` | 798.15 | `c09e6cd` | 2026-04-25 |
+| 3 | `kelinimo_expectimax_fast.cpp` | 755.68 | `c09e6cd` | 2026-04-25 |
+| 4 | `tksglass_5.cpp` | 676.61 | `25f4aef` | 2026-04-25 |
+| 5 | `svessinn_solver_fast.cpp` | 598.89 | `c09e6cd` | 2026-04-25 |
 
 <details>
 <summary>Per-color variant breakdown</summary>
@@ -276,9 +276,9 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | Strategy | Games/CPU-s | Setup CPU-s | Harness wall-s | Threads | CPU |
 |----------|-------------|-------------|----------------|---------|-----|
 | `colblitz_v8_heuristics_stateless.cpp` | 1317 | 2.23 | 1202.9 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
+| `zavex_heuristic_fast.cpp` | 2351 | 0.00 | 672.5 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `kelinimo_expectimax_fast.cpp` | 140 | 131.00 | 11446.3 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `tksglass_5.cpp` | 1596 | 0.00 | 990.8 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
-| `tksglass_4.cpp` | 1812 | 0.00 | 872.8 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `svessinn_solver_fast.cpp` | 2649 | 0.00 | 596.9 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 
 </details>
