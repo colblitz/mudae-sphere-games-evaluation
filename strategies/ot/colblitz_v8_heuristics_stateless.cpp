@@ -335,61 +335,56 @@ static void applyRevealIdx(const BoardSet& fbs,
 // Outcome counts — index-based
 // ---------------------------------------------------------------------------
 
-static void computeOutcomeCounts6Idx(
-    const BoardSet& fbs,
-    const std::vector<int>& sv,
-    const std::vector<int32_t>& occ_sv,  // precomputed occ per surviving row
-    const std::vector<int>& unclicked,
-    std::vector<int>& counts6)
-{
-    int nu = (int)unclicked.size();
-    int n  = (int)sv.size();
-    counts6.assign(nu * 6, 0);
-    const int32_t* data   = fbs.data.data();
-    int            fields = fbs.fields;
-    for (int ii = 0; ii < nu; ++ii) {
-        int cell    = unclicked[ii];
-        int32_t bit = (int32_t)(1 << cell);
-        int* c      = &counts6[ii * 6];
-        int n_blue=0, n_teal=0, n_green=0, n_yellow=0, n_spo=0, n_var=0;
-        for (int i = 0; i < n; ++i) {
-            const int32_t* rowp = data + sv[i] * fields;
-            if ((occ_sv[i] & bit) == 0) { ++n_blue; continue; }
-            if (rowp[COL_TEAL]       & bit) { ++n_teal;   continue; }
-            if (rowp[COL_GREEN]      & bit) { ++n_green;  continue; }
-            if (rowp[COL_YELLOW]     & bit) { ++n_yellow; continue; }
-            if (rowp[COL_RARE_START] & bit) { ++n_spo;    continue; }
-            ++n_var;
-        }
-        c[0]=n_blue; c[1]=n_teal; c[2]=n_green;
-        c[3]=n_yellow; c[4]=n_spo; c[5]=n_var;
-    }
-}
-
-static void computeOutcomeCountsDetailedIdx(
+// Compute both counts_dc (detailed, slot_stride = 1+fields) and counts6 (6-bucket)
+// in a single pass over the surviving board set.
+//
+// counts_dc layout: [blue, teal, green, yellow, spO, var0, var1, ...]  (1 + fields entries)
+// counts6 layout:   [blue, teal, green, yellow, spO, var_all]          (6 entries, var_all = Σvar_k)
+//
+// Previously two separate O(|sv|×nu×fields) passes; now one.
+static void computeOutcomeCountsBothIdx(
     const BoardSet& fbs,
     const std::vector<int>& sv,
     const std::vector<int32_t>& occ_sv,
     const std::vector<int>& unclicked,
     std::vector<int>& counts_dc,
+    std::vector<int>& counts6,
     int& slot_stride)
 {
     int nu     = (int)unclicked.size();
+    int n      = (int)sv.size();
     int fields = fbs.fields;
     slot_stride = 1 + fields;
+
     counts_dc.assign(nu * slot_stride, 0);
+    counts6.assign(nu * 6, 0);
+
     const int32_t* data = fbs.data.data();
-    int n = (int)sv.size();
+
     for (int ii = 0; ii < nu; ++ii) {
         int cell    = unclicked[ii];
         int32_t bit = (int32_t)(1 << cell);
-        int* c      = &counts_dc[ii * slot_stride];
+        int* dc     = &counts_dc[ii * slot_stride];
+        int* c6     = &counts6[ii * 6];
+
         for (int i = 0; i < n; ++i) {
             const int32_t* rowp = data + sv[i] * fields;
-            if ((occ_sv[i] & bit) == 0) { ++c[0]; continue; }
-            for (int col = 0; col < fields; ++col)
-                if (rowp[col] & bit) { ++c[1 + col]; break; }
+            if ((occ_sv[i] & bit) == 0) { ++dc[0]; continue; }
+            for (int col = 0; col < fields; ++col) {
+                if (rowp[col] & bit) { ++dc[1 + col]; break; }
+            }
         }
+
+        // Derive counts6 from counts_dc — no extra board scan needed.
+        // slots: 0=blue, 1=teal, 2=green, 3=yellow, 4=spO, 5+=var-rare
+        c6[0] = dc[0];                          // blue
+        c6[1] = dc[1 + COL_TEAL];               // teal
+        c6[2] = dc[1 + COL_GREEN];              // green
+        c6[3] = dc[1 + COL_YELLOW];             // yellow
+        c6[4] = dc[1 + COL_RARE_START];         // spO
+        int var_sum = 0;
+        for (int k = COL_RARE_START + 1; k < fields; ++k) var_sum += dc[1 + k];
+        c6[5] = var_sum;                         // all var-rare combined
     }
 }
 
@@ -573,8 +568,10 @@ static int pickPhase1CellV8Idx(
     std::vector<int32_t> occ_sv;
     computeOccIdx(fbs, sv, occ_sv);
 
-    std::vector<int> counts6;
-    computeOutcomeCounts6Idx(fbs, sv, occ_sv, unclicked, counts6);
+    std::vector<int> counts_dc, counts6;
+    int slot_stride = 0;
+    computeOutcomeCountsBothIdx(fbs, sv, occ_sv, unclicked, counts_dc, counts6, slot_stride);
+
     int forced = cpPrefilter(unclicked, counts6, n);
     if (forced >= 0) return forced;
 
@@ -589,19 +586,10 @@ static int pickPhase1CellV8Idx(
     double w_var_sp  = weights[base + 5];
     double w_rare_id = weights[base + 6];
 
-    bool need_dc = (std::abs(w_hfull)  > 1e-15 || std::abs(w_ev)      > 1e-15 ||
-                    std::abs(w_gini)   > 1e-15 || std::abs(w_var_sp)  > 1e-15 ||
-                    std::abs(w_rare_id) > 1e-15);
-
-    std::vector<int> counts_dc;
-    int slot_stride = 0;
-    if (need_dc) computeOutcomeCountsDetailedIdx(fbs, sv, occ_sv, unclicked, counts_dc, slot_stride);
-
+    int n_var = n_rare - 1;
     std::vector<double> slot_sp;
     std::vector<bool>   identified;
-    int n_var = n_rare - 1;
-    if (need_dc && (std::abs(w_ev) > 1e-15 || std::abs(w_var_sp) > 1e-15 ||
-                    std::abs(w_rare_id) > 1e-15)) {
+    if (std::abs(w_ev) > 1e-15 || std::abs(w_var_sp) > 1e-15 || std::abs(w_rare_id) > 1e-15) {
         identified = getIdentifiedSlotsIdx(fbs, sv, rareColorGroups, n_rare);
         slot_sp    = buildSlotSp(n_rare);
     } else {
@@ -612,20 +600,18 @@ static int pickPhase1CellV8Idx(
     int best = unclicked[0]; double best_s = -1e18;
     int nu = (int)unclicked.size();
     for (int ii = 0; ii < nu; ++ii) {
-        const int* c6 = &counts6[ii * 6];
+        const int* c6  = &counts6[ii * 6];
+        const int* cdc = &counts_dc[ii * slot_stride];
         double score = 0.0;
-        if (std::abs(w_blue)  > 1e-15) score += w_blue  * (c6[0] * inv_n);
-        if (std::abs(w_info6) > 1e-15) score += w_info6 * termInfo6(c6, n);
-        if (need_dc) {
-            const int* cdc = &counts_dc[ii * slot_stride];
-            if (std::abs(w_hfull)   > 1e-15) score += w_hfull   * termHfull(cdc, slot_stride, n);
-            if (std::abs(w_ev)      > 1e-15 && !slot_sp.empty())
-                                              score += w_ev      * termEvNorm(cdc, slot_stride, n, slot_sp);
-            if (std::abs(w_gini)    > 1e-15) score += w_gini    * termGini(cdc, slot_stride, n);
-            if (std::abs(w_var_sp)  > 1e-15 && !slot_sp.empty())
-                                              score += w_var_sp  * termVarSp(cdc, slot_stride, n, slot_sp);
-            if (std::abs(w_rare_id) > 1e-15) score += w_rare_id * termRareId(cdc, slot_stride, n, identified, n_var);
-        }
+        if (std::abs(w_blue)    > 1e-15) score += w_blue    * (c6[0] * inv_n);
+        if (std::abs(w_info6)   > 1e-15) score += w_info6   * termInfo6(c6, n);
+        if (std::abs(w_hfull)   > 1e-15) score += w_hfull   * termHfull(cdc, slot_stride, n);
+        if (std::abs(w_ev)      > 1e-15 && !slot_sp.empty())
+                                          score += w_ev      * termEvNorm(cdc, slot_stride, n, slot_sp);
+        if (std::abs(w_gini)    > 1e-15) score += w_gini    * termGini(cdc, slot_stride, n);
+        if (std::abs(w_var_sp)  > 1e-15 && !slot_sp.empty())
+                                          score += w_var_sp  * termVarSp(cdc, slot_stride, n, slot_sp);
+        if (std::abs(w_rare_id) > 1e-15) score += w_rare_id * termRareId(cdc, slot_stride, n, identified, n_var);
         if (score > best_s) { best_s = score; best = unclicked[ii]; }
     }
     return best;
@@ -647,8 +633,10 @@ static int pickPhase1CellPhaseDIdx(
     std::vector<int32_t> occ_sv;
     computeOccIdx(fbs, sv, occ_sv);
 
-    std::vector<int> counts6;
-    computeOutcomeCounts6Idx(fbs, sv, occ_sv, unclicked, counts6);
+    std::vector<int> counts_dc, counts6;
+    int slot_stride = 0;
+    computeOutcomeCountsBothIdx(fbs, sv, occ_sv, unclicked, counts_dc, counts6, slot_stride);
+
     int forced = cpPrefilter(unclicked, counts6, n);
     if (forced >= 0) return forced;
 
@@ -657,21 +645,15 @@ static int pickPhase1CellPhaseDIdx(
     double w_info6 = PHASE_D_WEIGHTS[nri][d][0];
     double w_hfull = PHASE_D_WEIGHTS[nri][d][1];
 
-    std::vector<int> counts_dc;
-    int slot_stride = 0;
-    if (w_hfull > 0.0) computeOutcomeCountsDetailedIdx(fbs, sv, occ_sv, unclicked, counts_dc, slot_stride);
-
     double inv_n = (n > 0) ? 1.0 / n : 0.0;
     int best = unclicked[0]; double best_s = -1e18;
     int nu = (int)unclicked.size();
     for (int ii = 0; ii < nu; ++ii) {
-        const int* c6 = &counts6[ii * 6];
-        double score  = c6[0] * inv_n;
+        const int* c6  = &counts6[ii * 6];
+        const int* cdc = &counts_dc[ii * slot_stride];
+        double score   = c6[0] * inv_n;
         if (w_info6 > 0.0) score += w_info6 * termInfo6(c6, n);
-        if (w_hfull > 0.0) {
-            const int* cdc = &counts_dc[ii * slot_stride];
-            score += w_hfull * termHfull(cdc, slot_stride, n);
-        }
+        if (w_hfull > 0.0) score += w_hfull * termHfull(cdc, slot_stride, n);
         if (score > best_s) { best_s = score; best = unclicked[ii]; }
     }
     return best;
