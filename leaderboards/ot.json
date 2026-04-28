@@ -1,7 +1,7 @@
 {
   "game": "ot",
   "metric": "ev",
-  "updated": "2026-04-26",
+  "updated": "2026-04-27",
   "top5": [
     {
       "filename": "colblitz_v8_heuristics_stateless.cpp",
@@ -480,6 +480,29 @@
           "total_strategy_calls": 1060467710
         },
         {
+          "filename": "svessinn_blue_focus_20260427.cpp",
+          "commit": "eb519d2",
+          "date": "2026-04-27",
+          "aggregate_ev": 640.9768725862572,
+          "games_per_cpu_s": 2809.1,
+          "setup_cpu_s": 0.0,
+          "harness_elapsed_s": 2814.417,
+          "n_threads": 4,
+          "cpu_model": "12th Gen Intel(R) Core(TM) i3-12100",
+          "n_colors": 9,
+          "n_boards": 12428080,
+          "ev": 1942.4746,
+          "stdev_ev": 493.0568,
+          "avg_clicks": 22.4844,
+          "stdev_clicks": 32.5811,
+          "avg_ship_clicks": 18.3584,
+          "stdev_ship_clicks": 3.0276,
+          "perfect_rate": 0.5784,
+          "all_ships_rate": 0.8538,
+          "loss_5050_rate": 0.2655,
+          "total_strategy_calls": 1032417482
+        },
+        {
           "filename": "svessinn_solver_fast.cpp",
           "commit": "c09e6cd",
           "date": "2026-04-25",
@@ -500,28 +523,6 @@
           "all_ships_rate": 0.844,
           "loss_5050_rate": 0.3041,
           "total_strategy_calls": 1002094130
-        },
-        {
-          "filename": "tksglass_5.cpp",
-          "commit": "25f4aef",
-          "date": "2026-04-25",
-          "ev": 1853.6669,
-          "games_per_cpu_s": 1595.9,
-          "setup_cpu_s": 0.0,
-          "harness_elapsed_s": 990.78,
-          "n_threads": 20,
-          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
-          "n_colors": 9,
-          "n_boards": 12428080,
-          "stdev_ev": 462.9515,
-          "avg_clicks": 22.1763,
-          "stdev_clicks": 32.0285,
-          "avg_ship_clicks": 18.025,
-          "stdev_ship_clicks": 2.492,
-          "perfect_rate": 0.356,
-          "all_ships_rate": 0.8172,
-          "loss_5050_rate": 0.4065,
-          "total_strategy_calls": 1272195714
         }
       ]
     }
