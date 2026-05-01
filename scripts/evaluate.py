@@ -14,7 +14,7 @@ Normal usage — iterate freely, results printed:
      stable hash.  Skipped if the file is already committed and unmodified.
   2. "scores: oc my_strategy.py ev=78.43" — writes a scores artifact to
      scores/<game>/<timestamp>_<commit>_<basename>.json and updates
-     leaderboards/<game>.json and README.md if the result enters the top 5.
+     leaderboards/<game>.json and README.md if the result enters the top 10 (ot) or top 5 (other games).
      All changed files are bundled into this single commit.
 
 Trace mode — inspect individual games:
@@ -309,7 +309,8 @@ def load_leaderboard(game: str) -> dict[str, Any]:
     # Default empty leaderboard
     lb: dict[str, Any] = {"game": game, "metric": "ev", "updated": "", "top5": []}
     if game == "ot":
-        lb["by_variant"] = {str(nc): {"n_colors": nc, "top5": []} for nc in [6, 7, 8, 9]}
+        lb["top10"] = lb.pop("top5")
+        lb["by_variant"] = {str(nc): {"n_colors": nc, "top10": []} for nc in [6, 7, 8, 9]}
     return lb
 
 
@@ -378,8 +379,10 @@ def make_entry(result: dict[str, Any], strategy_path: str) -> dict[str, Any]:
     return entry
 
 
-def update_leaderboard_top5(top5: list[dict], new_entry: dict) -> tuple[list[dict], bool]:
-    """Insert new_entry into top5 (sorted by ev desc), keep top 5. Returns (new_list, changed).
+def update_leaderboard_top5(top5: list[dict], new_entry: dict, max_entries: int = 5) -> tuple[list[dict], bool]:
+    """Insert new_entry into the leaderboard list (sorted by ev desc), keeping up to max_entries.
+
+    Returns (new_list, changed).
 
     Dedup key is (filename, commit) — one entry per strategy version.  When
     re-running the same committed file the existing entry is merged with the
@@ -415,9 +418,9 @@ def update_leaderboard_top5(top5: list[dict], new_entry: dict) -> tuple[list[dic
                 if not (e.get("filename") == fname and e.get("commit") == commit)]
     filtered.append(new_entry)
     filtered.sort(key=lambda e: e.get("ev", 0.0), reverse=True)
-    new_top5 = filtered[:5]
-    changed = new_top5 != top5
-    return new_top5, changed
+    new_top = filtered[:max_entries]
+    changed = new_top != top5
+    return new_top, changed
 
 
 def compute_ot_aggregate_ev(result: dict[str, Any]) -> float:
@@ -470,27 +473,27 @@ def update_leaderboard(game: str, result: dict[str, Any], strategy_path: str) ->
     changed = False
 
     if game == "ot":
-        # Update aggregate top5
+        # Update aggregate top10
         agg_entry = make_entry(result, strategy_path)
         agg_entry["ev"] = result.get("aggregate_ev", 0.0)
-        new_agg, ch = update_leaderboard_top5(lb.get("top5", []), agg_entry)
+        new_agg, ch = update_leaderboard_top5(lb.get("top10", []), agg_entry, max_entries=10)
         if ch:
-            lb["top5"] = new_agg
+            lb["top10"] = new_agg
             changed = True
 
-        # Update per-variant top5
+        # Update per-variant top10
         for vr in result.get("variants", []):
             nc = vr["n_colors"]
             key = str(nc)
             if "by_variant" not in lb:
                 lb["by_variant"] = {}
             if key not in lb["by_variant"]:
-                lb["by_variant"][key] = {"n_colors": nc, "top5": []}
+                lb["by_variant"][key] = {"n_colors": nc, "top10": []}
             v_entry = {**make_entry(result, strategy_path), **vr}
             v_entry["ev"] = vr.get("ev", 0.0)
-            new_v, vch = update_leaderboard_top5(lb["by_variant"][key]["top5"], v_entry)
+            new_v, vch = update_leaderboard_top5(lb["by_variant"][key].get("top10", []), v_entry, max_entries=10)
             if vch:
-                lb["by_variant"][key]["top5"] = new_v
+                lb["by_variant"][key]["top10"] = new_v
                 changed = True
     else:
         entry = make_entry(result, strategy_path)
@@ -583,7 +586,7 @@ def render_ot_tables(lb: dict[str, Any]) -> str:
             sections.append("")  # blank line to separate blockquote from next element
 
     # Aggregate
-    top5_agg = lb.get("top5", [])
+    top5_agg = lb.get("top10", lb.get("top5", []))
     sections.append("**Aggregate (empirically weighted EV — weights from observed mode frequencies in real play)**\n")
     agg_lines = [
         "| Rank | Strategy | Agg EV | Commit | Date |",
@@ -602,7 +605,7 @@ def render_ot_tables(lb: dict[str, Any]) -> str:
     for nc in [6, 7, 8, 9]:
         key = str(nc)
         vdata = lb.get("by_variant", {}).get(key, {})
-        top5 = vdata.get("top5", [])
+        top5 = vdata.get("top10", vdata.get("top5", []))
         v_lines = [
             f"**{nc}-color variant**\n",
             "| Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |",
@@ -961,10 +964,10 @@ def main() -> None:
 
     # Check if an entry for this (filename, commit) already exists anywhere
     # in the leaderboard — only possible when the file is already committed.
-    _dry_all: list[dict] = list(lb_dry.get("top5", []))
+    _dry_all: list[dict] = list(lb_dry.get("top10", lb_dry.get("top5", [])))
     if args.game == "ot":
         for _v in lb_dry.get("by_variant", {}).values():
-            _dry_all.extend(_v.get("top5", []))
+            _dry_all.extend(_v.get("top10", _v.get("top5", [])))
     _strategy_basename = Path(args.strategy).name
     _would_be_update = _precomputed_file_hash is not None and any(
         e.get("filename") == _strategy_basename and e.get("commit") == _precomputed_file_hash
@@ -973,10 +976,10 @@ def main() -> None:
 
     _would_change = False
     if args.game == "ot":
-        # Check aggregate top5
+        # Check aggregate top10
         agg_entry_dry = make_entry(result, args.strategy)
         agg_entry_dry["ev"] = result.get("aggregate_ev", 0.0)
-        _, _would_change = update_leaderboard_top5(lb_dry.get("top5", []), agg_entry_dry)
+        _, _would_change = update_leaderboard_top5(lb_dry.get("top10", lb_dry.get("top5", [])), agg_entry_dry, max_entries=10)
         if not _would_change:
             for vr in result.get("variants", []):
                 nc = vr["n_colors"]
@@ -984,7 +987,7 @@ def main() -> None:
                 vdata = lb_dry.get("by_variant", {}).get(key, {})
                 v_entry_dry = {**make_entry(result, args.strategy), **vr}
                 v_entry_dry["ev"] = vr.get("ev", 0.0)
-                _, vch = update_leaderboard_top5(vdata.get("top5", []), v_entry_dry)
+                _, vch = update_leaderboard_top5(vdata.get("top10", vdata.get("top5", [])), v_entry_dry, max_entries=10)
                 if vch:
                     _would_change = True
                     break
@@ -992,11 +995,12 @@ def main() -> None:
         entry_dry = make_entry(result, args.strategy)
         _, _would_change = update_leaderboard_top5(lb_dry.get("top5", []), entry_dry)
 
+    _top_n_label = "top 10" if args.game == "ot" else "top 5"
     if _would_change:
         if _would_be_update:
-            print("\n*** This result would update an existing top 5 entry. ***")
+            print(f"\n*** This result would update an existing {_top_n_label} entry. ***")
         else:
-            print("\n*** This result would enter the top 5 leaderboard! ***")
+            print(f"\n*** This result would enter the {_top_n_label} leaderboard! ***")
 
     # ------------------------------------------------------------------
     # Prompt — always ask whether to commit after every run (skip if --yes)
@@ -1083,11 +1087,11 @@ def main() -> None:
 
     if lb_changed:
         update_tag = " [update]" if _is_update else ""
-        print(f"[leaderboard] Updated leaderboards/{args.game}.json (entered top 5{update_tag})")
+        print(f"[leaderboard] Updated leaderboards/{args.game}.json (entered {_top_n_label}{update_tag})")
         update_readme()
     else:
         update_tag = " [update]" if _is_update else ""
-        print(f"[leaderboard] Result did not enter top 5 — leaderboard unchanged{update_tag}.")
+        print(f"[leaderboard] Result did not enter {_top_n_label} — leaderboard unchanged{update_tag}.")
 
     ev = result.get("ev") or result.get("aggregate_ev", 0.0)
     lb_note = " (leaderboard updated)" if lb_changed else ""
