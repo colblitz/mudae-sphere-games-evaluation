@@ -1,7 +1,7 @@
 {
   "game": "ot",
   "metric": "ev",
-  "updated": "2026-04-27",
+  "updated": "2026-05-01",
   "top5": [
     {
       "filename": "colblitz_v8_heuristics_stateless.cpp",
@@ -26,6 +26,18 @@
       "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
     },
     {
+      "filename": "zavex_heuristic_fast_20260501.cpp",
+      "commit": "afb81c6",
+      "date": "2026-05-01",
+      "aggregate_ev": 795.2542087516689,
+      "games_per_cpu_s": 1247.4,
+      "setup_cpu_s": 0.0,
+      "harness_elapsed_s": 1267.602,
+      "n_threads": 20,
+      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+      "ev": 795.2542087516689
+    },
+    {
       "filename": "kelinimo_expectimax_fast.cpp",
       "commit": "c09e6cd",
       "date": "2026-04-25",
@@ -46,18 +58,6 @@
       "harness_elapsed_s": 990.78,
       "n_threads": 20,
       "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
-    },
-    {
-      "filename": "svessinn_solver_fast_v2.cpp",
-      "commit": "7f36310",
-      "date": "2026-04-26",
-      "aggregate_ev": 640.9768725862572,
-      "games_per_cpu_s": 2194.5,
-      "setup_cpu_s": 0.0,
-      "harness_elapsed_s": 720.534,
-      "n_threads": 20,
-      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
-      "ev": 640.9768725862572
     }
   ],
   "by_variant": {
@@ -109,6 +109,29 @@
           "total_strategy_calls": 25969511
         },
         {
+          "filename": "zavex_heuristic_fast_20260501.cpp",
+          "commit": "afb81c6",
+          "date": "2026-05-01",
+          "aggregate_ev": 795.2542087516689,
+          "games_per_cpu_s": 1247.4,
+          "setup_cpu_s": 0.0,
+          "harness_elapsed_s": 1267.602,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 6,
+          "n_boards": 1194816,
+          "ev": 745.408,
+          "stdev_ev": 196.1129,
+          "avg_clicks": 21.018,
+          "stdev_clicks": 30.6657,
+          "avg_ship_clicks": 12.6617,
+          "stdev_ship_clicks": 1.8974,
+          "perfect_rate": 0.5125,
+          "all_ships_rate": 0.8595,
+          "loss_5050_rate": 0.4014,
+          "total_strategy_calls": 24466770
+        },
+        {
           "filename": "kelinimo_expectimax_fast.cpp",
           "commit": "c09e6cd",
           "date": "2026-04-25",
@@ -151,29 +174,6 @@
           "all_ships_rate": 0.5715,
           "loss_5050_rate": 0.6237,
           "total_strategy_calls": 11633293
-        },
-        {
-          "filename": "svessinn_solver_fast_v2.cpp",
-          "commit": "7f36310",
-          "date": "2026-04-26",
-          "aggregate_ev": 640.9768725862572,
-          "games_per_cpu_s": 2194.5,
-          "setup_cpu_s": 0.0,
-          "harness_elapsed_s": 720.534,
-          "n_threads": 20,
-          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
-          "n_colors": 6,
-          "n_boards": 1194816,
-          "ev": 592.0119,
-          "stdev_ev": 225.2892,
-          "avg_clicks": 17.4014,
-          "stdev_clicks": 25.9534,
-          "avg_ship_clicks": 10.6552,
-          "stdev_ship_clicks": 3.002,
-          "perfect_rate": 0.2474,
-          "all_ships_rate": 0.5276,
-          "loss_5050_rate": 0.6571,
-          "total_strategy_calls": 10073286
         }
       ]
     },
@@ -201,6 +201,29 @@
           "all_ships_rate": 0.778,
           "loss_5050_rate": 0.4436,
           "total_strategy_calls": 240666886
+        },
+        {
+          "filename": "zavex_heuristic_fast_20260501.cpp",
+          "commit": "afb81c6",
+          "date": "2026-05-01",
+          "aggregate_ev": 795.2542087516689,
+          "games_per_cpu_s": 1247.4,
+          "setup_cpu_s": 0.0,
+          "harness_elapsed_s": 1267.602,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 7,
+          "n_boards": 5672880,
+          "ev": 895.3007,
+          "stdev_ev": 276.7109,
+          "avg_clicks": 18.9467,
+          "stdev_clicks": 27.577,
+          "avg_ship_clicks": 13.9331,
+          "stdev_ship_clicks": 2.1625,
+          "perfect_rate": 0.3432,
+          "all_ships_rate": 0.6678,
+          "loss_5050_rate": 0.4839,
+          "total_strategy_calls": 173975472
         },
         {
           "filename": "zavex_heuristic_fast.cpp",
@@ -267,29 +290,6 @@
           "all_ships_rate": 0.4507,
           "loss_5050_rate": 0.6678,
           "total_strategy_calls": 94102729
-        },
-        {
-          "filename": "svessinn_solver_fast_v2.cpp",
-          "commit": "7f36310",
-          "date": "2026-04-26",
-          "aggregate_ev": 640.9768725862572,
-          "games_per_cpu_s": 2194.5,
-          "setup_cpu_s": 0.0,
-          "harness_elapsed_s": 720.534,
-          "n_threads": 20,
-          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
-          "n_colors": 7,
-          "n_boards": 5672880,
-          "ev": 743.4724,
-          "stdev_ev": 309.5344,
-          "avg_clicks": 17.469,
-          "stdev_clicks": 25.9758,
-          "avg_ship_clicks": 12.0116,
-          "stdev_ship_clicks": 3.4444,
-          "perfect_rate": 0.2077,
-          "all_ships_rate": 0.4226,
-          "loss_5050_rate": 0.6246,
-          "total_strategy_calls": 98662764
         }
       ]
     },
@@ -341,6 +341,29 @@
           "total_strategy_calls": 906615796
         },
         {
+          "filename": "zavex_heuristic_fast_20260501.cpp",
+          "commit": "afb81c6",
+          "date": "2026-05-01",
+          "aggregate_ev": 795.2542087516689,
+          "games_per_cpu_s": 1247.4,
+          "setup_cpu_s": 0.0,
+          "harness_elapsed_s": 1267.602,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 8,
+          "n_boards": 12328128,
+          "ev": 1259.8007,
+          "stdev_ev": 393.6323,
+          "avg_clicks": 20.0535,
+          "stdev_clicks": 29.0154,
+          "avg_ship_clicks": 15.9947,
+          "stdev_ship_clicks": 2.4007,
+          "perfect_rate": 0.3974,
+          "all_ships_rate": 0.8192,
+          "loss_5050_rate": 0.4002,
+          "total_strategy_calls": 826141762
+        },
+        {
           "filename": "zavex_heuristic_fast.cpp",
           "commit": "c09e6cd",
           "date": "2026-04-25",
@@ -383,29 +406,6 @@
           "all_ships_rate": 0.597,
           "loss_5050_rate": 0.5498,
           "total_strategy_calls": 572432194
-        },
-        {
-          "filename": "svessinn_anti_teal_20260427.cpp",
-          "commit": "eb519d2",
-          "date": "2026-04-27",
-          "aggregate_ev": 618.5851600167939,
-          "games_per_cpu_s": 2183.2,
-          "setup_cpu_s": 0.0,
-          "harness_elapsed_s": 2414.2,
-          "n_threads": 6,
-          "cpu_model": "12th Gen Intel(R) Core(TM) i3-12100",
-          "n_colors": 8,
-          "n_boards": 12328128,
-          "ev": 1091.1929,
-          "stdev_ev": 444.9146,
-          "avg_clicks": 18.8732,
-          "stdev_clicks": 27.7999,
-          "avg_ship_clicks": 14.6123,
-          "stdev_ship_clicks": 3.7226,
-          "perfect_rate": 0.3168,
-          "all_ships_rate": 0.5905,
-          "loss_5050_rate": 0.447,
-          "total_strategy_calls": 462803258
         }
       ]
     },
@@ -433,6 +433,29 @@
           "all_ships_rate": 0.9876,
           "loss_5050_rate": 0.1761,
           "total_strategy_calls": 1405614559
+        },
+        {
+          "filename": "zavex_heuristic_fast_20260501.cpp",
+          "commit": "afb81c6",
+          "date": "2026-05-01",
+          "aggregate_ev": 795.2542087516689,
+          "games_per_cpu_s": 1247.4,
+          "setup_cpu_s": 0.0,
+          "harness_elapsed_s": 1267.602,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 9,
+          "n_boards": 12428080,
+          "ev": 2148.8303,
+          "stdev_ev": 211.6372,
+          "avg_clicks": 23.3052,
+          "stdev_clicks": 33.4014,
+          "avg_ship_clicks": 19.2987,
+          "stdev_ship_clicks": 1.4221,
+          "perfect_rate": 0.6836,
+          "all_ships_rate": 0.9757,
+          "loss_5050_rate": 0.2022,
+          "total_strategy_calls": 1653186025
         },
         {
           "filename": "kelinimo_expectimax_fast.cpp",
@@ -501,29 +524,6 @@
           "all_ships_rate": 0.8538,
           "loss_5050_rate": 0.2677,
           "total_strategy_calls": 1060467710
-        },
-        {
-          "filename": "svessinn_blue_focus_20260427.cpp",
-          "commit": "eb519d2",
-          "date": "2026-04-27",
-          "aggregate_ev": 640.9768725862572,
-          "games_per_cpu_s": 2809.1,
-          "setup_cpu_s": 0.0,
-          "harness_elapsed_s": 2814.417,
-          "n_threads": 4,
-          "cpu_model": "12th Gen Intel(R) Core(TM) i3-12100",
-          "n_colors": 9,
-          "n_boards": 12428080,
-          "ev": 1942.4746,
-          "stdev_ev": 493.0568,
-          "avg_clicks": 22.4844,
-          "stdev_clicks": 32.5811,
-          "avg_ship_clicks": 18.3584,
-          "stdev_ship_clicks": 3.0276,
-          "perfect_rate": 0.5784,
-          "all_ships_rate": 0.8538,
-          "loss_5050_rate": 0.2655,
-          "total_strategy_calls": 1032417482
         }
       ]
     }
