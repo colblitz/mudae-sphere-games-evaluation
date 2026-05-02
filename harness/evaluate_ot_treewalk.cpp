@@ -90,8 +90,11 @@
  *   Ships: teal(4), green(3), yellow(3), orange(2), var_rare_k(2) × n_var_rare.
  *   Ship clicks are FREE.  Extra Chance: 4th blue is free while ships_hit < 5.
  *   SP values: spT=20 spG=35 spY=55 spO=90 spL=76 spD=104 spR=150 spW=500 spB=10
- *   Rare-color weights (without-replacement draw):
- *     spL: 0.7143  spD: 0.4052  spR: 0.1332  spW: 0.0508
+ *   Rare-color weights (per-n_colors, without-replacement draw):
+ *     6-color: spL=0.6697  spD=0.3303  spR=0.0000  spW=0.0000
+ *     7-color: spL=0.8182  spD=0.6071  spR=0.4156  spW=0.1591  (>=1 of spL/spD required)
+ *     8-color: spL=0.9063  spD=0.8750  spR=0.7500  spW=0.4688
+ *     9-color: all four always assigned
  *
  * Detailed-color index convention:
  *   0 = blue (spB)
@@ -143,15 +146,30 @@ static constexpr int    OT_BLUE_VALUE   = 10;
 static constexpr int    SHIPS_THRESHOLD = 5;
 
 static constexpr int    N_VAR_COLORS    = 4;
-static constexpr double VAR_WEIGHT[N_VAR_COLORS] = {0.7143, 0.4052, 0.1332, 0.0508};
+// Per-n_colors appearance weights for var-rare color identities.
+// Row index = n_colors - 6.  6-color: spR/spW never appear; 7-color: at least
+// one of spL/spD always appears; 8-color: all four possible; 9-color: all four
+// always assigned.
+static constexpr double VAR_WEIGHT_BY_NC[4][N_VAR_COLORS] = {
+    {0.669734, 0.330266, 0.0,      0.0     },  // 6-color (n_var_rare=1)
+    {0.818182, 0.607143, 0.415584, 0.159091},  // 7-color (n_var_rare=2)
+    {0.906250, 0.875000, 0.750000, 0.468750},  // 8-color (n_var_rare=3)
+    {1.0,      1.0,      1.0,      1.0     },  // 9-color (n_var_rare=4, all always assigned)
+};
+static inline double var_weight(int n_colors, int c) {
+    return VAR_WEIGHT_BY_NC[n_colors - 6][c];
+}
+// 7-color hard constraint: a complete assignment must contain at least one of
+// spL (index 0) or spD (index 1).
+static inline bool var_assignment_valid(int n_colors, uint8_t used) {
+    if (n_colors == 7) return (used & 0x3u) != 0;
+    return true;
+}
 static const char*      VAR_COLOR_NAME[N_VAR_COLORS] = {"spL", "spD", "spR", "spW"};
 static constexpr int    VAR_SP[N_VAR_COLORS]         = {76, 104, 150, 500};
 
 // Fixed-ship SP by detailed-color index (0=blue handled separately)
 static constexpr int FIXED_SP[5] = {OT_BLUE_VALUE, 20, 35, 55, 90};
-
-static constexpr double W_TOTAL =
-    VAR_WEIGHT[0] + VAR_WEIGHT[1] + VAR_WEIGHT[2] + VAR_WEIGHT[3];
 
 // MAX_DC: maximum number of detailed-color buckets
 static constexpr int MAX_DC = 9;  // blue + 4 fixed ships + 4 var slots
@@ -231,10 +249,10 @@ struct ColorAssign {
         return ca2;
     }
 
-    double remaining_weight() const {
+    double remaining_weight(int n_colors) const {
         double w = 0.0;
         for (int c = 0; c < N_VAR_COLORS; ++c)
-            if (!(used_mask & (1u << c))) w += VAR_WEIGHT[c];
+            if (!(used_mask & (1u << c))) w += var_weight(n_colors, c);
         return w;
     }
 };
@@ -542,17 +560,45 @@ static NodeResult tree_walk(
                     new_ships_rev, new_ship_hit_mask, new_click_count);
                 accumulate(result, p_color, r, (double)VAR_SP[var_c]);
             } else {
-                // Fan out over all possible var-rare identities (without-replacement draw)
-                double rem_w = ca.remaining_weight();
-                NodeResult var_result{};
+                // Fan out over all possible var-rare identities (without-replacement draw).
+                // Skip colors absent in this mode (weight == 0).
+                // When assigning the last slot, also skip assignments that violate the
+                // mode constraint (7-color: must have >=1 of spL/spD).  After collecting
+                // valid branches renormalize so weights sum to 1.
+                bool is_last_slot =
+                    (__builtin_popcount((unsigned)ca.used_mask) + 1 == ca.n_var);
+
+                // Collect valid branches: raw weights (before renorm).
+                struct VarBranch { int vc; double raw_w; ColorAssign ca2; };
+                VarBranch branches[N_VAR_COLORS];
+                int n_branches = 0;
+                double total_valid_w = 0.0;
+                double rem_w = ca.remaining_weight(ctx.n_colors);
+
                 for (int vc = 0; vc < N_VAR_COLORS; ++vc) {
                     if (ca.used_mask & (1u << vc)) continue;
-                    double wc       = VAR_WEIGHT[vc] / rem_w;
-                    double sp_delta = (double)VAR_SP[vc];
+                    double wraw = var_weight(ctx.n_colors, vc);
+                    if (wraw == 0.0) continue;  // color absent in this mode
                     ColorAssign ca2 = ca.with_assign(slot, vc);
+                    // For the last slot, enforce the mode constraint.
+                    if (is_last_slot && !var_assignment_valid(ctx.n_colors, ca2.used_mask))
+                        continue;
+                    branches[n_branches++] = {vc, wraw / rem_w, ca2};
+                    total_valid_w += wraw;
+                }
+
+                // Renormalize if constraint pruned some branches.
+                double renorm = (total_valid_w > 0.0 && rem_w > 0.0)
+                                ? rem_w / total_valid_w : 1.0;
+
+                NodeResult var_result{};
+                for (int bi = 0; bi < n_branches; ++bi) {
+                    double wc       = branches[bi].raw_w * renorm;
+                    int    vc       = branches[bi].vc;
+                    double sp_delta = (double)VAR_SP[vc];
                     NodeResult r = tree_walk(
                         ctx, by_color[color], child_full_sv, rev2, rev_dc2,
-                        new_ships_hit, blues_used, false, ca2,
+                        new_ships_hit, blues_used, false, branches[bi].ca2,
                         new_ships_rev, new_ship_hit_mask, new_click_count);
                     double ev_child = r.ev_sp + sp_delta;
                     var_result.ev_sp       += wc * ev_child;

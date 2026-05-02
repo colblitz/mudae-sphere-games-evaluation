@@ -27,16 +27,21 @@
  * Ship SP values: spT=20 spG=35 spY=55 spO=90 spL=76 spD=104 spR=150 spW=500
  * Blue (spB) = 10 SP (awarded on click, does not count as a ship hit).
  *
- * Rare-ship color weighting:
+ * Rare-ship color weighting (per n_colors mode):
  *   Each board stores only the spatial placements of var_rare ships; their
  *   identities (spL/spD/spR/spW) are not fixed in the board file.  Each
  *   possible assignment of identities to slots is weighted by the product of
- *   per-color Mudae drop probabilities (without replacement across slots):
- *     spL: 0.7143   spD: 0.4052   spR: 0.1332   spW: 0.0508
+ *   per-color Mudae appearance probabilities (without replacement):
+ *     6-color: spL=0.6697  spD=0.3303  spR=0.0000  spW=0.0000
+ *     7-color: spL=0.8182  spD=0.6071  spR=0.4156  spW=0.1591
+ *     8-color: spL=0.9063  spD=0.8750  spR=0.7500  spW=0.4688
+ *     9-color: all four always assigned (uniform weight 1.0 each)
+ *   7-color hard constraint: any complete assignment lacking both spL and spD
+ *   is excluded; remaining assignments are renormalized to sum to 1.
  *   Per-board EV = Σ_assignment  weight(assignment) × score(assignment).
  *   The weight of an assignment is:
  *     w(c0) / W  ×  w(c1) / (W - w(c0))  ×  ...
- *   where W = Σ w(c) over all four var colors.
+ *   where W = Σ w(c) over all eligible var colors for this mode.
  *   The Welford accumulator receives one per-board weighted EV observation,
  *   so stdev reflects across-board spatial variance (not color-identity variance).
  *
@@ -110,11 +115,31 @@ static bool ot_is_ship(const std::string& color) {
 //
 // The board files store only spatial placements of var_rare ships; their
 // color identities are drawn from {spL, spD, spR, spW} according to Mudae
-// drop probabilities (without replacement across slots within a board).
+// appearance probabilities (without replacement across slots within a board).
+// Weights are per-n_colors mode; row index = n_colors - 6.
+//   6-color (n_var_rare=1): spR and spW never appear.
+//   7-color (n_var_rare=2): at least one of spL or spD always appears.
+//   8-color (n_var_rare=3): all four possible.
+//   9-color (n_var_rare=4): all four always assigned.
 // ---------------------------------------------------------------------------
 
 static constexpr int    N_VAR_COLORS = 4;
-static constexpr double VAR_WEIGHT[N_VAR_COLORS] = {0.7143, 0.4052, 0.1332, 0.0508};
+static constexpr double VAR_WEIGHT_BY_NC[4][N_VAR_COLORS] = {
+    {0.669734, 0.330266, 0.0,      0.0     },  // 6-color (n_var_rare=1)
+    {0.818182, 0.607143, 0.415584, 0.159091},  // 7-color (n_var_rare=2)
+    {0.906250, 0.875000, 0.750000, 0.468750},  // 8-color (n_var_rare=3)
+    {1.0,      1.0,      1.0,      1.0     },  // 9-color (n_var_rare=4, all always assigned)
+};
+static inline double var_weight(int n_colors, int c) {
+    return VAR_WEIGHT_BY_NC[n_colors - 6][c];
+}
+// 7-color hard constraint: a complete assignment must contain at least one of
+// spL (index 0) or spD (index 1).  Invalid assignments are excluded and the
+// remaining assignment weights are renormalized to sum to 1.
+static inline bool var_assignment_valid(int n_colors, uint8_t used) {
+    if (n_colors == 7) return (used & 0x3u) != 0;
+    return true;
+}
 static const char*      VAR_COLOR_NAMES[N_VAR_COLORS] = {"spL", "spD", "spR", "spW"};
 
 // A single assignment of rare-color identities to var_rare slots.
@@ -123,14 +148,20 @@ struct ColorAssignment {
     double weight;        // normalized probability of this full assignment
 };
 
-// Enumerate all P(N_VAR_COLORS, n_var_rare) assignments of distinct rare colors
-// to n_var_rare slots, weighted by the without-replacement draw probabilities.
+// Enumerate all valid assignments of distinct rare-color identities to
+// n_var_rare slots, weighted by the without-replacement draw probabilities for
+// the given n_colors mode.  Colors with weight 0 for this mode are skipped.
+// For 7-color, assignments lacking both spL (0) and spD (1) are excluded.
+// After enumeration all assignment weights are renormalized to sum to 1.
 // Appends results to `out`.
-static void enumerate_color_assignments(int n_var_rare,
+static void enumerate_color_assignments(int n_var_rare, int n_colors,
                                         std::vector<ColorAssignment>& out)
 {
-    static constexpr double W_TOTAL =
-        VAR_WEIGHT[0] + VAR_WEIGHT[1] + VAR_WEIGHT[2] + VAR_WEIGHT[3];
+    // Compute W_TOTAL for this mode (sum of non-zero weights).
+    double w_total = 0.0;
+    for (int c = 0; c < N_VAR_COLORS; ++c) w_total += var_weight(n_colors, c);
+
+    const size_t base_idx = out.size();  // renormalize only newly appended entries
 
     // Recursive fill: slot = current slot being assigned, used = bitmask of
     // already-assigned color indices, running_w = cumulative weight so far,
@@ -139,23 +170,34 @@ static void enumerate_color_assignments(int n_var_rare,
         [&](int slot, uint8_t used, double running_w, double remaining_w,
             ColorAssignment& cur) {
             if (slot == n_var_rare) {
+                // Skip assignments that violate the mode constraint.
+                if (!var_assignment_valid(n_colors, used)) return;
                 cur.weight = running_w;
                 out.push_back(cur);
                 return;
             }
             for (int c = 0; c < N_VAR_COLORS; ++c) {
                 if (used & (1 << c)) continue;
+                double wc = var_weight(n_colors, c);
+                if (wc == 0.0) continue;  // color absent in this mode
                 cur.color_idx[slot] = c;
                 fill(slot + 1,
                      static_cast<uint8_t>(used | (1 << c)),
-                     running_w * (VAR_WEIGHT[c] / remaining_w),
-                     remaining_w - VAR_WEIGHT[c],
+                     running_w * (wc / remaining_w),
+                     remaining_w - wc,
                      cur);
             }
         };
 
     ColorAssignment cur{};
-    fill(0, 0, 1.0, W_TOTAL, cur);
+    fill(0, 0, 1.0, w_total, cur);
+
+    // Renormalize: weights may not sum to 1 when the 7-color constraint
+    // excludes some assignments.
+    double wsum = 0.0;
+    for (size_t i = base_idx; i < out.size(); ++i) wsum += out[i].weight;
+    if (wsum > 0.0 && std::abs(wsum - 1.0) > 1e-12)
+        for (size_t i = base_idx; i < out.size(); ++i) out[i].weight /= wsum;
 }
 
 // Build the 25-element color array for a board given a specific rare-color
@@ -463,7 +505,7 @@ static OTVariantResult evaluate_variant(
     int n_var_rare = n_colors - 5;  // 6→1, 7→2, 8→3, 9→4
     std::vector<ColorAssignment> assignments;
     if (n_var_rare > 0) {
-        enumerate_color_assignments(n_var_rare, assignments);
+        enumerate_color_assignments(n_var_rare, n_colors, assignments);
     } else {
         // 5-color (no var_rare): single trivial assignment with weight 1
         ColorAssignment trivial{};
@@ -721,7 +763,7 @@ int main(int argc, char* argv[]) {
         // Precompute color assignments
         std::vector<ColorAssignment> assignments;
         if (n_var_rare > 0) {
-            enumerate_color_assignments(n_var_rare, assignments);
+            enumerate_color_assignments(n_var_rare, nc, assignments);
         } else {
             ColorAssignment trivial{};
             trivial.weight = 1.0;

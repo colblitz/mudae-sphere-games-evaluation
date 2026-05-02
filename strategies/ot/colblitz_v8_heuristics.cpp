@@ -95,19 +95,29 @@ static constexpr double V8_EV_DENOM  = 500.0;
 static constexpr double V8_VAR_DENOM = 500.0 * 500.0;
 
 // SP values for each detailed slot index:
-//   0=blue (unused), 1=teal=20, 2=green=35, 3=yellow=55, 4=spO=90, 5+=var-rare~101
+//   0=blue (unused), 1=teal=20, 2=green=35, 3=yellow=55, 4=spO=90, 5+=var-rare (per-mode EV)
 static constexpr double SLOT_SP_FIXED[5] = {0.0, 20.0, 35.0, 55.0, 90.0};
 
-// Empirical appearance weights for variable-rare colors (Light, Dark, Red, Rainbow)
-static constexpr double VAR_RARE_SP[4]     = {76.0, 104.0, 150.0, 500.0};
-static constexpr double VAR_RARE_WEIGHT[4] = {0.7143, 0.4052, 0.1332, 0.0508};
+// SP values and per-n_colors appearance weights for variable-rare colors.
+// Row index = n_colors - 6.  Weights reflect per-mode Mudae appearance rates.
+//   6-color: spR/spW absent (~85 SP/cell EV)
+//   7-color: all four possible, spL/spD required (~113 SP/cell EV)
+//   8-color: all four possible (~132 SP/cell EV)
+//   9-color: all four always assigned (~208 SP/cell EV)
+static constexpr double VAR_RARE_SP[4]            = {76.0, 104.0, 150.0, 500.0};
+static constexpr double VAR_RARE_WEIGHT_BY_NC[4][4] = {
+    {0.669734, 0.330266, 0.0,      0.0     },  // 6-color
+    {0.818182, 0.607143, 0.415584, 0.159091},  // 7-color
+    {0.906250, 0.875000, 0.750000, 0.468750},  // 8-color
+    {1.0,      1.0,      1.0,      1.0     },  // 9-color
+};
 
-static double computeVarRareEV() {
+static double computeVarRareEV(int n_colors) {
     double wsum = 0.0, ev = 0.0;
-    for (int i = 0; i < 4; ++i) { wsum += VAR_RARE_WEIGHT[i]; ev += VAR_RARE_WEIGHT[i] * VAR_RARE_SP[i]; }
-    return ev / wsum;
+    const double* w = VAR_RARE_WEIGHT_BY_NC[n_colors - 6];
+    for (int i = 0; i < 4; ++i) { wsum += w[i]; ev += w[i] * VAR_RARE_SP[i]; }
+    return wsum > 0.0 ? ev / wsum : 0.0;
 }
-static const double VAR_RARE_EV = computeVarRareEV(); // ~101 SP
 
 static constexpr double LN6 = 1.791759469228327;  // log(6)
 static constexpr double LN9 = 2.1972245773362196; // log(9)
@@ -419,9 +429,10 @@ static std::vector<bool> getIdentifiedSlots(
 }
 
 // Build per-slot SP lookup for EV/Var terms
-static std::vector<double> buildSlotSp(int n_rare) {
+static std::vector<double> buildSlotSp(int n_rare, int n_colors) {
     std::vector<double> sp(SLOT_SP_FIXED, SLOT_SP_FIXED + 5);
-    for (int k = 0; k < n_rare - 1; ++k) sp.push_back(VAR_RARE_EV);
+    double ev = computeVarRareEV(n_colors);
+    for (int k = 0; k < n_rare - 1; ++k) sp.push_back(ev);
     return sp;
 }
 
@@ -484,6 +495,7 @@ static int pickPhase1CellV8(
     const std::vector<int32_t>& occ,
     const std::vector<int>& unclicked,
     int n_rare,
+    int n_colors,
     int ships_hit,
     int blues_used,
     const std::unordered_map<std::string, int32_t>& rareColorGroups,
@@ -533,7 +545,7 @@ static int pickPhase1CellV8(
     if (need_dc && (std::abs(w_ev) > 1e-15 || std::abs(w_var_sp) > 1e-15 ||
                     std::abs(w_rare_id) > 1e-15)) {
         identified = getIdentifiedSlots(bs, rareColorGroups, n_rare);
-        slot_sp    = buildSlotSp(n_rare);
+        slot_sp    = buildSlotSp(n_rare, n_colors);
     } else {
         identified.assign(n_var, false);
     }
@@ -972,6 +984,7 @@ public:
             // Phase 1
             if (weightsLoaded_[idx]) {
                 chosen = pickPhase1CellV8(arr_, occ, unclicked, n_rare_,
+                                          n_rare_ + 4,
                                           ships_hit, blues_used,
                                           rareColorGroups_, weights_[idx]);
             } else {
