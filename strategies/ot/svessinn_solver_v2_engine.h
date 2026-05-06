@@ -1,4 +1,8 @@
 #pragma once
+// Source: https://github.com/Svessinn/Svessinn.github.io/blob/main/Mudae/Spheres/Trace/solver.html
+// Synced: 2026-04-29 (commit d8711a6af27bc1b9)
+// Commit: "Enhance deduction logic for ship placements and probabilities, including safe lo..."
+// To check: curl -s "https://api.github.com/repos/Svessinn/Svessinn.github.io/commits?path=Mudae/Spheres/Trace/solver.html&per_page=1" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['sha'][:16], d[0]['commit']['author']['date'])"
 /**
  * svessinn_solver_v2_engine.h
  *

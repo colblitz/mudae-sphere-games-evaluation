@@ -1,4 +1,8 @@
 // sphere:stateless
+// Source: https://solvespheres.kelinimo.workers.dev/ot.js
+// Synced: 2026-05-06
+// Source hash (SHA-256, first 16 hex): 4b08b64c88ecedcc
+// To check: curl -s https://solvespheres.kelinimo.workers.dev/ot.js | sha256sum | cut -c1-16
 // Disable FMA contraction so floating-point arithmetic matches JavaScript's
 // strict IEEE 754 double precision (no fused multiply-add).  Without this,
 // g++ -march=native folds expressions like `p * pC * cVal` in the rollout DP
