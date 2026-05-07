@@ -229,6 +229,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | Rank | Strategy | Agg EV | Commit | Date |
 |------|----------|--------|--------|------|
 | 1 | `kelinimo_expectimax_fast.cpp` | 745.99 | `12b7a92` | 2026-05-06 |
+| 2 | `tksglass_4.cpp` | 592.69 | `25f4aef` | 2026-05-06 |
 
 <details>
 <summary>Per-color variant breakdown</summary>
@@ -238,24 +239,28 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
 | 1 | `kelinimo_expectimax_fast.cpp` | 655.72 | 116.33 | 33.96% | 69.77% | 50.63% | 17.34 | 25.62 | 11.79 | 2.25 | `12b7a92` | 2026-05-06 |
+| 2 | `tksglass_4.cpp` | 519.48 | 145.11 | 11.38% | 35.67% | 71.41% | 15.45 | 22.97 | 10.29 | 2.42 | `25f4aef` | 2026-05-06 |
 
 **7-color variant**
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
 | 1 | `kelinimo_expectimax_fast.cpp` | 943.24 | 322.01 | 27.26% | 64.75% | 53.25% | 17.79 | 26.13 | 13.13 | 2.72 | `12b7a92` | 2026-05-06 |
+| 2 | `tksglass_4.cpp` | 747.06 | 306.42 | 9.62% | 36.34% | 69.31% | 16.34 | 24.01 | 11.95 | 2.56 | `25f4aef` | 2026-05-06 |
 
 **8-color variant**
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
 | 1 | `kelinimo_expectimax_fast.cpp` | 1477.84 | 449.47 | 36.14% | 77.54% | 42.39% | 19.93 | 28.97 | 15.70 | 2.72 | `12b7a92` | 2026-05-06 |
+| 2 | `tksglass_4.cpp` | 1231.05 | 469.28 | 15.77% | 54.84% | 56.31% | 18.84 | 27.48 | 14.60 | 2.78 | `25f4aef` | 2026-05-06 |
 
 **9-color variant**
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
 | 1 | `kelinimo_expectimax_fast.cpp` | 2154.78 | 196.23 | 65.84% | 96.06% | 21.62% | 23.27 | 33.37 | 19.23 | 1.56 | `12b7a92` | 2026-05-06 |
+| 2 | `tksglass_4.cpp` | 1886.29 | 428.11 | 31.92% | 79.38% | 41.91% | 21.86 | 31.63 | 17.77 | 2.70 | `25f4aef` | 2026-05-06 |
 
 </details>
 
@@ -265,6 +270,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | Strategy | Games/CPU-s | Setup CPU-s | Harness wall-s | Threads | CPU |
 |----------|-------------|-------------|----------------|---------|-----|
 | `kelinimo_expectimax_fast.cpp` | 147 | 130.93 | 10885.0 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
+| `tksglass_4.cpp` | 1908 | 0.00 | 828.8 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 
 </details>
 

@@ -14,6 +14,18 @@
       "n_threads": 20,
       "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
       "ev": 745.9936229497738
+    },
+    {
+      "filename": "tksglass_4.cpp",
+      "commit": "25f4aef",
+      "date": "2026-05-06",
+      "aggregate_ev": 592.6866861195431,
+      "games_per_cpu_s": 1907.7,
+      "setup_cpu_s": 0.0,
+      "harness_elapsed_s": 828.83,
+      "n_threads": 20,
+      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+      "ev": 592.6866861195431
     }
   ],
   "by_variant": {
@@ -42,6 +54,29 @@
           "all_ships_rate": 0.6977,
           "loss_5050_rate": 0.5063,
           "total_strategy_calls": 9399022
+        },
+        {
+          "filename": "tksglass_4.cpp",
+          "commit": "25f4aef",
+          "date": "2026-05-06",
+          "aggregate_ev": 592.6866861195431,
+          "games_per_cpu_s": 1907.7,
+          "setup_cpu_s": 0.0,
+          "harness_elapsed_s": 828.83,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 6,
+          "n_boards": 1194816,
+          "ev": 519.4816,
+          "stdev_ev": 145.1128,
+          "avg_clicks": 15.4492,
+          "stdev_clicks": 22.9659,
+          "avg_ship_clicks": 10.2879,
+          "stdev_ship_clicks": 2.4194,
+          "perfect_rate": 0.1138,
+          "all_ships_rate": 0.3567,
+          "loss_5050_rate": 0.7141,
+          "total_strategy_calls": 2734960
         }
       ]
     },
@@ -70,6 +105,29 @@
           "all_ships_rate": 0.6475,
           "loss_5050_rate": 0.5325,
           "total_strategy_calls": 151557310
+        },
+        {
+          "filename": "tksglass_4.cpp",
+          "commit": "25f4aef",
+          "date": "2026-05-06",
+          "aggregate_ev": 592.6866861195431,
+          "games_per_cpu_s": 1907.7,
+          "setup_cpu_s": 0.0,
+          "harness_elapsed_s": 828.83,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 7,
+          "n_boards": 5672880,
+          "ev": 747.0581,
+          "stdev_ev": 306.422,
+          "avg_clicks": 16.3446,
+          "stdev_clicks": 24.0129,
+          "avg_ship_clicks": 11.9538,
+          "stdev_ship_clicks": 2.5642,
+          "perfect_rate": 0.0962,
+          "all_ships_rate": 0.3634,
+          "loss_5050_rate": 0.6931,
+          "total_strategy_calls": 50280218
         }
       ]
     },
@@ -98,6 +156,29 @@
           "all_ships_rate": 0.7754,
           "loss_5050_rate": 0.4239,
           "total_strategy_calls": 906615796
+        },
+        {
+          "filename": "tksglass_4.cpp",
+          "commit": "25f4aef",
+          "date": "2026-05-06",
+          "aggregate_ev": 592.6866861195431,
+          "games_per_cpu_s": 1907.7,
+          "setup_cpu_s": 0.0,
+          "harness_elapsed_s": 828.83,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 8,
+          "n_boards": 12328128,
+          "ev": 1231.0545,
+          "stdev_ev": 469.2789,
+          "avg_clicks": 18.8437,
+          "stdev_clicks": 27.4831,
+          "avg_ship_clicks": 14.6033,
+          "stdev_ship_clicks": 2.7834,
+          "perfect_rate": 0.1577,
+          "all_ships_rate": 0.5484,
+          "loss_5050_rate": 0.5631,
+          "total_strategy_calls": 454512182
         }
       ]
     },
@@ -126,6 +207,29 @@
           "all_ships_rate": 0.9606,
           "loss_5050_rate": 0.2162,
           "total_strategy_calls": 1655503219
+        },
+        {
+          "filename": "tksglass_4.cpp",
+          "commit": "25f4aef",
+          "date": "2026-05-06",
+          "aggregate_ev": 592.6866861195431,
+          "games_per_cpu_s": 1907.7,
+          "setup_cpu_s": 0.0,
+          "harness_elapsed_s": 828.83,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 9,
+          "n_boards": 12428080,
+          "ev": 1886.2948,
+          "stdev_ev": 428.1121,
+          "avg_clicks": 21.8588,
+          "stdev_clicks": 31.6266,
+          "avg_ship_clicks": 17.7655,
+          "stdev_ship_clicks": 2.6995,
+          "perfect_rate": 0.3192,
+          "all_ships_rate": 0.7938,
+          "loss_5050_rate": 0.4191,
+          "total_strategy_calls": 1144490793
         }
       ]
     }
