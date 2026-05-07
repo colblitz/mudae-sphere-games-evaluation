@@ -213,31 +213,22 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 > **Note:** `kelinimo_expectimax_fast.cpp`, `svessinn_solver_fast.cpp`, and `zavex_heuristic_fast.cpp` are C++ ports of their original JS strategies with minor performance tweaks. They are not algorithmically identical to the JS originals — scores may differ slightly due to floating-point arithmetic differences and tiebreak ordering.
 
-> **Theoretical ceiling:** A perfect game clicks all 25 cells (all ship cells revealed, all blue cells clicked). Per-color perfect-game SP and the empirically-weighted ceiling (using mode frequencies from `data/trace_board_stats.json`, 1177 observed games; 9-color has 0 observed occurrences and receives a token weight of 1):
+> **Theoretical ceiling:** A perfect game collects all ships on every board. Per-color perfect-game SP and the empirically-weighted ceiling (using mode frequencies from `data/trace_board_stats.json`, 1177 observed games; 9-color has 0 observed occurrences and receives a token weight of 1):
 >
 > | Mode | Perfect-game SP | Count | Rate |
 > |------|:--------------:|:-----:|:----:|
-> | 6-color | ~810 SP | 870 | 73.85% |
-> | 7-color | ~1154 SP | 276 | 23.43% |
-> | 8-color | ~1614 SP | 31 | 2.63% |
-> | 9-color | ~2240 SP | 0 (token: 1) | ~0% |
+> | 6-color | ~858 SP | 870 | 73.85% |
+> | 7-color | ~1055 SP | 276 | 23.43% |
+> | 8-color | ~1253 SP | 31 | 2.63% |
+> | 9-color | ~1450 SP | 0 (token: 1) | ~0% |
 >
-> **Overall empirical ceiling: ~913 SP.** A perfect game clicks all 25 cells; each cell awards its ship SP (or 10 SP if blue). Per-color var-rare EV/cell: ~85 SP (6-color, spL/spD only), ~134 SP (7-color), ~169 SP (8-color), ~208 SP (9-color, all four always assigned), based on per-mode Mudae appearance weights.
+> **Overall empirical ceiling: ~915 SP.** Per-color values assume ~109 SP/cell for var-rare ship cells (empirical EV weighted across spL/spD/spR/spW by observed appearance rates in the same dataset).
 
 **Aggregate (empirically weighted EV — weights from observed mode frequencies in real play)**
 
 | Rank | Strategy | Agg EV | Commit | Date |
 |------|----------|--------|--------|------|
-| 1 | `colblitz_v8_heuristics_stateless.cpp` | 827.26 | `ddbf2d3` | 2026-04-25 |
-| 2 | `zavex_heuristic_fast.cpp` | 798.15 | `c09e6cd` | 2026-04-25 |
-| 3 | `zavex_heuristic_fast_20260501.cpp` | 795.25 | `afb81c6` | 2026-05-01 |
-| 4 | `kelinimo_expectimax_fast.cpp` | 755.68 | `c09e6cd` | 2026-04-25 |
-| 5 | `tksglass_5.cpp` | 676.61 | `25f4aef` | 2026-04-25 |
-| 6 | `svessinn_solver_fast_v2.cpp` | 640.98 | `7f36310` | 2026-04-26 |
-| 7 | `svessinn_blue_focus_20260427.cpp` | 640.98 | `eb519d2` | 2026-04-27 |
-| 8 | `svessinn_anti_teal_20260427.cpp` | 618.59 | `eb519d2` | 2026-04-27 |
-| 9 | `svessinn_solver_fast.cpp` | 598.89 | `c09e6cd` | 2026-04-25 |
-| 10 | `tksglass_4.cpp` | 596.38 | `25f4aef` | 2026-04-25 |
+| 1 | `kelinimo_expectimax_fast.cpp` | 745.99 | `12b7a92` | 2026-05-06 |
 
 <details>
 <summary>Per-color variant breakdown</summary>
@@ -246,61 +237,25 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
-| 1 | `colblitz_v8_heuristics_stateless.cpp` | 768.62 | 184.65 | 59.02% | 91.84% | 33.26% | 21.39 | 31.13 | 13.03 | 1.57 | `ddbf2d3` | 2026-04-25 |
-| 2 | `zavex_heuristic_fast.cpp` | 751.17 | 197.86 | 53.27% | 94.75% | 37.10% | 21.21 | 30.95 | 12.60 | 2.13 | `c09e6cd` | 2026-04-25 |
-| 3 | `zavex_heuristic_fast_20260501.cpp` | 745.41 | 196.11 | 51.25% | 85.95% | 40.14% | 21.02 | 30.67 | 12.66 | 1.90 | `afb81c6` | 2026-05-01 |
-| 4 | `kelinimo_expectimax_fast.cpp` | 696.37 | 193.69 | 33.88% | 69.72% | 50.73% | 17.33 | 25.61 | 11.78 | 2.25 | `c09e6cd` | 2026-04-25 |
-| 5 | `tksglass_5.cpp` | 633.20 | 197.98 | 23.39% | 57.15% | 62.37% | 17.76 | 26.31 | 11.47 | 2.13 | `25f4aef` | 2026-04-25 |
-| 6 | `svessinn_solver_fast_v2.cpp` | 592.01 | 225.29 | 24.74% | 52.76% | 65.71% | 17.40 | 25.95 | 10.66 | 3.00 | `7f36310` | 2026-04-26 |
-| 7 | `svessinn_blue_focus_20260427.cpp` | 592.01 | 225.29 | 24.74% | 52.76% | 65.86% | 17.40 | 25.95 | 10.66 | 3.00 | `eb519d2` | 2026-04-27 |
-| 8 | `svessinn_anti_teal_20260427.cpp` | 564.24 | 212.40 | 18.72% | 35.97% | 72.33% | 15.61 | 23.34 | 10.14 | 3.02 | `eb519d2` | 2026-04-27 |
-| 9 | `svessinn_solver_fast.cpp` | 557.04 | 212.46 | 11.71% | 45.79% | 60.64% | 16.62 | 24.73 | 10.07 | 2.80 | `c09e6cd` | 2026-04-25 |
-| 10 | `tksglass_4.cpp` | 545.17 | 192.68 | 11.38% | 35.67% | 71.41% | 15.45 | 22.97 | 10.29 | 2.42 | `25f4aef` | 2026-04-25 |
+| 1 | `kelinimo_expectimax_fast.cpp` | 655.72 | 116.33 | 33.96% | 69.77% | 50.63% | 17.34 | 25.62 | 11.79 | 2.25 | `12b7a92` | 2026-05-06 |
 
 **7-color variant**
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
-| 1 | `colblitz_v8_heuristics_stateless.cpp` | 949.44 | 269.94 | 43.09% | 77.80% | 44.36% | 20.17 | 29.27 | 14.50 | 1.83 | `ddbf2d3` | 2026-04-25 |
-| 2 | `zavex_heuristic_fast_20260501.cpp` | 895.30 | 276.71 | 34.32% | 66.78% | 48.39% | 18.95 | 27.58 | 13.93 | 2.16 | `afb81c6` | 2026-05-01 |
-| 3 | `zavex_heuristic_fast.cpp` | 892.43 | 277.54 | 33.62% | 66.40% | 47.75% | 18.87 | 27.48 | 13.85 | 2.21 | `c09e6cd` | 2026-04-25 |
-| 4 | `kelinimo_expectimax_fast.cpp` | 880.71 | 283.57 | 27.38% | 64.87% | 53.10% | 17.81 | 26.15 | 13.15 | 2.71 | `c09e6cd` | 2026-04-25 |
-| 5 | `tksglass_5.cpp` | 761.58 | 271.27 | 14.55% | 45.07% | 66.78% | 17.43 | 25.59 | 12.65 | 2.33 | `25f4aef` | 2026-04-25 |
-| 6 | `svessinn_solver_fast_v2.cpp` | 743.47 | 309.53 | 20.77% | 42.26% | 62.46% | 17.47 | 25.98 | 12.01 | 3.44 | `7f36310` | 2026-04-26 |
-| 7 | `svessinn_blue_focus_20260427.cpp` | 743.47 | 309.53 | 20.77% | 42.26% | 61.56% | 17.47 | 25.98 | 12.01 | 3.44 | `eb519d2` | 2026-04-27 |
-| 8 | `svessinn_anti_teal_20260427.cpp` | 731.74 | 303.72 | 19.69% | 39.60% | 64.93% | 16.50 | 24.54 | 11.79 | 3.51 | `eb519d2` | 2026-04-27 |
-| 9 | `tksglass_4.cpp` | 702.14 | 269.02 | 9.62% | 36.34% | 69.31% | 16.34 | 24.01 | 11.95 | 2.56 | `25f4aef` | 2026-04-25 |
-| 10 | `svessinn_solver_fast.cpp` | 686.22 | 278.51 | 6.59% | 40.73% | 55.30% | 16.63 | 24.68 | 11.25 | 3.15 | `c09e6cd` | 2026-04-25 |
+| 1 | `kelinimo_expectimax_fast.cpp` | 943.24 | 322.01 | 27.26% | 64.75% | 53.25% | 17.79 | 26.13 | 13.13 | 2.72 | `12b7a92` | 2026-05-06 |
 
 **8-color variant**
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
-| 1 | `colblitz_v8_heuristics_stateless.cpp` | 1341.55 | 357.51 | 53.21% | 87.12% | 37.22% | 21.36 | 30.73 | 16.90 | 1.63 | `ddbf2d3` | 2026-04-25 |
-| 2 | `kelinimo_expectimax_fast.cpp` | 1262.98 | 387.49 | 36.40% | 77.73% | 42.17% | 19.96 | 29.00 | 15.73 | 2.70 | `c09e6cd` | 2026-04-25 |
-| 3 | `zavex_heuristic_fast_20260501.cpp` | 1259.80 | 393.63 | 39.74% | 81.92% | 40.02% | 20.05 | 29.02 | 15.99 | 2.40 | `afb81c6` | 2026-05-01 |
-| 4 | `zavex_heuristic_fast.cpp` | 1258.96 | 394.50 | 39.78% | 81.81% | 39.92% | 20.03 | 28.99 | 15.98 | 2.43 | `c09e6cd` | 2026-04-25 |
-| 5 | `tksglass_5.cpp` | 1100.47 | 387.49 | 19.75% | 59.70% | 54.98% | 19.42 | 28.28 | 15.02 | 2.58 | `25f4aef` | 2026-04-25 |
-| 6 | `svessinn_anti_teal_20260427.cpp` | 1091.19 | 444.91 | 31.68% | 59.05% | 44.70% | 18.87 | 27.80 | 14.61 | 3.72 | `eb519d2` | 2026-04-27 |
-| 7 | `svessinn_solver_fast_v2.cpp` | 1060.67 | 442.28 | 28.22% | 54.02% | 47.69% | 19.01 | 28.04 | 14.39 | 3.71 | `7f36310` | 2026-04-26 |
-| 8 | `svessinn_blue_focus_20260427.cpp` | 1060.67 | 442.28 | 28.22% | 54.02% | 46.62% | 19.01 | 28.04 | 14.39 | 3.71 | `eb519d2` | 2026-04-27 |
-| 9 | `tksglass_4.cpp` | 1052.72 | 392.50 | 15.77% | 54.84% | 56.31% | 18.84 | 27.48 | 14.60 | 2.78 | `25f4aef` | 2026-04-25 |
-| 10 | `svessinn_solver_fast.cpp` | 954.17 | 391.89 | 10.00% | 52.88% | 44.25% | 17.92 | 26.47 | 13.35 | 3.50 | `c09e6cd` | 2026-04-25 |
+| 1 | `kelinimo_expectimax_fast.cpp` | 1477.84 | 449.47 | 36.14% | 77.54% | 42.39% | 19.93 | 28.97 | 15.70 | 2.72 | `12b7a92` | 2026-05-06 |
 
 **9-color variant**
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
-| 1 | `colblitz_v8_heuristics_stateless.cpp` | 2179.95 | 150.42 | 79.11% | 98.76% | 17.61% | 23.74 | 33.95 | 19.68 | 0.77 | `ddbf2d3` | 2026-04-25 |
-| 2 | `zavex_heuristic_fast_20260501.cpp` | 2148.83 | 211.64 | 68.36% | 97.57% | 20.22% | 23.31 | 33.40 | 19.30 | 1.42 | `afb81c6` | 2026-05-01 |
-| 3 | `kelinimo_expectimax_fast.cpp` | 2129.61 | 252.00 | 65.84% | 96.06% | 21.62% | 23.27 | 33.37 | 19.23 | 1.56 | `c09e6cd` | 2026-04-25 |
-| 4 | `svessinn_anti_teal_20260427.cpp` | 2020.92 | 433.52 | 64.28% | 90.07% | 23.52% | 22.78 | 32.91 | 18.74 | 2.71 | `eb519d2` | 2026-04-27 |
-| 5 | `svessinn_solver_fast_v2.cpp` | 1942.47 | 493.06 | 57.84% | 85.38% | 26.77% | 22.48 | 32.58 | 18.36 | 3.03 | `7f36310` | 2026-04-26 |
-| 6 | `svessinn_blue_focus_20260427.cpp` | 1942.47 | 493.06 | 57.84% | 85.38% | 26.55% | 22.48 | 32.58 | 18.36 | 3.03 | `eb519d2` | 2026-04-27 |
-| 7 | `svessinn_solver_fast.cpp` | 1890.85 | 526.54 | 52.03% | 84.40% | 30.41% | 22.12 | 32.16 | 18.00 | 3.35 | `c09e6cd` | 2026-04-25 |
-| 8 | `tksglass_5.cpp` | 1853.67 | 462.95 | 35.60% | 81.72% | 40.65% | 22.18 | 32.03 | 18.02 | 2.49 | `25f4aef` | 2026-04-25 |
-| 9 | `tksglass_4.cpp` | 1809.17 | 492.41 | 31.92% | 79.38% | 41.91% | 21.86 | 31.63 | 17.77 | 2.70 | `25f4aef` | 2026-04-25 |
-| 10 | `zavex_heuristic_fast.cpp` | 1364.76 | 618.87 | 8.97% | 20.25% | 53.23% | 17.96 | 26.74 | 13.91 | 4.16 | `c09e6cd` | 2026-04-25 |
+| 1 | `kelinimo_expectimax_fast.cpp` | 2154.78 | 196.23 | 65.84% | 96.06% | 21.62% | 23.27 | 33.37 | 19.23 | 1.56 | `12b7a92` | 2026-05-06 |
 
 </details>
 
@@ -309,16 +264,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Strategy | Games/CPU-s | Setup CPU-s | Harness wall-s | Threads | CPU |
 |----------|-------------|-------------|----------------|---------|-----|
-| `colblitz_v8_heuristics_stateless.cpp` | 1317 | 2.23 | 1202.9 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
-| `zavex_heuristic_fast.cpp` | 2351 | 0.00 | 672.5 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
-| `zavex_heuristic_fast_20260501.cpp` | 1247 | 0.00 | 1267.6 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
-| `kelinimo_expectimax_fast.cpp` | 140 | 131.00 | 11446.3 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
-| `tksglass_5.cpp` | 1596 | 0.00 | 990.8 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
-| `svessinn_solver_fast_v2.cpp` | 2194 | 0.00 | 720.5 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
-| `svessinn_blue_focus_20260427.cpp` | 2809 | 0.00 | 2814.4 | 4 | 12th Gen Intel(R) Core(TM) i3-12100 |
-| `svessinn_anti_teal_20260427.cpp` | 2183 | 0.00 | 2414.2 | 6 | 12th Gen Intel(R) Core(TM) i3-12100 |
-| `svessinn_solver_fast.cpp` | 2649 | 0.00 | 596.9 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
-| `tksglass_4.cpp` | 1812 | 0.00 | 872.8 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
+| `kelinimo_expectimax_fast.cpp` | 147 | 130.93 | 10885.0 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 
 </details>
 
