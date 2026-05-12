@@ -228,6 +228,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | Agg EV | Commit | Date |
 |------|----------|--------|--------|------|
+| 1 | `tksglass_4.cpp` | 592.69 | `25f4aef` | 2026-05-12 |
 
 <details>
 <summary>Per-color variant breakdown</summary>
@@ -236,21 +237,34 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
+| 1 | `tksglass_4.cpp` | 519.48 | 145.11 | 1.80% | 11.38% | 71.41% | 15.45 | 22.97 | 10.29 | 2.42 | `25f4aef` | 2026-05-12 |
 
 **7-color variant**
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
+| 1 | `tksglass_4.cpp` | 747.06 | 306.42 | 0.98% | 9.62% | 69.31% | 16.34 | 24.01 | 11.95 | 2.56 | `25f4aef` | 2026-05-12 |
 
 **8-color variant**
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
+| 1 | `tksglass_4.cpp` | 1231.05 | 469.28 | 1.83% | 15.77% | 56.31% | 18.84 | 27.48 | 14.60 | 2.78 | `25f4aef` | 2026-05-12 |
 
 **9-color variant**
 
 | Rank | Strategy | EV | Stdev EV | Perfect% | All Ships% | 50/50 Loss% | Avg Clicks | Stdev Clicks | Avg Ship Clicks | Stdev Ship Clicks | Commit | Date |
 |------|----------|----|----------|----------|------------|-------------|------------|--------------|-----------------|-------------------|--------|------|
+| 1 | `tksglass_4.cpp` | 1886.29 | 428.11 | 5.38% | 31.92% | 41.91% | 21.86 | 31.63 | 17.77 | 2.70 | `25f4aef` | 2026-05-12 |
+
+</details>
+
+<details>
+<summary>Performance</summary>
+
+| Strategy | Games/CPU-s | Setup CPU-s | Harness wall-s | Threads | CPU |
+|----------|-------------|-------------|----------------|---------|-----|
+| `tksglass_4.cpp` | 1819 | 0.00 | 869.4 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 
 </details>
 
