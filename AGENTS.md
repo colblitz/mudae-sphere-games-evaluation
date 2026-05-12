@@ -183,6 +183,30 @@ The scores artifact records the timestamp, strategy commit hash, filename, all h
 
 See the README for the full list of `evaluate.py` flags (`--games`, `--seed`, `--n-colors`, `--threads`, etc.).
 
+**Resetting a leaderboard:**
+
+If the scoring metric definitions change and all prior results are invalidated, clear the leaderboard for that game and regenerate the README:
+
+1. Clear `leaderboards/<game>.json` — set both `top10` and each `by_variant[N].top10` to empty arrays, and update the `updated` date:
+   ```json
+   { "game": "ot", "metric": "ev", "updated": "YYYY-MM-DD",
+     "top10": [],
+     "by_variant": { "6": {"n_colors": 6, "top10": []}, ... } }
+   ```
+   (Other games use `top5` instead of `top10`.)
+2. If there is a `leaderboards/notes/<game>.md` file, update any text there that references the old metric definitions — the README renderer pulls that file in verbatim.
+3. Regenerate the README leaderboard section:
+   ```bash
+   python3 -c "import sys; sys.path.insert(0, 'scripts'); import evaluate; evaluate.update_readme()"
+   ```
+4. Commit the three changed files (`leaderboards/<game>.json`, `leaderboards/notes/<game>.md` if edited, `README.md`) with a message explaining why the reset was necessary, e.g.:
+   ```
+   scores: reset ot leaderboard
+   
+   Metric definitions for perfect_rate and all_ships_rate were corrected;
+   all prior ot scores are now invalid against the new definitions.
+   ```
+
 ---
 
 ## Tree-Walk Evaluator (ot only)
