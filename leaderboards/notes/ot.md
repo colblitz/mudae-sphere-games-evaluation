@@ -1,6 +1,6 @@
 > **Note:** `kelinimo_expectimax_fast.cpp`, `svessinn_solver_fast.cpp`, and `zavex_heuristic_fast.cpp` are C++ ports of their original JS strategies with minor performance tweaks. They are not algorithmically identical to the JS originals — scores may differ slightly due to floating-point arithmetic differences and tiebreak ordering.
 
-> **Theoretical ceiling:** A perfect game collects all ships on every board. Per-color perfect-game SP and the empirically-weighted ceiling (using mode frequencies from `data/trace_board_stats.json`, 1177 observed games; 9-color has 0 observed occurrences and receives a token weight of 1):
+> **Theoretical ceiling:** A perfect game collects every cell on the board. Per-color perfect-game SP and the empirically-weighted ceiling (using mode frequencies from `data/trace_board_stats.json`, 1177 observed games; 9-color has 0 observed occurrences and receives a token weight of 1):
 >
 > | Mode | Perfect-game SP | Count | Rate |
 > |------|:--------------:|:-----:|:----:|
