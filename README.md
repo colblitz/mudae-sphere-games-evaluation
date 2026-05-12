@@ -213,16 +213,16 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 > **Note:** `kelinimo_expectimax_fast.cpp`, `svessinn_solver_fast.cpp`, and `zavex_heuristic_fast.cpp` are C++ ports of their original JS strategies with minor performance tweaks. They are not algorithmically identical to the JS originals — scores may differ slightly due to floating-point arithmetic differences and tiebreak ordering.
 
-> **Theoretical ceiling:** A perfect game collects all ships on every board. Per-color perfect-game SP and the empirically-weighted ceiling (using mode frequencies from `data/trace_board_stats.json`, 1177 observed games; 9-color has 0 observed occurrences and receives a token weight of 1):
+> **Theoretical ceiling:** A perfect game collects every cell on the board. Per-color perfect-game expected SP and the empirically-weighted ceiling (using mode frequencies from `data/trace_board_stats.json`, 1177 observed games; 9-color has 0 observed occurrences and receives a token weight of 1):
 >
-> | Mode | Perfect-game SP | Count | Rate |
-> |------|:--------------:|:-----:|:----:|
-> | 6-color | ~858 SP | 870 | 73.85% |
-> | 7-color | ~1055 SP | 276 | 23.43% |
-> | 8-color | ~1253 SP | 31 | 2.63% |
-> | 9-color | ~1450 SP | 0 (token: 1) | ~0% |
+> | Mode | Perfect-game expected SP | Count | Rate |
+> |------|:------------------------:|:-----:|:----:|
+> | 6-color | ~810 SP | 870 | 73.85% |
+> | 7-color | ~1154 SP | 276 | 23.43% |
+> | 8-color | ~1614 SP | 31 | 2.63% |
+> | 9-color | ~2240 SP | 0 (token: 1) | ~0% |
 >
-> **Overall empirical ceiling: ~915 SP.** Per-color values assume ~109 SP/cell for var-rare ship cells (empirical EV weighted across spL/spD/spR/spW by observed appearance rates in the same dataset).
+> **Overall empirical ceiling: ~913 SP.** Per-color values use the per-mode marginal appearance weights for var-rare colors (from `VAR_WEIGHT_BY_NC` in the harness): expected rare-ship SP = Σ (rate × SP_value × 2 cells) per color, plus fixed ship SP (530 SP: spT×4+spG×3+spY×3+spO×2) and all blue cells (×10 SP each).
 
 **Aggregate (empirically weighted EV — weights from observed mode frequencies in real play)**
 
@@ -556,7 +556,7 @@ std::string init_evaluation_run() override {
   | 9-color | + white(2) | 5 | 20 |
 
 - **Extra Chance:** if you click blue #4 before hitting 5 ship cells, the game continues. Each additional blue while `ships_hit < 5` extends the game. After the 5th ship hit, Extra Chance shuts off — the next blue ends the game.
-- **Perfect game:** find all blues via constraint inference, then collect all remaining ship cells for free.
+- **Perfect game:** click all 25 cells on the board.
 - **Ship values:** `spT`=20, `spG`=35, `spY`=55, `spO`=90, `spL`=76, `spD`=104, `spR`=150, `spW`=500.
 
 **Evaluation:** exhaustive over all boards per n_colors variant. Stats per variant and aggregated: `ev`, `stdev`, `avg_clicks`, `perfect_rate`, `all_ships_rate`, `loss_5050_rate` (fraction of games lost on a ~50/50 blue decision).

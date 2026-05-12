@@ -270,11 +270,11 @@ struct NodeResult {
     double ev_sp2         = 0.0;   // E[score²]        — for stdev_ev
     double ship_frac      = 0.0;   // E[ship_cells_revealed / total_ship_cells]
     double ship_frac2     = 0.0;   // E[(ship_frac)²]  — for stdev_ship_clicks
-    double perf_prob      = 0.0;   // P(all ship cells revealed)
+    double perf_prob      = 0.0;   // P(all 25 cells clicked)
     double avg_clicks     = 0.0;   // E[total click count]
     double avg_clicks2    = 0.0;   // E[clicks²]       — for stdev_clicks
     double loss_5050      = 0.0;   // P(game-ending blue had 0.25 < P(blue) < 0.75)
-    double all_ships      = 0.0;   // P(all distinct ships hit)
+    double all_ships      = 0.0;   // P(all ship cells revealed)
 };
 
 // accumulate: result += weight * subtree(r) with sp_delta earned at this node.
@@ -409,7 +409,6 @@ static void filter_full_sv(const FlatBoardSet& fbs,
 // game_over:     true if the game ended before reaching this node.
 // ca:            current var-rare color assignment state.
 // ships_revealed:   ship cells revealed so far.
-// ship_hit_mask:    bitmask of distinct ships hit so far.
 // click_count:      total clicks so far.
 // ---------------------------------------------------------------------------
 
@@ -424,21 +423,17 @@ static NodeResult tree_walk(
     bool                    game_over,
     ColorAssign             ca,
     int                     ships_revealed,
-    uint32_t                ship_hit_mask,
     int                     click_count)
 {
     int n_boards = (int)board_indices.size();
     if (n_boards == 0) return {};
 
-    int n_ships_total    = 4 + ctx.fbs.n_var;
-    uint32_t all_ships_mask = (1u << n_ships_total) - 1u;
-
     // Helper: record terminal node and return result.
     auto make_terminal = [&]() -> NodeResult {
-        double perf  = (ships_revealed == ctx.total_ship_cells) ? 1.0 : 0.0;
+        double perf  = (click_count == N_CELLS) ? 1.0 : 0.0;
         double sfrac = (ctx.total_ship_cells > 0)
             ? (double)ships_revealed / ctx.total_ship_cells : 1.0;
-        double all_s = ((ship_hit_mask & all_ships_mask) == all_ships_mask) ? 1.0 : 0.0;
+        double all_s = (ships_revealed == ctx.total_ship_cells) ? 1.0 : 0.0;
         ctx.progress.terminals.fetch_add(1, std::memory_order_relaxed);
         return {
             .ev_sp          = 0.0,
@@ -502,12 +497,6 @@ static NodeResult tree_walk(
         int new_ships_rev   = ships_revealed  + (is_ship ? 1 : 0);
         int new_click_count = click_count     + 1;
 
-        uint32_t new_ship_hit_mask = ship_hit_mask;
-        if (is_ship) {
-            int ship_idx = color - 1;  // teal→0, green→1, yellow→2, spO→3, var_k→4+k
-            new_ship_hit_mask |= (1u << ship_idx);
-        }
-
         // Compute the child full_sv: full-population boards surviving this reveal.
         std::vector<int> child_full_sv = full_sv;
         filter_full_sv(ctx.fbs, child_full_sv, cell, color);
@@ -537,7 +526,7 @@ static NodeResult tree_walk(
             NodeResult r = tree_walk(
                 ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                 new_ships_hit, new_blues_used, new_game_over, ca,
-                new_ships_rev, new_ship_hit_mask, new_click_count);
+                new_ships_rev, new_click_count);
             r.loss_5050 += extra_loss_5050;
             accumulate(result, p_color, r, (double)OT_BLUE_VALUE);
 
@@ -546,7 +535,7 @@ static NodeResult tree_walk(
             NodeResult r = tree_walk(
                 ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                 new_ships_hit, blues_used, false, ca,
-                new_ships_rev, new_ship_hit_mask, new_click_count);
+                new_ships_rev, new_click_count);
             accumulate(result, p_color, r, (double)FIXED_SP[color]);
 
         } else {
@@ -557,7 +546,7 @@ static NodeResult tree_walk(
                 NodeResult r = tree_walk(
                     ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                     new_ships_hit, blues_used, false, ca,
-                    new_ships_rev, new_ship_hit_mask, new_click_count);
+                    new_ships_rev, new_click_count);
                 accumulate(result, p_color, r, (double)VAR_SP[var_c]);
             } else {
                 // Fan out over all possible var-rare identities (without-replacement draw).
@@ -599,7 +588,7 @@ static NodeResult tree_walk(
                     NodeResult r = tree_walk(
                         ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                         new_ships_hit, blues_used, false, branches[bi].ca2,
-                        new_ships_rev, new_ship_hit_mask, new_click_count);
+                        new_ships_rev, new_click_count);
                     double ev_child = r.ev_sp + sp_delta;
                     var_result.ev_sp       += wc * ev_child;
                     var_result.ev_sp2      += wc * (r.ev_sp2
@@ -797,7 +786,7 @@ static OTVariantResult evaluate_variant_treewalk(
             results[t] = tree_walk(
                 ctx, indices, root_full_sv, revealed, revealed_dc,
                 0, 0, false, ca,
-                0, 0, 0);
+                0, 0);
             progress[t].active.store(0, std::memory_order_relaxed);
         });
     }

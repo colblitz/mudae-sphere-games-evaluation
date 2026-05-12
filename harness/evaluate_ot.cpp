@@ -9,8 +9,8 @@
  *   stdev_clicks      — standard deviation of total clicks
  *   avg_ship_clicks   — average number of clicks that hit a ship cell
  *   stdev_ship_clicks — standard deviation of ship-cell clicks
- *   perfect_rate      — fraction of games where all ship cells were revealed
- *   all_ships_rate    — fraction of games where all ships were hit (≥1 cell each)
+  *   perfect_rate      — fraction of games where all 25 cells were clicked
+ *   all_ships_rate    — fraction of games where all ship cells were revealed
  *   loss_5050_rate    — fraction of games ended by a blue click where
  *                       P(blue) was between 0.25 and 0.75 ("true 50/50 loss")
  *
@@ -241,8 +241,8 @@ struct OTGameResult {
     double score        = 0.0;
     int    total_clicks = 0;
     int    ship_clicks  = 0;   // number of clicks that hit a ship cell
-    bool   perfect      = false;  // all ship cells revealed
-    bool   all_ships    = false;  // all distinct ships hit
+    bool   perfect      = false;  // all 25 cells clicked
+    bool   all_ships    = false;  // all ship cells revealed
     bool   loss_5050    = false;  // lost on a ~50/50 blue decision
 };
 
@@ -294,26 +294,10 @@ static OTGameResult run_ot_game(
     for (int k = 0; k < board.n_var_rare; ++k) all_ship_mask |= board.var_rare[k];
     total_ship_cells = __builtin_popcount(static_cast<uint32_t>(all_ship_mask));
 
-    // Per-ship hit tracking for all_ships_rate
-    // Ships: teal, green, yellow, spo, var_rare_0..
-    int n_ships = 4 + board.n_var_rare;
-    std::vector<bool> ship_hit(n_ships, false);
-
     std::string meta = "{\"n_colors\":" + std::to_string(n_colors)
                      + ",\"ships_hit\":0,\"blues_used\":0"
                      + ",\"max_clicks\":" + std::to_string(OT_BASE_CLICKS) + "}";
     strategy.init_game_payload(meta);
-
-    auto ship_index_for_cell = [&](int idx) -> int {
-        int32_t bit = 1 << idx;
-        if (board.teal   & bit) return 0;
-        if (board.green  & bit) return 1;
-        if (board.yellow & bit) return 2;
-        if (board.spo    & bit) return 3;
-        for (int k = 0; k < board.n_var_rare; ++k)
-            if (board.var_rare[k] & bit) return 4 + k;
-        return -1;
-    };
 
     int revealed_ship_cells = 0;
     int ship_clicks         = 0;  // clicks that hit a ship cell
@@ -360,8 +344,6 @@ static OTGameResult run_ot_game(
             ++ships_hit;
             ++revealed_ship_cells;
             ++ship_clicks;
-            int si = ship_index_for_cell(idx);
-            if (si >= 0 && si < n_ships) ship_hit[si] = true;
             // Ship click is free — no blues_used increment
         } else {
             // Blue click — awards OT_BLUE_VALUE SP and costs one blue click
@@ -426,13 +408,10 @@ static OTGameResult run_ot_game(
     res.score        = score;
     res.total_clicks = total_clicks;
     res.ship_clicks  = ship_clicks;
-    res.perfect      = (revealed_ship_cells == total_ship_cells);
-    res.all_ships    = true;
-    for (int s = 0; s < n_ships; ++s)
-        if (!ship_hit[s]) { res.all_ships = false; break; }
-    // 50/50 loss: game ended (blues_used >= 4 && ships_hit >= 5 is a normal end;
-    // we flag loss if ships_hit < total_ship_cells at game end AND last blue was ~50/50)
-    res.loss_5050 = (!res.perfect && last_blue_was_5050);
+    res.perfect      = (total_clicks == N_CELLS);
+    res.all_ships    = (revealed_ship_cells == total_ship_cells);
+    // 50/50 loss: game ended without all ship cells revealed AND last blue was ~50/50
+    res.loss_5050 = (!res.all_ships && last_blue_was_5050);
     return res;
 }
 
