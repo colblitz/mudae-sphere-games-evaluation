@@ -114,6 +114,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <numeric>
@@ -277,6 +278,71 @@ struct NodeResult {
     double all_ships      = 0.0;   // P(all ship cells revealed)
 };
 
+// ---------------------------------------------------------------------------
+// Phase 2 entry stats (populated when --with-stats is passed)
+//
+// Recorded at the exact moment a path first crosses ships_hit == SHIPS_THRESHOLD,
+// i.e. in the parent node's ship-click branch when new_ships_hit == SHIPS_THRESHOLD.
+// Thread 0 records using exact full-population probabilities derived from
+// full_sv sizes (not chunk-dependent p_color estimates), so stats are exact
+// and independent of thread count.
+// ---------------------------------------------------------------------------
+
+struct Phase2StatsEntry {
+    double prob_mass    = 0.0;  // probability weight of paths entering Phase 2 here
+    double weighted_sv  = 0.0;  // prob-weighted sum of n_boards at entry
+    double weighted_sv2 = 0.0;  // prob-weighted sum of n_boards² (for stdev)
+};
+
+struct Phase2Stats {
+    // key = blues_used * 10 + ships_hit  (ships_hit always == SHIPS_THRESHOLD at entry)
+    std::map<int, Phase2StatsEntry> by_bn;
+};
+
+static void print_phase2_stats(const Phase2Stats& stats, int n_colors, bool has_sv) {
+    printf("\n=== Phase 2 entry stats: n_colors=%d ===\n", n_colors);
+
+    // Compute overall totals
+    double total_prob = 0.0, total_wsv = 0.0, total_wsv2 = 0.0;
+    for (const auto& [key, e] : stats.by_bn) {
+        total_prob  += e.prob_mass;
+        total_wsv   += e.weighted_sv;
+        total_wsv2  += e.weighted_sv2;
+    }
+
+    if (total_prob > 0.0 && has_sv) {
+        double mean = total_wsv / total_prob;
+        double var  = total_wsv2 / total_prob - mean * mean;
+        double sd   = var > 0.0 ? std::sqrt(var) : 0.0;
+        printf("  overall:  prob=%.4f  mean_boards=%.1f  stdev_boards=%.1f\n",
+               total_prob, mean, sd);
+    } else if (total_prob > 0.0) {
+        printf("  overall:  count=%.0f\n", total_prob);
+    }
+
+    if (has_sv) {
+        printf("  %-8s  %-10s  %-12s  %-12s\n", "(b, n)", "prob", "mean_boards", "stdev_boards");
+    } else {
+        printf("  %-8s  %-10s\n", "(b, n)", "count");
+    }
+
+    for (const auto& [key, e] : stats.by_bn) {
+        if (e.prob_mass <= 0.0) continue;
+        int b = key / 10;
+        int n = key % 10;
+        if (has_sv) {
+            double mean = e.weighted_sv / e.prob_mass;
+            double var  = e.weighted_sv2 / e.prob_mass - mean * mean;
+            double sd   = var > 0.0 ? std::sqrt(var) : 0.0;
+            printf("  (%d, %d)    %-10.4f  %-12.1f  %-12.1f\n", b, n, e.prob_mass, mean, sd);
+        } else {
+            printf("  (%d, %d)    %-10.0f\n", b, n, e.prob_mass);
+        }
+    }
+    printf("==========================================\n");
+    fflush(stdout);
+}
+
 // accumulate: result += weight * subtree(r) with sp_delta earned at this node.
 // E[(sp_delta + X)²] = sp_delta² + 2*sp_delta*E[X] + E[X²]
 // Click delta is always 1 per node: E[(1 + clicks)²] = 1 + 2*E[clicks] + E[clicks²]
@@ -365,6 +431,8 @@ struct WalkContext {
     int                 n_colors;
     StrategyBridge&     bridge;
     ProgressSlot&       progress;
+    bool                record_stats = false;   // true for thread 0 when --with-stats
+    Phase2Stats*        p2stats      = nullptr; // non-null when record_stats
 };
 
 // ---------------------------------------------------------------------------
@@ -423,7 +491,8 @@ static NodeResult tree_walk(
     bool                    game_over,
     ColorAssign             ca,
     int                     ships_revealed,
-    int                     click_count)
+    int                     click_count,
+    double                  path_weight = 1.0)  // product of p_exact along path from root
 {
     int n_boards = (int)board_indices.size();
     if (n_boards == 0) return {};
@@ -523,30 +592,61 @@ static NodeResult tree_walk(
                     extra_loss_5050 = 1.0;
             }
 
+            // Exact probability of this branch over the full board population.
+            double p_exact_blue = (full_sv.size() > 0)
+                ? (double)child_full_sv.size() / (double)full_sv.size() : p_color;
+
             NodeResult r = tree_walk(
                 ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                 new_ships_hit, new_blues_used, new_game_over, ca,
-                new_ships_rev, new_click_count);
+                new_ships_rev, new_click_count,
+                path_weight * p_exact_blue);
             r.loss_5050 += extra_loss_5050;
             accumulate(result, p_color, r, (double)OT_BLUE_VALUE);
 
         } else if (color <= 4) {
             // ---- Fixed-ship click (teal/green/yellow/spO) ----
+            // Exact probability of this branch over the full board population.
+            double p_exact = (full_sv.size() > 0)
+                ? (double)child_full_sv.size() / (double)full_sv.size() : p_color;
+            // Phase 2 entry: record when this ship click pushes ships_hit to threshold.
+            if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
+                int sv_size = (int)child_full_sv.size();
+                double w = path_weight * p_exact;
+                auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
+                e.prob_mass    += w;
+                e.weighted_sv  += w * sv_size;
+                e.weighted_sv2 += w * sv_size * sv_size;
+            }
             NodeResult r = tree_walk(
                 ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                 new_ships_hit, blues_used, false, ca,
-                new_ships_rev, new_click_count);
+                new_ships_rev, new_click_count,
+                path_weight * p_exact);
             accumulate(result, p_color, r, (double)FIXED_SP[color]);
 
         } else {
             // ---- Var-rare slot click ----
             int slot = color - 5;
+            // Exact probability of this color branch over the full board population.
+            double p_exact = (full_sv.size() > 0)
+                ? (double)child_full_sv.size() / (double)full_sv.size() : p_color;
             if (ca.is_assigned(slot)) {
                 int var_c = (int)ca.color[slot];
+                // Phase 2 entry: record when this ship click pushes ships_hit to threshold.
+                if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
+                    int sv_size = (int)child_full_sv.size();
+                    double w = path_weight * p_exact;
+                    auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
+                    e.prob_mass    += w;
+                    e.weighted_sv  += w * sv_size;
+                    e.weighted_sv2 += w * sv_size * sv_size;
+                }
                 NodeResult r = tree_walk(
                     ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                     new_ships_hit, blues_used, false, ca,
-                    new_ships_rev, new_click_count);
+                    new_ships_rev, new_click_count,
+                    path_weight * p_exact);
                 accumulate(result, p_color, r, (double)VAR_SP[var_c]);
             } else {
                 // Fan out over all possible var-rare identities (without-replacement draw).
@@ -580,6 +680,19 @@ static NodeResult tree_walk(
                 double renorm = (total_valid_w > 0.0 && rem_w > 0.0)
                                 ? rem_w / total_valid_w : 1.0;
 
+                // Phase 2 entry for unassigned var-rare slot: record before fanning out.
+                // p_exact is the spatial probability; the var-color identity fan-out
+                // is a separate weighting dimension that sums to 1, so we record once
+                // at p_exact and let the color-identity weights sum to 1 inside.
+                if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
+                    int sv_size = (int)child_full_sv.size();
+                    double w = path_weight * p_exact;
+                    auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
+                    e.prob_mass    += w;
+                    e.weighted_sv  += w * sv_size;
+                    e.weighted_sv2 += w * sv_size * sv_size;
+                }
+
                 NodeResult var_result{};
                 for (int bi = 0; bi < n_branches; ++bi) {
                     double wc       = branches[bi].raw_w * renorm;
@@ -588,7 +701,8 @@ static NodeResult tree_walk(
                     NodeResult r = tree_walk(
                         ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                         new_ships_hit, blues_used, false, branches[bi].ca2,
-                        new_ships_rev, new_click_count);
+                        new_ships_rev, new_click_count,
+                        path_weight * p_exact);
                     double ev_child = r.ev_sp + sp_delta;
                     var_result.ev_sp       += wc * ev_child;
                     var_result.ev_sp2      += wc * (r.ev_sp2
@@ -629,7 +743,8 @@ static OTVariantResult evaluate_variant_treewalk(
     int                 n_threads,
     double&             variant_elapsed_out,
     double&             init_elapsed_out,
-    uint64_t            expected_calls = 0)  // from a prior run; 0 = unknown
+    uint64_t            expected_calls = 0,   // from a prior run; 0 = unknown
+    bool                with_stats     = false)
 {
     int total_ship_cells = 4 + 3 + 3 + 2 + fbs.n_var * 2;
     int n_boards         = fbs.n_boards;
@@ -766,6 +881,9 @@ static OTVariantResult evaluate_variant_treewalk(
     std::vector<int> root_full_sv(n_boards);
     std::iota(root_full_sv.begin(), root_full_sv.end(), 0);
 
+    // Phase 2 stats: collected by thread 0 only (using exact full_sv probabilities).
+    Phase2Stats p2stats;
+
     for (int t = 0; t < n_threads; ++t) {
         workers.emplace_back([&, t]() {
             int start = chunk_start[t];
@@ -780,13 +898,15 @@ static OTVariantResult evaluate_variant_treewalk(
             uint8_t revealed_dc[N_CELLS] = {};
             ColorAssign ca(fbs.n_var);
 
-            WalkContext ctx{fbs, total_ship_cells, n_colors, *bridges[t], progress[t]};
+            bool record = with_stats && (t == 0);
+            WalkContext ctx{fbs, total_ship_cells, n_colors, *bridges[t], progress[t],
+                            record, record ? &p2stats : nullptr};
 
             progress[t].active.store(1, std::memory_order_relaxed);
             results[t] = tree_walk(
                 ctx, indices, root_full_sv, revealed, revealed_dc,
                 0, 0, false, ca,
-                0, 0);
+                0, 0, /*path_weight=*/1.0);
             progress[t].active.store(0, std::memory_order_relaxed);
         });
     }
@@ -817,6 +937,11 @@ static OTVariantResult evaluate_variant_treewalk(
     double elapsed_ev = std::chrono::duration<double>(
         std::chrono::steady_clock::now() - t0).count();
     variant_elapsed_out = elapsed_ev;
+
+    // Print Phase 2 entry stats if requested (collected by thread 0).
+    if (with_stats) {
+        print_phase2_stats(p2stats, n_colors, /*has_sv=*/true);
+    }
 
     // -----------------------------------------------------------------------
     // Combine per-chunk NodeResults into the population mean.
@@ -895,6 +1020,7 @@ int main(int argc, char* argv[]) {
     std::string boards_dir   = std::string(REPO_ROOT) + "/boards";
     std::string n_colors_arg = "all";
     int n_threads = 1;
+    bool with_stats = false;
     // expected_calls[i] = expected total strategy calls for n_colors = 6+i (0 = unknown)
     uint64_t expected_calls[4] = {0, 0, 0, 0};
 #ifdef _OPENMP
@@ -915,6 +1041,7 @@ int main(int argc, char* argv[]) {
         else if (!strcmp(argv[i], "--expected-calls-7")   && i+1 < argc) expected_calls[1] = (uint64_t)atoll(argv[++i]);
         else if (!strcmp(argv[i], "--expected-calls-8")   && i+1 < argc) expected_calls[2] = (uint64_t)atoll(argv[++i]);
         else if (!strcmp(argv[i], "--expected-calls-9")   && i+1 < argc) expected_calls[3] = (uint64_t)atoll(argv[++i]);
+        else if (!strcmp(argv[i], "--with-stats"))                        with_stats = true;
     }
 
     if (strategy_path.empty()) {
@@ -922,7 +1049,8 @@ int main(int argc, char* argv[]) {
             "Usage: evaluate_ot_treewalk --strategy <path> [--boards-dir <dir>]\n"
             "                            [--n-colors 6|7|8|9|all] [--threads N]\n"
             "                            [--expected-calls-6 N] [--expected-calls-7 N]\n"
-            "                            [--expected-calls-8 N] [--expected-calls-9 N]\n");
+            "                            [--expected-calls-8 N] [--expected-calls-9 N]\n"
+            "                            [--with-stats]\n");
         return 1;
     }
     if (n_threads < 1) n_threads = 1;
@@ -984,7 +1112,8 @@ int main(int argc, char* argv[]) {
         OTVariantResult vr = evaluate_variant_treewalk(fbs, nc, strategy_path,
                                                        n_threads, variant_elapsed,
                                                        variant_init_elapsed,
-                                                       expected_calls[nc - 6]);
+                                                       expected_calls[nc - 6],
+                                                       with_stats);
         int vi = nc - 6;
         overall_result.variants[vi] = vr;
         variant_timings.emplace_back(nc, variant_elapsed);

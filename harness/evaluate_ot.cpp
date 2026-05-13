@@ -61,10 +61,12 @@
 #include <atomic>
 #include <cassert>
 #include <condition_variable>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <random>
 #include <string>
@@ -234,6 +236,53 @@ static bool ot_game_over(int blues_used, int ships_hit) {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 2 entry stats (populated when --with-stats is passed)
+//
+// Recorded inside run_ot_game() the first time ships_hit reaches SHIPS_THRESHOLD
+// after a ship click.  The sequential harness does not maintain a surviving
+// board set, so only counts (prob_mass) are accumulated — no n_boards stats.
+// Counts are weighted by assign.weight so the resulting fractions are directly
+// comparable to the tree-walk's probability-weighted prob_mass values.
+// ---------------------------------------------------------------------------
+
+static constexpr int SHIPS_THRESHOLD = 5;
+
+struct Phase2StatsEntry {
+    double prob_mass = 0.0;  // weight-sum of games entering Phase 2 at this (b,n)
+};
+
+struct Phase2Stats {
+    // key = blues_used * 10 + ships_hit  (ships_hit always == SHIPS_THRESHOLD at entry)
+    std::map<int, Phase2StatsEntry> by_bn;
+
+    void merge(const Phase2Stats& other) {
+        for (const auto& [key, e] : other.by_bn)
+            by_bn[key].prob_mass += e.prob_mass;
+    }
+};
+
+static void print_phase2_stats_seq(const Phase2Stats& stats, int n_colors, long long n_boards) {
+    printf("\n=== Phase 2 entry stats (sequential): n_colors=%d ===\n", n_colors);
+
+    double total_prob = 0.0;
+    for (const auto& [key, e] : stats.by_bn)
+        total_prob += e.prob_mass;
+
+    // Normalise by n_boards to get fractions comparable to tree-walk prob_mass.
+    double denom = (n_boards > 0) ? (double)n_boards : 1.0;
+    printf("  overall:  prob=%.4f\n", total_prob / denom);
+    printf("  %-8s  %-10s\n", "(b, n)", "prob");
+    for (const auto& [key, e] : stats.by_bn) {
+        if (e.prob_mass <= 0.0) continue;
+        int b = key / 10;
+        int n = key % 10;
+        printf("  (%d, %d)    %-10.4f\n", b, n, e.prob_mass / denom);
+    }
+    printf("==========================================\n");
+    fflush(stdout);
+}
+
+// ---------------------------------------------------------------------------
 // Simulate one ot game
 // ---------------------------------------------------------------------------
 
@@ -272,7 +321,9 @@ static OTGameResult run_ot_game(
     const std::vector<std::string>& colors,  // pre-derived cell colors
     int                         n_colors,
     StrategyBridge&             strategy,
-    GameTrace*                  trace = nullptr)
+    GameTrace*                  trace    = nullptr,
+    Phase2Stats*                p2stats  = nullptr,
+    double                      p2_weight = 0.0)  // assign.weight for prob-weighted counting
 {
     // Full 25-cell board; all start as (color="spU", clicked=false)
     std::array<Cell, N_CELLS> game_board;
@@ -344,6 +395,11 @@ static OTGameResult run_ot_game(
             ++ships_hit;
             ++revealed_ship_cells;
             ++ship_clicks;
+            // Phase 2 entry: record the first time ships_hit reaches the threshold.
+            if (p2stats && ships_hit == SHIPS_THRESHOLD) {
+                auto& e = p2stats->by_bn[blues_used * 10 + ships_hit];
+                e.prob_mass += p2_weight;
+            }
             // Ship click is free — no blues_used increment
         } else {
             // Blue click — awards OT_BLUE_VALUE SP and costs one blue click
@@ -474,7 +530,8 @@ static OTVariantResult evaluate_variant(
     int                         n_colors,
     const std::string&          strategy_path,
     int                         n_threads,
-    double&                     init_elapsed_out)
+    double&                     init_elapsed_out,
+    bool                        with_stats = false)
 {
     uint64_t total = boards.size();
 
@@ -504,6 +561,8 @@ static OTVariantResult evaluate_variant(
     std::vector<double>   perfect_acc(n_threads, 0.0);
     std::vector<double>   all_ships_acc(n_threads, 0.0);
     std::vector<double>   loss_5050_acc(n_threads, 0.0);
+    // Per-thread phase 2 entry stats (only populated when with_stats)
+    std::vector<Phase2Stats> p2stats_acc(with_stats ? n_threads : 0);
 
     std::atomic<uint64_t> done_count(0);
     ProgressReporter prog(total, 2000);
@@ -594,8 +653,9 @@ static OTVariantResult evaluate_variant(
             auto colors = ot_board_colors_assigned(boards[i], assign);
             OTGameResult res{};
             try {
+                Phase2Stats* p2 = with_stats ? &p2stats_acc[tid] : nullptr;
                 res = run_ot_game(boards[i], colors, n_colors,
-                                  *bridges[tid]);
+                                  *bridges[tid], nullptr, p2, assign.weight);
             } catch (const std::exception& e) {
                 fprintf(stderr, "\nERROR on board %lld (n_colors=%d): %s\n",
                         (long long)i, n_colors, e.what());
@@ -668,6 +728,15 @@ static OTVariantResult evaluate_variant(
     r.perfect_rate        = count_total > 0 ? perf     / static_cast<double>(count_total) : 0.0;
     r.all_ships_rate      = count_total > 0 ? all_s    / static_cast<double>(count_total) : 0.0;
     r.loss_5050_rate      = count_total > 0 ? loss5050 / static_cast<double>(count_total) : 0.0;
+
+    // Merge per-thread Phase 2 stats and print.
+    if (with_stats) {
+        Phase2Stats merged;
+        for (int t = 0; t < n_threads; ++t)
+            merged.merge(p2stats_acc[t]);
+        print_phase2_stats_seq(merged, n_colors, (long long)count_total);
+    }
+
     return r;
 }
 
@@ -686,6 +755,7 @@ int main(int argc, char* argv[]) {
 #endif
     int      trace_n    = 0;
     uint64_t trace_seed = 42;
+    bool     with_stats = false;
 
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--strategy")  && i + 1 < argc) strategy_path = argv[++i];
@@ -694,12 +764,13 @@ int main(int argc, char* argv[]) {
         else if (!strcmp(argv[i], "--threads")    && i + 1 < argc) n_threads    = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--trace")      && i + 1 < argc) trace_n      = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--seed")       && i + 1 < argc) trace_seed   = strtoull(argv[++i], nullptr, 10);
+        else if (!strcmp(argv[i], "--with-stats"))                  with_stats   = true;
     }
     if (strategy_path.empty()) {
         fprintf(stderr,
             "Usage: evaluate_ot --strategy <path> [--boards-dir <dir>]\n"
             "                   [--n-colors 6|7|8|9|all] [--threads N]\n"
-            "                   [--trace N] [--seed S]\n");
+            "                   [--trace N] [--seed S] [--with-stats]\n");
         return 1;
     }
 
@@ -848,7 +919,7 @@ int main(int argc, char* argv[]) {
 
         double variant_init_elapsed = 0.0;
         OTVariantResult vr = evaluate_variant(boards, nc, strategy_path, n_threads,
-                                              variant_init_elapsed);
+                                              variant_init_elapsed, with_stats);
         int vi = nc - 6;
         overall_result.variants[vi] = vr;
 

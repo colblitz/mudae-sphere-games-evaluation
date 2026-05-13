@@ -795,6 +795,8 @@ def main() -> None:
                         help="automatically commit the result without prompting")
     parser.add_argument("--treewalk",        action="store_true",
                         help="(ot) force the tree-walk evaluator regardless of sphere:stateless marker")
+    parser.add_argument("--with-stats",      action="store_true",
+                        help="(ot) print phase 2 entry distribution stats (n_boards mean/stdev per (b,n) per n_colors)")
     args = parser.parse_args()
 
     strategy_path = Path(args.strategy)
@@ -822,6 +824,8 @@ def main() -> None:
         extra += ["--seed", str(args.seed)]
     if args.game == "ot":
         extra += ["--n-colors", args.n_colors]
+    if args.game == "ot" and getattr(args, "with_stats", False):
+        extra += ["--with-stats"]
     if args.threads is not None:
         extra += ["--threads", str(args.threads)]
     if args.boards_dir:
