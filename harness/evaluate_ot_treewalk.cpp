@@ -953,9 +953,10 @@ static OTVariantResult evaluate_variant_treewalk(
         for (int t = 0; t < n_threads; ++t) {
             for (const auto& [key, e] : p2stats_per_thread[t].by_bn) {
                 auto& dst = merged.by_bn[key];
-                dst.count   += e.count;
-                dst.sum_sv  += e.sum_sv;
-                dst.sum_sv2 += e.sum_sv2;
+                dst.count          += e.count;
+                dst.weighted_count += e.weighted_count;
+                dst.sum_sv         += e.sum_sv;
+                dst.sum_sv2        += e.sum_sv2;
             }
         }
         print_phase2_stats(merged, n_colors, (long long)n_boards);
