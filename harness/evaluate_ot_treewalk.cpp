@@ -680,29 +680,28 @@ static NodeResult tree_walk(
                 double renorm = (total_valid_w > 0.0 && rem_w > 0.0)
                                 ? rem_w / total_valid_w : 1.0;
 
-                // Phase 2 entry for unassigned var-rare slot: record before fanning out.
-                // p_exact is the spatial probability; the var-color identity fan-out
-                // is a separate weighting dimension that sums to 1, so we record once
-                // at p_exact and let the color-identity weights sum to 1 inside.
-                if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
-                    int sv_size = (int)child_full_sv.size();
-                    double w = path_weight * p_exact;
-                    auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
-                    e.prob_mass    += w;
-                    e.weighted_sv  += w * sv_size;
-                    e.weighted_sv2 += w * sv_size * sv_size;
-                }
-
                 NodeResult var_result{};
                 for (int bi = 0; bi < n_branches; ++bi) {
                     double wc       = branches[bi].raw_w * renorm;
                     int    vc       = branches[bi].vc;
                     double sp_delta = (double)VAR_SP[vc];
+                    // Phase 2 entry for unassigned var-rare slot: record per identity
+                    // branch so that wc (the identity probability) is included in the
+                    // path weight.  The identity weights sum to 1, so the total recorded
+                    // prob_mass is path_weight * p_exact * Σwc = path_weight * p_exact.
+                    if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
+                        int sv_size = (int)child_full_sv.size();
+                        double w = path_weight * p_exact * wc;
+                        auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
+                        e.prob_mass    += w;
+                        e.weighted_sv  += w * sv_size;
+                        e.weighted_sv2 += w * sv_size * sv_size;
+                    }
                     NodeResult r = tree_walk(
                         ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                         new_ships_hit, blues_used, false, branches[bi].ca2,
                         new_ships_rev, new_click_count,
-                        path_weight * p_exact);
+                        path_weight * p_exact * wc);
                     double ev_child = r.ev_sp + sp_delta;
                     var_result.ev_sp       += wc * ev_child;
                     var_result.ev_sp2      += wc * (r.ev_sp2
