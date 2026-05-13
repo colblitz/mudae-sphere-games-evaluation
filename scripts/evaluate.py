@@ -795,6 +795,8 @@ def main() -> None:
                         help="automatically commit the result without prompting")
     parser.add_argument("--treewalk",        action="store_true",
                         help="(ot) force the tree-walk evaluator regardless of sphere:stateless marker")
+    parser.add_argument("--no-treewalk",     action="store_true",
+                        help="(ot) force the sequential evaluator even if sphere:stateless is present")
     parser.add_argument("--with-stats",      action="store_true",
                         help="(ot) print phase 2 entry distribution stats (n_boards mean/stdev per (b,n) per n_colors)")
     args = parser.parse_args()
@@ -842,6 +844,8 @@ def main() -> None:
         if args.treewalk:
             use_treewalk = True
             print("[info] --treewalk flag set — using tree-walk evaluator")
+        elif getattr(args, "no_treewalk", False):
+            print("[info] --no-treewalk flag set — using sequential evaluator")
         elif is_strategy_stateless(strategy_path):
             use_treewalk = True
             print("[info] Detected sphere:stateless marker — using tree-walk evaluator")
