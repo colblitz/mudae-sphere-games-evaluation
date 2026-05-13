@@ -793,6 +793,8 @@ def main() -> None:
                         help="(trace) number of games to sample  default: 20")
     parser.add_argument("--yes",             action="store_true",
                         help="automatically commit the result without prompting")
+    parser.add_argument("--no",              action="store_true",
+                        help="automatically skip the commit prompt without committing")
     parser.add_argument("--treewalk",        action="store_true",
                         help="(ot) force the tree-walk evaluator regardless of sphere:stateless marker")
     parser.add_argument("--no-treewalk",     action="store_true",
@@ -1011,9 +1013,12 @@ def main() -> None:
             print(f"\n*** This result would enter the {_top_n_label} leaderboard! ***")
 
     # ------------------------------------------------------------------
-    # Prompt — always ask whether to commit after every run (skip if --yes)
+    # Prompt — always ask whether to commit after every run (skip if --yes/--no)
     # ------------------------------------------------------------------
-    if args.yes:
+    if args.no:
+        print("\nCommit this result? [y/N] N  (--no)")
+        return
+    elif args.yes:
         print("\nCommit this result? [y/N] y  (--yes)")
     else:
         try:
