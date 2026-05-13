@@ -233,6 +233,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | 3 | `svessinn_blue_focus_20260427.cpp` | 636.11 | `eb519d2` | 2026-05-12 |
 | 4 | `svessinn_anti_teal_20260427.cpp` | 613.63 | `eb519d2` | 2026-05-12 |
 | 5 | `tksglass_4.cpp` | 592.69 | `25f4aef` | 2026-05-12 |
+| 6 | `svessinn_solver_fast.cpp` | 592.24 | `c09e6cd` | 2026-05-12 |
 
 <details>
 <summary>Per-color variant breakdown</summary>
@@ -245,7 +246,8 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | 2 | `svessinn_solver_fast_v2.cpp` | 563.42 | 176.69 | 3.45% | 24.74% | 65.71% | 17.40 | 25.95 | 10.66 | 3.00 | `7f36310` | 2026-05-12 |
 | 3 | `svessinn_blue_focus_20260427.cpp` | 563.42 | 176.69 | 3.45% | 24.74% | 65.71% | 17.40 | 25.95 | 10.66 | 3.00 | `eb519d2` | 2026-05-12 |
 | 4 | `svessinn_anti_teal_20260427.cpp` | 535.03 | 159.39 | 1.64% | 18.72% | 71.42% | 15.61 | 23.34 | 10.14 | 3.02 | `eb519d2` | 2026-05-12 |
-| 5 | `tksglass_4.cpp` | 519.48 | 145.11 | 1.80% | 11.38% | 71.41% | 15.45 | 22.97 | 10.29 | 2.42 | `25f4aef` | 2026-05-12 |
+| 5 | `svessinn_solver_fast.cpp` | 525.33 | 159.68 | 2.41% | 10.44% | 60.26% | 16.52 | 24.58 | 10.00 | 2.77 | `c09e6cd` | 2026-05-12 |
+| 6 | `tksglass_4.cpp` | 519.48 | 145.11 | 1.80% | 11.38% | 71.41% | 15.45 | 22.97 | 10.29 | 2.42 | `25f4aef` | 2026-05-12 |
 
 **7-color variant**
 
@@ -256,6 +258,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | 3 | `svessinn_blue_focus_20260427.cpp` | 792.40 | 346.68 | 2.96% | 20.77% | 62.46% | 17.47 | 25.98 | 12.01 | 3.44 | `eb519d2` | 2026-05-12 |
 | 4 | `svessinn_anti_teal_20260427.cpp` | 781.73 | 342.15 | 1.09% | 19.69% | 65.50% | 16.50 | 24.54 | 11.79 | 3.51 | `eb519d2` | 2026-05-12 |
 | 5 | `tksglass_4.cpp` | 747.06 | 306.42 | 0.98% | 9.62% | 69.31% | 16.34 | 24.01 | 11.95 | 2.56 | `25f4aef` | 2026-05-12 |
+| 6 | `svessinn_solver_fast.cpp` | 737.46 | 317.55 | 2.39% | 7.64% | 55.68% | 16.72 | 24.81 | 11.33 | 3.18 | `c09e6cd` | 2026-05-12 |
 
 **8-color variant**
 
@@ -266,6 +269,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | 3 | `svessinn_solver_fast_v2.cpp` | 1241.05 | 520.23 | 3.89% | 28.22% | 47.70% | 19.01 | 28.04 | 14.39 | 3.71 | `7f36310` | 2026-05-12 |
 | 4 | `svessinn_blue_focus_20260427.cpp` | 1241.05 | 520.23 | 3.89% | 28.22% | 47.70% | 19.01 | 28.04 | 14.39 | 3.71 | `eb519d2` | 2026-05-12 |
 | 5 | `tksglass_4.cpp` | 1231.05 | 469.28 | 1.83% | 15.77% | 56.31% | 18.84 | 27.48 | 14.60 | 2.78 | `25f4aef` | 2026-05-12 |
+| 6 | `svessinn_solver_fast.cpp` | 1133.53 | 479.63 | 3.25% | 11.02% | 43.69% | 18.05 | 26.65 | 13.47 | 3.50 | `c09e6cd` | 2026-05-12 |
 
 **9-color variant**
 
@@ -274,8 +278,9 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | 1 | `svessinn_anti_teal_20260427.cpp` | 2051.48 | 375.91 | 2.72% | 64.28% | 23.56% | 22.78 | 32.91 | 18.74 | 2.71 | `eb519d2` | 2026-05-12 |
 | 2 | `svessinn_solver_fast_v2.cpp` | 1990.24 | 427.53 | 7.92% | 57.84% | 26.77% | 22.48 | 32.58 | 18.36 | 3.03 | `7f36310` | 2026-05-12 |
 | 3 | `svessinn_blue_focus_20260427.cpp` | 1990.24 | 427.53 | 7.92% | 57.84% | 26.77% | 22.48 | 32.58 | 18.36 | 3.03 | `eb519d2` | 2026-05-12 |
-| 4 | `tksglass_5.cpp` | 1926.04 | 397.89 | 9.73% | 35.60% | 40.65% | 22.18 | 32.03 | 18.02 | 2.49 | `25f4aef` | 2026-05-12 |
-| 5 | `tksglass_4.cpp` | 1886.29 | 428.11 | 5.38% | 31.92% | 41.91% | 21.86 | 31.63 | 17.77 | 2.70 | `25f4aef` | 2026-05-12 |
+| 4 | `svessinn_solver_fast.cpp` | 1950.95 | 457.04 | 7.10% | 52.73% | 30.07% | 22.19 | 32.25 | 18.08 | 3.27 | `c09e6cd` | 2026-05-12 |
+| 5 | `tksglass_5.cpp` | 1926.04 | 397.89 | 9.73% | 35.60% | 40.65% | 22.18 | 32.03 | 18.02 | 2.49 | `25f4aef` | 2026-05-12 |
+| 6 | `tksglass_4.cpp` | 1886.29 | 428.11 | 5.38% | 31.92% | 41.91% | 21.86 | 31.63 | 17.77 | 2.70 | `25f4aef` | 2026-05-12 |
 
 </details>
 
@@ -289,6 +294,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 | `svessinn_blue_focus_20260427.cpp` | 2283 | 0.00 | 692.5 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `svessinn_anti_teal_20260427.cpp` | 2385 | 0.00 | 662.9 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `tksglass_4.cpp` | 1819 | 0.00 | 869.4 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
+| `svessinn_solver_fast.cpp` | 2624 | 0.00 | 602.6 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 
 </details>
 
