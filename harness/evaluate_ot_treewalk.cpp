@@ -281,17 +281,24 @@ struct NodeResult {
 // ---------------------------------------------------------------------------
 // Phase 2 entry stats (populated when --with-stats is passed)
 //
-// Recorded at the exact moment a path first crosses ships_hit == SHIPS_THRESHOLD,
-// i.e. in the parent node's ship-click branch when new_ships_hit == SHIPS_THRESHOLD.
-// Thread 0 records using exact full-population probabilities derived from
-// full_sv sizes (not chunk-dependent p_color estimates), so stats are exact
-// and independent of thread count.
+// At each tree-walk node, child_full_sv is exactly the set of boards whose
+// sequential games would reach that node state.  When new_ships_hit ==
+// SHIPS_THRESHOLD in a ship-click branch, child_full_sv.size() boards are
+// just entering phase 2.  We accumulate raw board counts — no probability
+// weighting needed.
+//
+// For var-rare unassigned fan-out: child_full_sv is identical across all
+// identity branches (it is a purely spatial filter), so we record once
+// before the fan-out to avoid double-counting.
+//
+// Thread 0 records (same child_full_sv as all other threads — the full
+// population filter is independent of chunking).
 // ---------------------------------------------------------------------------
 
 struct Phase2StatsEntry {
-    double prob_mass    = 0.0;  // probability weight of paths entering Phase 2 here
-    double weighted_sv  = 0.0;  // prob-weighted sum of n_boards at entry
-    double weighted_sv2 = 0.0;  // prob-weighted sum of n_boards² (for stdev)
+    long long count    = 0;    // number of boards entering Phase 2 here
+    double    sum_sv   = 0.0;  // Σ n_boards over those games (= count * sv_size)
+    double    sum_sv2  = 0.0;  // Σ n_boards² over those games (for stdev)
 };
 
 struct Phase2Stats {
@@ -299,45 +306,36 @@ struct Phase2Stats {
     std::map<int, Phase2StatsEntry> by_bn;
 };
 
-static void print_phase2_stats(const Phase2Stats& stats, int n_colors, bool has_sv) {
+static void print_phase2_stats(const Phase2Stats& stats, int n_colors, long long total_boards) {
     printf("\n=== Phase 2 entry stats: n_colors=%d ===\n", n_colors);
 
-    // Compute overall totals
-    double total_prob = 0.0, total_wsv = 0.0, total_wsv2 = 0.0;
+    long long total_count = 0;
+    double    total_sv = 0.0, total_sv2 = 0.0;
     for (const auto& [key, e] : stats.by_bn) {
-        total_prob  += e.prob_mass;
-        total_wsv   += e.weighted_sv;
-        total_wsv2  += e.weighted_sv2;
+        total_count += e.count;
+        total_sv    += e.sum_sv;
+        total_sv2   += e.sum_sv2;
     }
 
-    if (total_prob > 0.0 && has_sv) {
-        double mean = total_wsv / total_prob;
-        double var  = total_wsv2 / total_prob - mean * mean;
+    double denom = total_boards > 0 ? (double)total_boards : 1.0;
+    if (total_count > 0) {
+        double mean = total_sv / total_count;
+        double var  = total_sv2 / total_count - mean * mean;
         double sd   = var > 0.0 ? std::sqrt(var) : 0.0;
         printf("  overall:  prob=%.4f  mean_boards=%.1f  stdev_boards=%.1f\n",
-               total_prob, mean, sd);
-    } else if (total_prob > 0.0) {
-        printf("  overall:  count=%.0f\n", total_prob);
+               total_count / denom, mean, sd);
     }
 
-    if (has_sv) {
-        printf("  %-8s  %-10s  %-12s  %-12s\n", "(b, n)", "prob", "mean_boards", "stdev_boards");
-    } else {
-        printf("  %-8s  %-10s\n", "(b, n)", "count");
-    }
-
+    printf("  %-8s  %-10s  %-12s  %-12s\n", "(b, n)", "prob", "mean_boards", "stdev_boards");
     for (const auto& [key, e] : stats.by_bn) {
-        if (e.prob_mass <= 0.0) continue;
+        if (e.count == 0) continue;
         int b = key / 10;
         int n = key % 10;
-        if (has_sv) {
-            double mean = e.weighted_sv / e.prob_mass;
-            double var  = e.weighted_sv2 / e.prob_mass - mean * mean;
-            double sd   = var > 0.0 ? std::sqrt(var) : 0.0;
-            printf("  (%d, %d)    %-10.4f  %-12.1f  %-12.1f\n", b, n, e.prob_mass, mean, sd);
-        } else {
-            printf("  (%d, %d)    %-10.0f\n", b, n, e.prob_mass);
-        }
+        double mean = e.sum_sv / e.count;
+        double var  = e.sum_sv2 / e.count - mean * mean;
+        double sd   = var > 0.0 ? std::sqrt(var) : 0.0;
+        printf("  (%d, %d)    %-10.4f  %-12.1f  %-12.1f\n",
+               b, n, e.count / denom, mean, sd);
     }
     printf("==========================================\n");
     fflush(stdout);
@@ -491,8 +489,7 @@ static NodeResult tree_walk(
     bool                    game_over,
     ColorAssign             ca,
     int                     ships_revealed,
-    int                     click_count,
-    double                  path_weight = 1.0)  // product of p_exact along path from root
+    int                     click_count)
 {
     int n_boards = (int)board_indices.size();
     if (n_boards == 0) return {};
@@ -592,61 +589,47 @@ static NodeResult tree_walk(
                     extra_loss_5050 = 1.0;
             }
 
-            // Exact probability of this branch over the full board population.
-            double p_exact_blue = (full_sv.size() > 0)
-                ? (double)child_full_sv.size() / (double)full_sv.size() : p_color;
-
             NodeResult r = tree_walk(
                 ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                 new_ships_hit, new_blues_used, new_game_over, ca,
-                new_ships_rev, new_click_count,
-                path_weight * p_exact_blue);
+                new_ships_rev, new_click_count);
             r.loss_5050 += extra_loss_5050;
             accumulate(result, p_color, r, (double)OT_BLUE_VALUE);
 
         } else if (color <= 4) {
             // ---- Fixed-ship click (teal/green/yellow/spO) ----
-            // Exact probability of this branch over the full board population.
-            double p_exact = (full_sv.size() > 0)
-                ? (double)child_full_sv.size() / (double)full_sv.size() : p_color;
             // Phase 2 entry: record when this ship click pushes ships_hit to threshold.
+            // child_full_sv.size() is the exact number of boards entering phase 2 here.
             if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
-                int sv_size = (int)child_full_sv.size();
-                double w = path_weight * p_exact;
+                long long sv_size = (long long)child_full_sv.size();
                 auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
-                e.prob_mass    += w;
-                e.weighted_sv  += w * sv_size;
-                e.weighted_sv2 += w * sv_size * sv_size;
+                e.count   += sv_size;
+                e.sum_sv  += (double)sv_size * sv_size;
+                e.sum_sv2 += (double)sv_size * sv_size * sv_size;
             }
             NodeResult r = tree_walk(
                 ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                 new_ships_hit, blues_used, false, ca,
-                new_ships_rev, new_click_count,
-                path_weight * p_exact);
+                new_ships_rev, new_click_count);
             accumulate(result, p_color, r, (double)FIXED_SP[color]);
 
         } else {
             // ---- Var-rare slot click ----
             int slot = color - 5;
-            // Exact probability of this color branch over the full board population.
-            double p_exact = (full_sv.size() > 0)
-                ? (double)child_full_sv.size() / (double)full_sv.size() : p_color;
             if (ca.is_assigned(slot)) {
                 int var_c = (int)ca.color[slot];
                 // Phase 2 entry: record when this ship click pushes ships_hit to threshold.
                 if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
-                    int sv_size = (int)child_full_sv.size();
-                    double w = path_weight * p_exact;
+                    long long sv_size = (long long)child_full_sv.size();
                     auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
-                    e.prob_mass    += w;
-                    e.weighted_sv  += w * sv_size;
-                    e.weighted_sv2 += w * sv_size * sv_size;
+                    e.count   += sv_size;
+                    e.sum_sv  += (double)sv_size * sv_size;
+                    e.sum_sv2 += (double)sv_size * sv_size * sv_size;
                 }
                 NodeResult r = tree_walk(
                     ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                     new_ships_hit, blues_used, false, ca,
-                    new_ships_rev, new_click_count,
-                    path_weight * p_exact);
+                    new_ships_rev, new_click_count);
                 accumulate(result, p_color, r, (double)VAR_SP[var_c]);
             } else {
                 // Fan out over all possible var-rare identities (without-replacement draw).
@@ -680,28 +663,26 @@ static NodeResult tree_walk(
                 double renorm = (total_valid_w > 0.0 && rem_w > 0.0)
                                 ? rem_w / total_valid_w : 1.0;
 
+                // Phase 2 entry for unassigned var-rare slot: record once before the
+                // identity fan-out.  child_full_sv is purely spatial — identical across
+                // all identity branches — so recording once avoids double-counting.
+                if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
+                    long long sv_size = (long long)child_full_sv.size();
+                    auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
+                    e.count   += sv_size;
+                    e.sum_sv  += (double)sv_size * sv_size;
+                    e.sum_sv2 += (double)sv_size * sv_size * sv_size;
+                }
+
                 NodeResult var_result{};
                 for (int bi = 0; bi < n_branches; ++bi) {
                     double wc       = branches[bi].raw_w * renorm;
                     int    vc       = branches[bi].vc;
                     double sp_delta = (double)VAR_SP[vc];
-                    // Phase 2 entry for unassigned var-rare slot: record per identity
-                    // branch so that wc (the identity probability) is included in the
-                    // path weight.  The identity weights sum to 1, so the total recorded
-                    // prob_mass is path_weight * p_exact * Σwc = path_weight * p_exact.
-                    if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
-                        int sv_size = (int)child_full_sv.size();
-                        double w = path_weight * p_exact * wc;
-                        auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
-                        e.prob_mass    += w;
-                        e.weighted_sv  += w * sv_size;
-                        e.weighted_sv2 += w * sv_size * sv_size;
-                    }
                     NodeResult r = tree_walk(
                         ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                         new_ships_hit, blues_used, false, branches[bi].ca2,
-                        new_ships_rev, new_click_count,
-                        path_weight * p_exact * wc);
+                        new_ships_rev, new_click_count);
                     double ev_child = r.ev_sp + sp_delta;
                     var_result.ev_sp       += wc * ev_child;
                     var_result.ev_sp2      += wc * (r.ev_sp2
@@ -905,7 +886,7 @@ static OTVariantResult evaluate_variant_treewalk(
             results[t] = tree_walk(
                 ctx, indices, root_full_sv, revealed, revealed_dc,
                 0, 0, false, ca,
-                0, 0, /*path_weight=*/1.0);
+                0, 0);
             progress[t].active.store(0, std::memory_order_relaxed);
         });
     }
@@ -939,7 +920,7 @@ static OTVariantResult evaluate_variant_treewalk(
 
     // Print Phase 2 entry stats if requested (collected by thread 0).
     if (with_stats) {
-        print_phase2_stats(p2stats, n_colors, /*has_sv=*/true);
+        print_phase2_stats(p2stats, n_colors, (long long)n_boards);
     }
 
     // -----------------------------------------------------------------------
