@@ -377,7 +377,9 @@ static bool loadSdpPolicy(const std::string& lzma_path, SdpPolicyStore& store) {
 
         // Derive sidecar path: strip ".lzma" suffix
         std::string sidecar = lzma_path;
-        if (sidecar.size() >= 5 && sidecar.substr(sidecar.size()-5) == ".lzma")
+        if (sidecar.size() >= 9 && sidecar.substr(sidecar.size()-9) == ".bin.lzma")
+            sidecar = sidecar.substr(0, sidecar.size()-9);
+        else if (sidecar.size() >= 5 && sidecar.substr(sidecar.size()-5) == ".lzma")
             sidecar = sidecar.substr(0, sidecar.size()-5);
         sidecar += ".sdp27.bin";
 
