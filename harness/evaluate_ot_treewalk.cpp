@@ -281,24 +281,23 @@ struct NodeResult {
 // ---------------------------------------------------------------------------
 // Phase 2 entry stats (populated when --with-stats is passed)
 //
-// At each tree-walk node, child_full_sv is exactly the set of boards whose
-// sequential games would reach that node state.  When new_ships_hit ==
-// SHIPS_THRESHOLD in a ship-click branch, child_full_sv.size() boards are
-// just entering phase 2.  We accumulate raw board counts — no probability
-// weighting needed.
+// Two quantities are tracked per (b,n) bucket:
+//   count          — raw integer: Σ by_color[color].size() across all recording
+//                    sites.  Each board is counted once per identity assignment
+//                    (same as sequential's raw count ≈ n_boards * n_assignments).
+//   weighted_count — identity-weight-adjusted: Σ by_color[color].size() * identity_weight
+//                    where identity_weight is the product of wc factors along the
+//                    path from the root fan-out to the current node.  This equals
+//                    the sequential's weighted_count ≈ n_boards.
 //
-// For var-rare unassigned fan-out: child_full_sv is identical across all
-// identity branches (it is a purely spatial filter), so we record once
-// before the fan-out to avoid double-counting.
-//
-// Thread 0 records (same child_full_sv as all other threads — the full
-// population filter is independent of chunking).
+// sum_sv / sum_sv2 use weighted_count contributions for mean/stdev of n_boards.
 // ---------------------------------------------------------------------------
 
 struct Phase2StatsEntry {
-    long long count    = 0;    // number of boards entering Phase 2 here
-    double    sum_sv   = 0.0;  // Σ n_boards over those games (= count * sv_size)
-    double    sum_sv2  = 0.0;  // Σ n_boards² over those games (for stdev)
+    long long count          = 0;    // raw board×assignment count
+    double    weighted_count = 0.0;  // identity-weight-adjusted count (≈ n_boards)
+    double    sum_sv         = 0.0;  // Σ weighted n_boards at entry (for mean)
+    double    sum_sv2        = 0.0;  // Σ weighted n_boards² at entry (for stdev)
 };
 
 struct Phase2Stats {
@@ -311,33 +310,35 @@ static void print_phase2_stats(const Phase2Stats& stats, int n_colors, long long
            n_colors, total_boards);
 
     long long total_count = 0;
-    double    total_sv = 0.0, total_sv2 = 0.0;
+    double    total_wcount = 0.0, total_sv = 0.0, total_sv2 = 0.0;
     for (const auto& [key, e] : stats.by_bn) {
-        total_count += e.count;
-        total_sv    += e.sum_sv;
-        total_sv2   += e.sum_sv2;
+        total_count  += e.count;
+        total_wcount += e.weighted_count;
+        total_sv     += e.sum_sv;
+        total_sv2    += e.sum_sv2;
     }
 
     double denom = total_boards > 0 ? (double)total_boards : 1.0;
-    if (total_count > 0) {
-        double mean = total_sv / total_count;
-        double var  = total_sv2 / total_count - mean * mean;
+    if (total_wcount > 0.0) {
+        double mean = total_sv / total_wcount;
+        double var  = total_sv2 / total_wcount - mean * mean;
         double sd   = var > 0.0 ? std::sqrt(var) : 0.0;
-        printf("  overall:  count=%-12lld  prob=%.4f  mean_boards=%.1f  stdev_boards=%.1f\n",
-               total_count, total_count / denom, mean, sd);
+        printf("  overall:  count=%-12lld  weighted_count=%-12.0f  prob=%.4f"
+               "  mean_boards=%.1f  stdev_boards=%.1f\n",
+               total_count, total_wcount, total_wcount / denom, mean, sd);
     }
 
-    printf("  %-8s  %-12s  %-8s  %-12s  %-12s\n",
-           "(b, n)", "count", "prob", "mean_boards", "stdev_boards");
+    printf("  %-8s  %-12s  %-16s  %-8s  %-12s  %-12s\n",
+           "(b, n)", "count", "weighted_count", "prob", "mean_boards", "stdev_boards");
     for (const auto& [key, e] : stats.by_bn) {
         if (e.count == 0) continue;
         int b = key / 10;
         int n = key % 10;
-        double mean = e.sum_sv / e.count;
-        double var  = e.sum_sv2 / e.count - mean * mean;
+        double mean = e.weighted_count > 0.0 ? e.sum_sv / e.weighted_count : 0.0;
+        double var  = e.weighted_count > 0.0 ? e.sum_sv2 / e.weighted_count - mean * mean : 0.0;
         double sd   = var > 0.0 ? std::sqrt(var) : 0.0;
-        printf("  (%d, %d)    %-12lld  %-8.4f  %-12.1f  %-12.1f\n",
-               b, n, e.count, e.count / denom, mean, sd);
+        printf("  (%d, %d)    %-12lld  %-16.0f  %-8.4f  %-12.1f  %-12.1f\n",
+               b, n, e.count, e.weighted_count, e.weighted_count / denom, mean, sd);
     }
     printf("==========================================\n");
     fflush(stdout);
@@ -491,7 +492,8 @@ static NodeResult tree_walk(
     bool                    game_over,
     ColorAssign             ca,
     int                     ships_revealed,
-    int                     click_count)
+    int                     click_count,
+    double                  identity_weight = 1.0)  // product of wc factors along identity fan-out path
 {
     int n_boards = (int)board_indices.size();
     if (n_boards == 0) return {};
@@ -594,24 +596,26 @@ static NodeResult tree_walk(
             NodeResult r = tree_walk(
                 ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                 new_ships_hit, new_blues_used, new_game_over, ca,
-                new_ships_rev, new_click_count);
+                new_ships_rev, new_click_count, identity_weight);
             r.loss_5050 += extra_loss_5050;
             accumulate(result, p_color, r, (double)OT_BLUE_VALUE);
 
         } else if (color <= 4) {
             // ---- Fixed-ship click (teal/green/yellow/spO) ----
             if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
-                long long chunk_size = (long long)by_color[color].size();
-                long long sv_size    = (long long)child_full_sv.size();
+                long long chunk_size  = (long long)by_color[color].size();
+                long long sv_size     = (long long)child_full_sv.size();
+                double    wc          = (double)chunk_size * identity_weight;
                 auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
-                e.count   += chunk_size;
-                e.sum_sv  += (double)chunk_size * sv_size;
-                e.sum_sv2 += (double)chunk_size * sv_size * sv_size;
+                e.count          += chunk_size;
+                e.weighted_count += wc;
+                e.sum_sv         += wc * sv_size;
+                e.sum_sv2        += wc * sv_size * sv_size;
             }
             NodeResult r = tree_walk(
                 ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                 new_ships_hit, blues_used, false, ca,
-                new_ships_rev, new_click_count);
+                new_ships_rev, new_click_count, identity_weight);
             accumulate(result, p_color, r, (double)FIXED_SP[color]);
 
         } else {
@@ -620,17 +624,19 @@ static NodeResult tree_walk(
             if (ca.is_assigned(slot)) {
                 int var_c = (int)ca.color[slot];
                 if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
-                    long long chunk_size = (long long)by_color[color].size();
-                    long long sv_size    = (long long)child_full_sv.size();
+                    long long chunk_size  = (long long)by_color[color].size();
+                    long long sv_size     = (long long)child_full_sv.size();
+                    double    wc          = (double)chunk_size * identity_weight;
                     auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
-                    e.count   += chunk_size;
-                    e.sum_sv  += (double)chunk_size * sv_size;
-                    e.sum_sv2 += (double)chunk_size * sv_size * sv_size;
+                    e.count          += chunk_size;
+                    e.weighted_count += wc;
+                    e.sum_sv         += wc * sv_size;
+                    e.sum_sv2        += wc * sv_size * sv_size;
                 }
                 NodeResult r = tree_walk(
                     ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                     new_ships_hit, blues_used, false, ca,
-                    new_ships_rev, new_click_count);
+                    new_ships_rev, new_click_count, identity_weight);
                 accumulate(result, p_color, r, (double)VAR_SP[var_c]);
             } else {
                 // Fan out over all possible var-rare identities (without-replacement draw).
@@ -649,15 +655,25 @@ static NodeResult tree_walk(
                 double rem_w = ca.remaining_weight(ctx.n_colors);
 
                 // Phase 2 entry for unassigned var-rare: record once before fan-out.
-                // by_color[color] is the same chunk slice for all identity branches,
-                // so recording once here avoids double-counting per identity branch.
+                // raw count uses chunk_size once (same boards across all identity branches).
+                // weighted_count sums chunk_size * wc across identity branches = chunk_size * 1.0,
+                // but we accumulate per-branch below so identity_weight flows correctly downstream.
+                // Record raw count here; weighted contributions come from per-branch recording
+                // in the assigned branch on the next recursion level — so skip weighted here
+                // and let the sub-branches record their own weighted counts.
+                // Actually: the sub-branches enter with ca.is_assigned(slot)==true and
+                // new_ships_hit == SHIPS_THRESHOLD only if this IS the phase 2 click.
+                // In that case they won't recurse further for Phase 2 — they just return.
+                // So we must record both raw and weighted here, with weighted = chunk_size * identity_weight
+                // summed across branches via the fan-out loop below.
+                // Simplest: record raw count once here; record weighted inside the fan-out loop.
                 if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
                     long long chunk_size = (long long)by_color[color].size();
                     long long sv_size    = (long long)child_full_sv.size();
                     auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
-                    e.count   += chunk_size;
-                    e.sum_sv  += (double)chunk_size * sv_size;
-                    e.sum_sv2 += (double)chunk_size * sv_size * sv_size;
+                    e.count += chunk_size;
+                    // weighted_count and sum_sv/sum_sv2 accumulated inside fan-out loop below
+                    (void)sv_size;
                 }
 
                 for (int vc = 0; vc < N_VAR_COLORS; ++vc) {
@@ -681,10 +697,20 @@ static NodeResult tree_walk(
                     double wc       = branches[bi].raw_w * renorm;
                     int    vc       = branches[bi].vc;
                     double sp_delta = (double)VAR_SP[vc];
+                    // Accumulate weighted_count and sum_sv per identity branch.
+                    if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
+                        long long chunk_size = (long long)by_color[color].size();
+                        long long sv_size    = (long long)child_full_sv.size();
+                        double    w          = (double)chunk_size * identity_weight * wc;
+                        auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
+                        e.weighted_count += w;
+                        e.sum_sv         += w * sv_size;
+                        e.sum_sv2        += w * sv_size * sv_size;
+                    }
                     NodeResult r = tree_walk(
                         ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                         new_ships_hit, blues_used, false, branches[bi].ca2,
-                        new_ships_rev, new_click_count);
+                        new_ships_rev, new_click_count, identity_weight * wc);
                     double ev_child = r.ev_sp + sp_delta;
                     var_result.ev_sp       += wc * ev_child;
                     var_result.ev_sp2      += wc * (r.ev_sp2
