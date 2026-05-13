@@ -307,7 +307,8 @@ struct Phase2Stats {
 };
 
 static void print_phase2_stats(const Phase2Stats& stats, int n_colors, long long total_boards) {
-    printf("\n=== Phase 2 entry stats: n_colors=%d ===\n", n_colors);
+    printf("\n=== Phase 2 entry stats: n_colors=%d (total_boards=%lld) ===\n",
+           n_colors, total_boards);
 
     long long total_count = 0;
     double    total_sv = 0.0, total_sv2 = 0.0;
@@ -322,11 +323,12 @@ static void print_phase2_stats(const Phase2Stats& stats, int n_colors, long long
         double mean = total_sv / total_count;
         double var  = total_sv2 / total_count - mean * mean;
         double sd   = var > 0.0 ? std::sqrt(var) : 0.0;
-        printf("  overall:  prob=%.4f  mean_boards=%.1f  stdev_boards=%.1f\n",
-               total_count / denom, mean, sd);
+        printf("  overall:  count=%-12lld  prob=%.4f  mean_boards=%.1f  stdev_boards=%.1f\n",
+               total_count, total_count / denom, mean, sd);
     }
 
-    printf("  %-8s  %-10s  %-12s  %-12s\n", "(b, n)", "prob", "mean_boards", "stdev_boards");
+    printf("  %-8s  %-12s  %-8s  %-12s  %-12s\n",
+           "(b, n)", "count", "prob", "mean_boards", "stdev_boards");
     for (const auto& [key, e] : stats.by_bn) {
         if (e.count == 0) continue;
         int b = key / 10;
@@ -334,8 +336,8 @@ static void print_phase2_stats(const Phase2Stats& stats, int n_colors, long long
         double mean = e.sum_sv / e.count;
         double var  = e.sum_sv2 / e.count - mean * mean;
         double sd   = var > 0.0 ? std::sqrt(var) : 0.0;
-        printf("  (%d, %d)    %-10.4f  %-12.1f  %-12.1f\n",
-               b, n, e.count / denom, mean, sd);
+        printf("  (%d, %d)    %-12lld  %-8.4f  %-12.1f  %-12.1f\n",
+               b, n, e.count, e.count / denom, mean, sd);
     }
     printf("==========================================\n");
     fflush(stdout);
@@ -429,8 +431,8 @@ struct WalkContext {
     int                 n_colors;
     StrategyBridge&     bridge;
     ProgressSlot&       progress;
-    bool                record_stats = false;   // true for thread 0 when --with-stats
-    Phase2Stats*        p2stats      = nullptr; // non-null when record_stats
+    bool                record_stats = false;   // true when --with-stats
+    Phase2Stats*        p2stats      = nullptr; // per-thread, non-null when record_stats
 };
 
 // ---------------------------------------------------------------------------
@@ -598,14 +600,13 @@ static NodeResult tree_walk(
 
         } else if (color <= 4) {
             // ---- Fixed-ship click (teal/green/yellow/spO) ----
-            // Phase 2 entry: record when this ship click pushes ships_hit to threshold.
-            // child_full_sv.size() is the exact number of boards entering phase 2 here.
             if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
-                long long sv_size = (long long)child_full_sv.size();
+                long long chunk_size = (long long)by_color[color].size();
+                long long sv_size    = (long long)child_full_sv.size();
                 auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
-                e.count   += sv_size;
-                e.sum_sv  += (double)sv_size * sv_size;
-                e.sum_sv2 += (double)sv_size * sv_size * sv_size;
+                e.count   += chunk_size;
+                e.sum_sv  += (double)chunk_size * sv_size;
+                e.sum_sv2 += (double)chunk_size * sv_size * sv_size;
             }
             NodeResult r = tree_walk(
                 ctx, by_color[color], child_full_sv, rev2, rev_dc2,
@@ -618,13 +619,13 @@ static NodeResult tree_walk(
             int slot = color - 5;
             if (ca.is_assigned(slot)) {
                 int var_c = (int)ca.color[slot];
-                // Phase 2 entry: record when this ship click pushes ships_hit to threshold.
                 if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
-                    long long sv_size = (long long)child_full_sv.size();
+                    long long chunk_size = (long long)by_color[color].size();
+                    long long sv_size    = (long long)child_full_sv.size();
                     auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
-                    e.count   += sv_size;
-                    e.sum_sv  += (double)sv_size * sv_size;
-                    e.sum_sv2 += (double)sv_size * sv_size * sv_size;
+                    e.count   += chunk_size;
+                    e.sum_sv  += (double)chunk_size * sv_size;
+                    e.sum_sv2 += (double)chunk_size * sv_size * sv_size;
                 }
                 NodeResult r = tree_walk(
                     ctx, by_color[color], child_full_sv, rev2, rev_dc2,
@@ -647,6 +648,18 @@ static NodeResult tree_walk(
                 double total_valid_w = 0.0;
                 double rem_w = ca.remaining_weight(ctx.n_colors);
 
+                // Phase 2 entry for unassigned var-rare: record once before fan-out.
+                // by_color[color] is the same chunk slice for all identity branches,
+                // so recording once here avoids double-counting per identity branch.
+                if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
+                    long long chunk_size = (long long)by_color[color].size();
+                    long long sv_size    = (long long)child_full_sv.size();
+                    auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
+                    e.count   += chunk_size;
+                    e.sum_sv  += (double)chunk_size * sv_size;
+                    e.sum_sv2 += (double)chunk_size * sv_size * sv_size;
+                }
+
                 for (int vc = 0; vc < N_VAR_COLORS; ++vc) {
                     if (ca.used_mask & (1u << vc)) continue;
                     double wraw = var_weight(ctx.n_colors, vc);
@@ -662,17 +675,6 @@ static NodeResult tree_walk(
                 // Renormalize if constraint pruned some branches.
                 double renorm = (total_valid_w > 0.0 && rem_w > 0.0)
                                 ? rem_w / total_valid_w : 1.0;
-
-                // Phase 2 entry for unassigned var-rare slot: record once before the
-                // identity fan-out.  child_full_sv is purely spatial — identical across
-                // all identity branches — so recording once avoids double-counting.
-                if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
-                    long long sv_size = (long long)child_full_sv.size();
-                    auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
-                    e.count   += sv_size;
-                    e.sum_sv  += (double)sv_size * sv_size;
-                    e.sum_sv2 += (double)sv_size * sv_size * sv_size;
-                }
 
                 NodeResult var_result{};
                 for (int bi = 0; bi < n_branches; ++bi) {
@@ -861,8 +863,10 @@ static OTVariantResult evaluate_variant_treewalk(
     std::vector<int> root_full_sv(n_boards);
     std::iota(root_full_sv.begin(), root_full_sv.end(), 0);
 
-    // Phase 2 stats: collected by thread 0 only (using exact full_sv probabilities).
-    Phase2Stats p2stats;
+    // Phase 2 stats: each thread accumulates into its own Phase2Stats (no mutex).
+    // Counts use by_color[color].size() (the thread's chunk slice), so summing
+    // across threads gives the total board count for each (b,n) bucket.
+    std::vector<Phase2Stats> p2stats_per_thread(n_threads);
 
     for (int t = 0; t < n_threads; ++t) {
         workers.emplace_back([&, t]() {
@@ -878,9 +882,8 @@ static OTVariantResult evaluate_variant_treewalk(
             uint8_t revealed_dc[N_CELLS] = {};
             ColorAssign ca(fbs.n_var);
 
-            bool record = with_stats && (t == 0);
             WalkContext ctx{fbs, total_ship_cells, n_colors, *bridges[t], progress[t],
-                            record, record ? &p2stats : nullptr};
+                            with_stats, with_stats ? &p2stats_per_thread[t] : nullptr};
 
             progress[t].active.store(1, std::memory_order_relaxed);
             results[t] = tree_walk(
@@ -918,9 +921,18 @@ static OTVariantResult evaluate_variant_treewalk(
         std::chrono::steady_clock::now() - t0).count();
     variant_elapsed_out = elapsed_ev;
 
-    // Print Phase 2 entry stats if requested (collected by thread 0).
+    // Merge per-thread Phase 2 stats and print.
     if (with_stats) {
-        print_phase2_stats(p2stats, n_colors, (long long)n_boards);
+        Phase2Stats merged;
+        for (int t = 0; t < n_threads; ++t) {
+            for (const auto& [key, e] : p2stats_per_thread[t].by_bn) {
+                auto& dst = merged.by_bn[key];
+                dst.count   += e.count;
+                dst.sum_sv  += e.sum_sv;
+                dst.sum_sv2 += e.sum_sv2;
+            }
+        }
+        print_phase2_stats(merged, n_colors, (long long)n_boards);
     }
 
     // -----------------------------------------------------------------------

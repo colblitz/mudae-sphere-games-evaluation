@@ -248,7 +248,8 @@ static bool ot_game_over(int blues_used, int ships_hit) {
 static constexpr int SHIPS_THRESHOLD = 5;
 
 struct Phase2StatsEntry {
-    double prob_mass = 0.0;  // weight-sum of games entering Phase 2 at this (b,n)
+    double    prob_mass = 0.0;  // weight-sum of games entering Phase 2 at this (b,n)
+    long long count     = 0;    // raw game count (unweighted)
 };
 
 struct Phase2Stats {
@@ -256,27 +257,34 @@ struct Phase2Stats {
     std::map<int, Phase2StatsEntry> by_bn;
 
     void merge(const Phase2Stats& other) {
-        for (const auto& [key, e] : other.by_bn)
+        for (const auto& [key, e] : other.by_bn) {
             by_bn[key].prob_mass += e.prob_mass;
+            by_bn[key].count     += e.count;
+        }
     }
 };
 
 static void print_phase2_stats_seq(const Phase2Stats& stats, int n_colors, long long n_boards) {
-    printf("\n=== Phase 2 entry stats (sequential): n_colors=%d ===\n", n_colors);
+    printf("\n=== Phase 2 entry stats (sequential): n_colors=%d (total_boards=%lld) ===\n",
+           n_colors, n_boards);
 
-    double total_prob = 0.0;
-    for (const auto& [key, e] : stats.by_bn)
-        total_prob += e.prob_mass;
+    double    total_mass  = 0.0;
+    long long total_count = 0;
+    for (const auto& [key, e] : stats.by_bn) {
+        total_mass  += e.prob_mass;
+        total_count += e.count;
+    }
 
-    // Normalise by n_boards to get fractions comparable to tree-walk prob_mass.
     double denom = (n_boards > 0) ? (double)n_boards : 1.0;
-    printf("  overall:  prob=%.4f\n", total_prob / denom);
-    printf("  %-8s  %-10s\n", "(b, n)", "prob");
+    printf("  overall:  count=%-12lld  prob=%.4f  weighted_count=%.0f\n",
+           total_count, total_mass / denom, total_mass);
+    printf("  %-8s  %-12s  %-8s  %-14s\n", "(b, n)", "count", "prob", "weighted_count");
     for (const auto& [key, e] : stats.by_bn) {
         if (e.prob_mass <= 0.0) continue;
         int b = key / 10;
         int n = key % 10;
-        printf("  (%d, %d)    %-10.4f\n", b, n, e.prob_mass / denom);
+        printf("  (%d, %d)    %-12lld  %-8.4f  %-14.0f\n",
+               b, n, e.count, e.prob_mass / denom, e.prob_mass);
     }
     printf("==========================================\n");
     fflush(stdout);
@@ -399,6 +407,7 @@ static OTGameResult run_ot_game(
             if (p2stats && ships_hit == SHIPS_THRESHOLD) {
                 auto& e = p2stats->by_bn[blues_used * 10 + ships_hit];
                 e.prob_mass += p2_weight;
+                e.count     += 1;
             }
             // Ship click is free — no blues_used increment
         } else {
