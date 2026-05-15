@@ -217,12 +217,12 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 >
 > | Mode | Perfect-game SP | Count | Rate |
 > |------|:--------------:|:-----:|:----:|
-> | 6-color | ~858 SP | 870 | 73.85% |
-> | 7-color | ~1055 SP | 276 | 23.43% |
-> | 8-color | ~1253 SP | 31 | 2.63% |
-> | 9-color | ~1450 SP | 0 (token: 1) | ~0% |
+> | 6-color | ~812 SP | 870 | 73.85% |
+> | 7-color | ~1188 SP | 276 | 23.43% |
+> | 8-color | ~1706 SP | 31 | 2.63% |
+> | 9-color | ~2240 SP | 0 (token: 1) | ~0% |
 >
-> **Overall empirical ceiling: ~915 SP.** Per-color values assume ~109 SP/cell for var-rare ship cells (empirical EV weighted across spL/spD/spR/spW by observed appearance rates in the same dataset).
+> **Overall empirical ceiling: ~925 SP.** Fixed ships (teal+green+yellow+spO) contribute 530 SP in all modes. Var-rare ship EV is computed by marginalizing over color assignments without replacement using per-mode appearance weights (`VAR_WEIGHT_BY_NC`): each successive var-rare slot is conditioned on which colors are already assigned, so later slots have elevated expected SP as lower-value colors (spL, spD) are more likely to fill early slots. For 9-color all four var-rare colors always appear (deterministic: spL+spD+spR+spW = 830 SP × 2 cells = 1660 SP).
 
 **Aggregate (empirically weighted EV — weights from observed mode frequencies in real play)**
 
