@@ -1494,6 +1494,7 @@ public:
 // C exports required by the harness
 // ---------------------------------------------------------------------------
 
+#ifndef HIGGS_DELEGATE
 extern "C" sphere::StrategyBase* create_strategy()                         { return new ColblitzV10BdpCbCtOTStrategy(); }
 extern "C" void                  destroy_strategy(sphere::StrategyBase* s) { delete s; }
 
@@ -1533,3 +1534,4 @@ extern "C" const char* strategy_next_click_sv(void* inst,
     buf = "{\"row\":" + std::to_string(out.row) + ",\"col\":" + std::to_string(out.col) + "}";
     return buf.c_str();
 }
+#endif // HIGGS_DELEGATE

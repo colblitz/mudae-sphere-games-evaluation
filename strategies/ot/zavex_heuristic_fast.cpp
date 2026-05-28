@@ -1211,6 +1211,7 @@ public:
 // C exports required by the harness
 // ---------------------------------------------------------------------------
 
+#ifndef HIGGS_DELEGATE
 extern "C" sphere::StrategyBase* create_strategy()                         { return new FastHeuristicOTStrategy(); }
 extern "C" void                  destroy_strategy(sphere::StrategyBase* s) { delete s; }
 
@@ -1248,3 +1249,4 @@ extern "C" const char* strategy_next_click(void* inst,
     buf = "{\"row\":" + std::to_string(result.row) + ",\"col\":" + std::to_string(result.col) + "}";
     return buf.c_str();
 }
+#endif // HIGGS_DELEGATE
