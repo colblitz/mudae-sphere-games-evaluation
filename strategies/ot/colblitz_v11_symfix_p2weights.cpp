@@ -515,9 +515,9 @@ static int sdpLookup(const SdpPolicyStore& store,
 // File discovery helpers
 // ---------------------------------------------------------------------------
 
-// Find the most recent data/trace_v11_weights_*.json.
+// Find the most recent data/trace_v11p2_weights_*.json.
 // Returns empty string if not found.
-static std::string findLatestV11WeightsFile() {
+static std::string findLatestV11P2WeightsFile() {
     std::string data_dir = repoPath("data");
     DIR* d = opendir(data_dir.c_str());
     if (!d) return "";
@@ -527,7 +527,7 @@ static std::string findLatestV11WeightsFile() {
         const char* name = ent->d_name;
         size_t len = strlen(name);
         if (len < 5 || strcmp(name + len - 5, ".json") != 0) continue;
-        if (strncmp(name, "trace_v11_weights_", 18) == 0) {
+        if (strncmp(name, "trace_v11p2_weights_", 20) == 0) {
             std::string full = data_dir + "/" + name;
             if (full > best) best = full;
         }
@@ -1398,7 +1398,7 @@ static void load_board_cache() {
 
     // ---- Load V11 weights (most-recent trace_v11_weights_*.json, required) ----
     // Missing file, missing n_colors entry, or missing phase2_weights all abort.
-    std::string wpath = findLatestV11WeightsFile();
+    std::string wpath = findLatestV11P2WeightsFile();
     if (wpath.empty()) {
         fprintf(stderr,
             "[colblitz_v11] ERROR: no trace_v11_weights_*.json found in data/. Aborting.\n");
