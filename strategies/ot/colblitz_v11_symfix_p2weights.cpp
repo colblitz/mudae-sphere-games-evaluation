@@ -1355,9 +1355,28 @@ static int pickP2CellV11Idx(
     }
 
     double inv_n = 1.0 / n;
+    int nu = (int)unclicked.size();
+
+    // Certain-ship tier: guaranteed ship cells (P(blue)=0) are always free and
+    // provide no information (boards unchanged), so they dominate any ambiguous
+    // or certain-blue cell.  EV tiebreak uses 6-bucket SP with unconditional
+    // var-rare EV (accurate enough for a tiebreak among certain-ship cells).
+    {
+        double var_ev_approx = computeVarRareEV(n_colors);
+        int    best_ship    = -1;
+        double best_ship_ev = -1.0;
+        for (int ii = 0; ii < nu; ++ii) {
+            const int* c6 = &counts6[ii * 6];
+            if (c6[0] != 0) continue;  // not certain-ship
+            double ev = (c6[1] * 20.0 + c6[2] * 35.0 + c6[3] * 55.0
+                         + c6[4] * 90.0 + c6[5] * var_ev_approx) * inv_n;
+            if (ev > best_ship_ev) { best_ship_ev = ev; best_ship = unclicked[ii]; }
+        }
+        if (best_ship >= 0) return best_ship;
+    }
+
     int best = -1;
     double best_score = -1e30;
-    int nu = (int)unclicked.size();
 
     for (int ii = 0; ii < nu; ++ii) {
         const int* c6  = &counts6[ii * 6];
