@@ -2,7 +2,7 @@
   "game": "ot",
   "metric": "ev",
   "updated": "2026-05-28",
-  "top10": [
+  "top15": [
     {
       "filename": "colblitz_v11_symfix_p2weights.cpp",
       "commit": "dc817aa",
@@ -127,7 +127,7 @@
   "by_variant": {
     "6": {
       "n_colors": 6,
-      "top10": [
+      "top15": [
         {
           "filename": "colblitz_v11_symfix_p2weights.cpp",
           "commit": "dc817aa",
@@ -362,7 +362,7 @@
     },
     "7": {
       "n_colors": 7,
-      "top10": [
+      "top15": [
         {
           "filename": "colblitz_v11_symfix_p2weights.cpp",
           "commit": "dc817aa",
@@ -597,7 +597,7 @@
     },
     "8": {
       "n_colors": 8,
-      "top10": [
+      "top15": [
         {
           "filename": "colblitz_v11_symfix_p2weights.cpp",
           "commit": "dc817aa",
@@ -832,7 +832,7 @@
     },
     "9": {
       "n_colors": 9,
-      "top10": [
+      "top15": [
         {
           "filename": "colblitz_v11_symfix_p2weights.cpp",
           "commit": "dc817aa",
