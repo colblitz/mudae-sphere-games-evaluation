@@ -180,6 +180,29 @@ static double computeVarRareEV(int n_colors) {
     return wsum > 0.0 ? ev / wsum : 0.0;
 }
 
+// Conditional weighted-mean SP for an unbound var-rare slot, excluding color
+// identities already assigned to other slots (indicated by used_mask bitmask,
+// bit i = VAR_RARE_SP index i).  Mirrors ColorAssign::expected_sp() in trace_common.h.
+static double computeVarRareEVConditional(int n_colors, uint8_t used_mask) {
+    double wsum = 0.0, ev = 0.0;
+    const double* w = VAR_RARE_WEIGHT_BY_NC[n_colors - 6];
+    for (int i = 0; i < 4; ++i) {
+        if (used_mask & (1u << i)) continue;
+        wsum += w[i]; ev += w[i] * VAR_RARE_SP[i];
+    }
+    return wsum > 0.0 ? ev / wsum : 0.0;
+}
+
+// Maps color name (as stored in rareColorGroups keys) to VAR_RARE_SP index.
+// Returns -1 for unknown names.
+static int colorNameToVarIdx(const std::string& name) {
+    if (name == "spL") return 0;
+    if (name == "spD") return 1;
+    if (name == "spR") return 2;
+    if (name == "spW") return 3;
+    return -1;
+}
+
 static constexpr double LN6 = 1.791759469228327;
 static constexpr double LN9 = 2.1972245773362196;
 
@@ -943,15 +966,17 @@ static inline double termRareId(const int* cdc, int slots, int n,
 // Identified slots (unchanged from V8/V10)
 // ---------------------------------------------------------------------------
 
-static std::vector<bool> getIdentifiedSlotsIdx(
+// Returns a vector of length n_var where entry k is the VAR_RARE_SP index (0–3)
+// of the color identity assigned to slot k, or -1 if the slot is unidentified.
+static std::vector<int> getSlotColorAssignment(
     const BoardSet& fbs,
     const std::vector<int>& sv,
     const std::unordered_map<std::string, int32_t>& rareColorGroups,
     int n_rare)
 {
     int n_var = n_rare - 1;
-    std::vector<bool> identified(n_var, false);
-    if (n_var <= 0 || rareColorGroups.empty() || sv.empty()) return identified;
+    std::vector<int> slot_colors(n_var, -1);
+    if (n_var <= 0 || rareColorGroups.empty() || sv.empty()) return slot_colors;
     int var_start   = COL_RARE_START + 1;
     const int32_t* data   = fbs.data.data();
     int            fields = fbs.fields;
@@ -968,16 +993,32 @@ static std::vector<bool> getIdentifiedSlotsIdx(
                 if (has_any) any_found = true;
                 if (has_any != has_all) { all_match = false; break; }
             }
-            if (all_match && any_found) { identified[k] = true; break; }
+            if (all_match && any_found) {
+                slot_colors[k] = colorNameToVarIdx(kv.first);
+                break;
+            }
         }
     }
-    return identified;
+    return slot_colors;
 }
 
-static std::vector<double> buildSlotSp(int n_rare, int n_colors) {
+// Build per-slot SP lookup.  slot_colors[k] = VAR_RARE_SP index for identified
+// slot k, or -1 for unbound.  Identified slots use exact SP; unbound slots use
+// conditional weighted-mean excluding already-assigned color identities.
+static std::vector<double> buildSlotSp(int n_rare, int n_colors,
+                                        const std::vector<int>& slot_colors) {
     std::vector<double> sp(SLOT_SP_FIXED, SLOT_SP_FIXED + 5);
-    double ev = computeVarRareEV(n_colors);
-    for (int k = 0; k < n_rare - 1; ++k) sp.push_back(ev);
+    // Build used_mask from all identified slots.
+    uint8_t used_mask = 0;
+    for (int k = 0; k < (int)slot_colors.size(); ++k)
+        if (slot_colors[k] >= 0) used_mask |= (uint8_t)(1u << slot_colors[k]);
+    int n_var = n_rare - 1;
+    for (int k = 0; k < n_var; ++k) {
+        if (k < (int)slot_colors.size() && slot_colors[k] >= 0)
+            sp.push_back(VAR_RARE_SP[slot_colors[k]]);  // exact SP for known identity
+        else
+            sp.push_back(computeVarRareEVConditional(n_colors, used_mask));
+    }
     return sp;
 }
 
@@ -1141,12 +1182,12 @@ static int pickPhase1CellV11Idx(
 
     int n_var = n_rare - 1;
     std::vector<double> slot_sp;
-    std::vector<bool>   identified;
+    std::vector<int>    slot_colors(n_var, -1);
+    std::vector<bool>   identified_bool(n_var, false);
     if (need_slot_sp) {
-        identified = getIdentifiedSlotsIdx(fbs, sv, rareColorGroups, n_rare);
-        slot_sp    = buildSlotSp(n_rare, n_colors);
-    } else {
-        identified.assign(n_var, false);
+        slot_colors = getSlotColorAssignment(fbs, sv, rareColorGroups, n_rare);
+        slot_sp     = buildSlotSp(n_rare, n_colors, slot_colors);
+        for (int k = 0; k < n_var; ++k) identified_bool[k] = (slot_colors[k] >= 0);
     }
 
     double inv_n = (n > 0) ? 1.0 / n : 0.0;
@@ -1164,7 +1205,7 @@ static int pickPhase1CellV11Idx(
         double t_var_sp  = (std::abs(w_var_sp) > 1e-15) && !slot_sp.empty()
                                ? termVarSp(cdc, slot_stride, n, slot_sp) : 0.0;
         double t_rare_id = (std::abs(w_rare_id) > 1e-15 || std::abs(w_blue_rid) > 1e-15)
-                               ? termRareId(cdc, slot_stride, n, identified, n_var) : 0.0;
+                               ? termRareId(cdc, slot_stride, n, identified_bool, n_var) : 0.0;
 
         double score = w_blue    * t_blue
                      + w_info6   * t_info6
@@ -1278,7 +1319,8 @@ static int pickP2CellV11Idx(
     const std::vector<int>& sv,
     const std::vector<int>& unclicked,
     int n_rare, int n_colors, int blues_used,
-    const double p2w[N_P2_BLUES][N_P2_CBUCKETS][N_P2_TERMS_FULL])
+    const double p2w[N_P2_BLUES][N_P2_CBUCKETS][N_P2_TERMS_FULL],
+    const std::unordered_map<std::string, int32_t>& rareColorGroups)
 {
     if (unclicked.empty()) return -1;
     int n = (int)sv.size();
@@ -1307,7 +1349,10 @@ static int pickP2CellV11Idx(
                        std::abs(w_i6_ev) > 1e-15);
 
     std::vector<double> slot_sp;
-    if (need_ev) slot_sp = buildSlotSp(n_rare, n_colors);
+    if (need_ev) {
+        std::vector<int> slot_colors = getSlotColorAssignment(fbs, sv, rareColorGroups, n_rare);
+        slot_sp = buildSlotSp(n_rare, n_colors, slot_colors);
+    }
 
     double inv_n = 1.0 / n;
     int best = -1;
@@ -1573,7 +1618,7 @@ public:
         if (ships_hit >= SHIPS_HIT_THRESHOLD) {
             // Phase 2: V11P2 learned scorer
             return pickP2CellV11Idx(fbs, sv, unclicked, n_rare, n_colors,
-                                     blues_used, p2Weights_[bs_idx]);
+                                     blues_used, p2Weights_[bs_idx], rareColorGroups);
         }
 
         // ---- SDP policy lookup (6/7-color only) ----
