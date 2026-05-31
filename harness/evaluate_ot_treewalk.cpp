@@ -305,6 +305,31 @@ struct Phase2Stats {
     std::map<int, Phase2StatsEntry> by_bn;
 };
 
+// ---------------------------------------------------------------------------
+// Depth (click_count) vs n_boards stats (populated when --with-stats is passed)
+//
+// Recorded at every visited tree node (including terminal/game-over nodes),
+// before any early-exit returns.  Bucketed by click_count (0..N_CELLS).
+//
+// sum_blues / sum_ships track the weighted sum of blues_used / ships_hit at
+// each depth; dividing by weighted_count gives the mean at that depth.
+// sum_sv / sum_sv2 give mean/stdev of the surviving board count (n_boards).
+// ---------------------------------------------------------------------------
+
+struct DepthStatsEntry {
+    long long count          = 0;    // raw board×assignment count
+    double    weighted_count = 0.0;  // identity-weight-adjusted count
+    double    sum_sv         = 0.0;  // Σ weighted n_boards (for mean)
+    double    sum_sv2        = 0.0;  // Σ weighted n_boards² (for stdev)
+    double    sum_blues      = 0.0;  // Σ weighted blues_used (for mean)
+    double    sum_ships      = 0.0;  // Σ weighted ships_hit  (for mean)
+};
+
+struct DepthStats {
+    // index = click_count (0..N_CELLS)
+    std::array<DepthStatsEntry, N_CELLS + 1> by_depth{};
+};
+
 static void print_phase2_stats(const Phase2Stats& stats, int n_colors, long long total_boards) {
     printf("\n=== Phase 2 entry stats: n_colors=%d (total_boards=%lld) ===\n",
            n_colors, total_boards);
@@ -339,6 +364,31 @@ static void print_phase2_stats(const Phase2Stats& stats, int n_colors, long long
         double sd   = var > 0.0 ? std::sqrt(var) : 0.0;
         printf("  (%d, %d)    %-12lld  %-16.0f  %-8.4f  %-12.1f  %-12.1f\n",
                b, n, e.count, e.weighted_count, e.weighted_count / denom, mean, sd);
+    }
+    printf("==========================================\n");
+    fflush(stdout);
+}
+
+static void print_depth_stats(const DepthStats& stats, int n_colors, long long total_boards) {
+    printf("\n=== Depth (click_count) vs n_boards stats: n_colors=%d (total_boards=%lld) ===\n",
+           n_colors, total_boards);
+
+    printf("  %-6s  %-12s  %-16s  %-8s  %-12s  %-12s  %-10s  %-10s\n",
+           "depth", "count", "weighted_count", "prob",
+           "mean_boards", "stdev_boards", "mean_blues", "mean_ships");
+
+    double denom = total_boards > 0 ? (double)total_boards : 1.0;
+    for (int d = 0; d <= N_CELLS; ++d) {
+        const auto& e = stats.by_depth[d];
+        if (e.count == 0) continue;
+        double wc   = e.weighted_count;
+        double mean = wc > 0.0 ? e.sum_sv    / wc : 0.0;
+        double var  = wc > 0.0 ? e.sum_sv2   / wc - mean * mean : 0.0;
+        double sd   = var > 0.0 ? std::sqrt(var) : 0.0;
+        double mb   = wc > 0.0 ? e.sum_blues / wc : 0.0;
+        double ms   = wc > 0.0 ? e.sum_ships / wc : 0.0;
+        printf("  %-6d  %-12lld  %-16.0f  %-8.4f  %-12.1f  %-12.1f  %-10.2f  %-10.2f\n",
+               d, e.count, wc, wc / denom, mean, sd, mb, ms);
     }
     printf("==========================================\n");
     fflush(stdout);
@@ -434,6 +484,7 @@ struct WalkContext {
     ProgressSlot&       progress;
     bool                record_stats = false;   // true when --with-stats
     Phase2Stats*        p2stats      = nullptr; // per-thread, non-null when record_stats
+    DepthStats*         depth_stats  = nullptr; // per-thread, non-null when record_stats
 };
 
 // ---------------------------------------------------------------------------
@@ -497,6 +548,19 @@ static NodeResult tree_walk(
 {
     int n_boards = (int)board_indices.size();
     if (n_boards == 0) return {};
+
+    // Record depth stats for every visited node (before early exits or strategy call).
+    if (ctx.record_stats && ctx.depth_stats) {
+        long long sv_size = (long long)full_sv.size();
+        double    wc      = (double)n_boards * identity_weight;
+        auto& e = ctx.depth_stats->by_depth[click_count];
+        e.count          += (long long)n_boards;
+        e.weighted_count += wc;
+        e.sum_sv         += wc * (double)sv_size;
+        e.sum_sv2        += wc * (double)sv_size * (double)sv_size;
+        e.sum_blues      += wc * (double)blues_used;
+        e.sum_ships      += wc * (double)ships_hit;
+    }
 
     // Helper: record terminal node and return result.
     auto make_terminal = [&]() -> NodeResult {
@@ -893,6 +957,7 @@ static OTVariantResult evaluate_variant_treewalk(
     // Counts use by_color[color].size() (the thread's chunk slice), so summing
     // across threads gives the total board count for each (b,n) bucket.
     std::vector<Phase2Stats> p2stats_per_thread(n_threads);
+    std::vector<DepthStats>  depth_stats_per_thread(n_threads);
 
     for (int t = 0; t < n_threads; ++t) {
         workers.emplace_back([&, t]() {
@@ -909,7 +974,8 @@ static OTVariantResult evaluate_variant_treewalk(
             ColorAssign ca(fbs.n_var);
 
             WalkContext ctx{fbs, total_ship_cells, n_colors, *bridges[t], progress[t],
-                            with_stats, with_stats ? &p2stats_per_thread[t] : nullptr};
+                            with_stats, with_stats ? &p2stats_per_thread[t] : nullptr,
+                            with_stats ? &depth_stats_per_thread[t] : nullptr};
 
             progress[t].active.store(1, std::memory_order_relaxed);
             results[t] = tree_walk(
@@ -960,6 +1026,22 @@ static OTVariantResult evaluate_variant_treewalk(
             }
         }
         print_phase2_stats(merged, n_colors, (long long)n_boards);
+
+        // Merge per-thread depth stats and print.
+        DepthStats merged_depth;
+        for (int t = 0; t < n_threads; ++t) {
+            for (int d = 0; d <= N_CELLS; ++d) {
+                auto& dst       = merged_depth.by_depth[d];
+                const auto& src = depth_stats_per_thread[t].by_depth[d];
+                dst.count          += src.count;
+                dst.weighted_count += src.weighted_count;
+                dst.sum_sv         += src.sum_sv;
+                dst.sum_sv2        += src.sum_sv2;
+                dst.sum_blues      += src.sum_blues;
+                dst.sum_ships      += src.sum_ships;
+            }
+        }
+        print_depth_stats(merged_depth, n_colors, (long long)n_boards);
     }
 
     // -----------------------------------------------------------------------
