@@ -215,14 +215,14 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 > **Theoretical ceiling:** A perfect game collects every cell on the board. Per-color perfect-game SP and the empirically-weighted ceiling (using mode frequencies from `data/trace_board_stats.json`, 1177 observed games; 9-color has 0 observed occurrences and receives a token weight of 1):
 >
-> | Mode | Perfect-game SP | Count | Rate |
-> |------|:--------------:|:-----:|:----:|
-> | 6-color | ~858 SP | 870 | 73.85% |
-> | 7-color | ~1055 SP | 276 | 23.43% |
-> | 8-color | ~1253 SP | 31 | 2.63% |
-> | 9-color | ~1450 SP | 0 (token: 1) | ~0% |
+> | Mode | Perfect-game SP | Count | Rate | E[SP] per var-rare cell |
+> |------|:--------------:|:-----:|:----:|:-----------------------:|
+> | 6-color | ~811 SP | 870 | 73.85% | ~85 SP (spL/spD only) |
+> | 7-color | ~1159 SP | 276 | 23.43% | ~135 SP |
+> | 8-color | ~1706 SP | 31 | 2.63% | ~184 SP |
+> | 9-color | ~2240 SP | 0 (token: 1) | ~0% | ~208 SP (all four always) |
 >
-> **Overall empirical ceiling: ~915 SP.** Per-color values assume ~109 SP/cell for var-rare ship cells (empirical EV weighted across spL/spD/spR/spW by observed appearance rates in the same dataset).
+> **Overall empirical ceiling: ~917 SP.** The expected SP per var-rare cell differs by mode because higher modes draw more rare slots, making spR and spW increasingly likely. 6-color can only draw spL or spD; 9-color always has all four (spL + spD + spR + spW = 830 SP across 8 cells = 207.5 SP/cell).
 
 **Aggregate (empirically weighted EV — weights from observed mode frequencies in real play)**
 
