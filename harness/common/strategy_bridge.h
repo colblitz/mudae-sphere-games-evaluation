@@ -295,7 +295,7 @@ private:
 
     // Parse (row, col, state) from Python return value
     static Click py_to_click(PyObject* ret) {
-        Click c{0, 0};
+        Click c{};
         if (!ret || !PyTuple_Check(ret) || PyTuple_Size(ret) < 2) return c;
         PyObject* r = PyTuple_GetItem(ret, 0);
         PyObject* cl = PyTuple_GetItem(ret, 1);
@@ -414,7 +414,7 @@ public:
         } else {
             r = nc_fn_(instance_, rev_json.c_str(), meta_json.c_str());
         }
-        if (!r) return {0, 0};
+        if (!r) return {};
         return json_parse_click(r);
     }
 
@@ -429,11 +429,55 @@ private:
     NextClickSvFn   nc_sv_fn_   = nullptr;  // optional; null if not exported
 
     static Click json_parse_click(const char* s) {
-        Click c{0, 0};
-        const char* p = strstr(s, "\"row\":");
-        if (p) c.row = static_cast<int8_t>(atoi(p + 6));
-        p = strstr(s, "\"col\":");
-        if (p) c.col = static_cast<int8_t>(atoi(p + 6));
+        Click c{};
+        if (!s) return c;
+
+        // Walk the JSON object key by key.
+        // We parse "row" and "col" into the fixed fields; everything else
+        // goes into Click.meta as (key, value) string pairs.  Values are
+        // stored as raw JSON substrings with surrounding quotes stripped for
+        // string values (numbers are stored as-is).
+        const char* p = s;
+        while (*p && *p != '{') ++p;
+        if (!*p) return c;
+        ++p;  // skip '{'
+
+        while (*p) {
+            // Skip whitespace and commas
+            while (*p == ' ' || *p == '\t' || *p == '\n' || *p == ',') ++p;
+            if (*p == '}' || !*p) break;
+
+            // Read key (must be a quoted string)
+            if (*p != '"') { ++p; continue; }
+            ++p;
+            const char* key_start = p;
+            while (*p && *p != '"') { if (*p == '\\') ++p; if (*p) ++p; }
+            std::string key(key_start, p - key_start);
+            if (*p == '"') ++p;
+
+            // Skip whitespace and colon
+            while (*p == ' ' || *p == '\t' || *p == ':') ++p;
+
+            // Read value
+            std::string val;
+            if (*p == '"') {
+                // String value — strip surrounding quotes
+                ++p;
+                const char* vs = p;
+                while (*p && *p != '"') { if (*p == '\\') ++p; if (*p) ++p; }
+                val = std::string(vs, p - vs);
+                if (*p == '"') ++p;
+            } else {
+                // Number / bool / null — read until delimiter
+                const char* vs = p;
+                while (*p && *p != ',' && *p != '}' && *p != ' ') ++p;
+                val = std::string(vs, p - vs);
+            }
+
+            if      (key == "row") c.row = static_cast<int8_t>(std::stoi(val));
+            else if (key == "col") c.col = static_cast<int8_t>(std::stoi(val));
+            else                   c.meta.emplace_back(std::move(key), std::move(val));
+        }
         return c;
     }
 };
@@ -508,7 +552,7 @@ public:
         write_line(msg);
         std::string resp = read_line();
         check_error_field(resp, "next_click");
-        Click c{0, 0};
+        Click c{};
         const char* p = strstr(resp.c_str(), "\"row\":");
         if (p) c.row = static_cast<int8_t>(atoi(p + 6));
         p = strstr(resp.c_str(), "\"col\":");

@@ -279,119 +279,135 @@ struct NodeResult {
 };
 
 // ---------------------------------------------------------------------------
-// Phase 2 entry stats (populated when --with-stats is passed)
+// Unified stats infrastructure (populated when --with-stats is passed)
 //
-// Two quantities are tracked per (b,n) bucket:
-//   count          — raw integer: Σ by_color[color].size() across all recording
-//                    sites.  Each board is counted once per identity assignment
-//                    (same as sequential's raw count ≈ n_boards * n_assignments).
-//   weighted_count — identity-weight-adjusted: Σ by_color[color].size() * identity_weight
-//                    where identity_weight is the product of wc factors along the
-//                    path from the root fan-out to the current node.  This equals
-//                    the sequential's weighted_count ≈ n_boards.
+// StatsEntry is the single entry type used by all three tables.  Every field
+// is weighted by (n_boards * identity_weight) at the recording site.
 //
-// sum_sv / sum_sv2 use weighted_count contributions for mean/stdev of n_boards.
+//   count          — raw board×assignment node-visit count
+//   weighted_count — identity-weight-adjusted count (≈ expected n_boards)
+//   sum_sv         — Σ weighted * full_sv.size()   → mean_boards
+//   sum_sv2        — Σ weighted * full_sv.size()²  → stdev_boards
+//   sum_blues      — Σ weighted * blues_used        → mean_blues
+//   sum_ships      — Σ weighted * ships_hit         → mean_ships
+//
+// HarnessStats bundles three tables:
+//   by_depth[click_count]        — every strategy call, bucketed by depth
+//   by_p2[blues*10+ships]        — strategy calls where entering_p2=="1"
+//   by_branch["label"]           — strategy calls bucketed by branch label
+//
+// Depth recording fires at the next_click call site (active decision nodes
+// only; terminals do not call next_click and are excluded by design).
+// Phase 2 entry and branch label come from Click.meta returned by the strategy.
 // ---------------------------------------------------------------------------
 
-struct Phase2StatsEntry {
-    long long count          = 0;    // raw board×assignment count
-    double    weighted_count = 0.0;  // identity-weight-adjusted count (≈ n_boards)
-    double    sum_sv         = 0.0;  // Σ weighted n_boards at entry (for mean)
-    double    sum_sv2        = 0.0;  // Σ weighted n_boards² at entry (for stdev)
-};
+struct StatsEntry {
+    long long count          = 0;
+    double    weighted_count = 0.0;
+    double    sum_sv         = 0.0;
+    double    sum_sv2        = 0.0;
+    double    sum_blues      = 0.0;
+    double    sum_ships      = 0.0;
 
-struct Phase2Stats {
-    // key = blues_used * 10 + ships_hit  (ships_hit always == SHIPS_THRESHOLD at entry)
-    std::map<int, Phase2StatsEntry> by_bn;
-};
-
-// ---------------------------------------------------------------------------
-// Depth (click_count) vs n_boards stats (populated when --with-stats is passed)
-//
-// Recorded at every visited tree node (including terminal/game-over nodes),
-// before any early-exit returns.  Bucketed by click_count (0..N_CELLS).
-//
-// sum_blues / sum_ships track the weighted sum of blues_used / ships_hit at
-// each depth; dividing by weighted_count gives the mean at that depth.
-// sum_sv / sum_sv2 give mean/stdev of the surviving board count (n_boards).
-// ---------------------------------------------------------------------------
-
-struct DepthStatsEntry {
-    long long count          = 0;    // raw board×assignment count
-    double    weighted_count = 0.0;  // identity-weight-adjusted count
-    double    sum_sv         = 0.0;  // Σ weighted n_boards (for mean)
-    double    sum_sv2        = 0.0;  // Σ weighted n_boards² (for stdev)
-    double    sum_blues      = 0.0;  // Σ weighted blues_used (for mean)
-    double    sum_ships      = 0.0;  // Σ weighted ships_hit  (for mean)
-};
-
-struct DepthStats {
-    // index = click_count (0..N_CELLS)
-    std::array<DepthStatsEntry, N_CELLS + 1> by_depth{};
-};
-
-static void print_phase2_stats(const Phase2Stats& stats, int n_colors, long long total_boards) {
-    printf("\n=== Phase 2 entry stats: n_colors=%d (total_boards=%lld) ===\n",
-           n_colors, total_boards);
-
-    long long total_count = 0;
-    double    total_wcount = 0.0, total_sv = 0.0, total_sv2 = 0.0;
-    for (const auto& [key, e] : stats.by_bn) {
-        total_count  += e.count;
-        total_wcount += e.weighted_count;
-        total_sv     += e.sum_sv;
-        total_sv2    += e.sum_sv2;
+    void record(long long raw_n, double wc, double sv, double blues, double ships) {
+        count          += raw_n;
+        weighted_count += wc;
+        sum_sv         += wc * sv;
+        sum_sv2        += wc * sv * sv;
+        sum_blues      += wc * blues;
+        sum_ships      += wc * ships;
     }
-
-    double denom = total_boards > 0 ? (double)total_boards : 1.0;
-    if (total_wcount > 0.0) {
-        double mean = total_sv / total_wcount;
-        double var  = total_sv2 / total_wcount - mean * mean;
-        double sd   = var > 0.0 ? std::sqrt(var) : 0.0;
-        printf("  overall:  count=%-12lld  weighted_count=%-12.0f  prob=%.4f"
-               "  mean_boards=%.1f  stdev_boards=%.1f\n",
-               total_count, total_wcount, total_wcount / denom, mean, sd);
+    void merge(const StatsEntry& o) {
+        count          += o.count;
+        weighted_count += o.weighted_count;
+        sum_sv         += o.sum_sv;
+        sum_sv2        += o.sum_sv2;
+        sum_blues      += o.sum_blues;
+        sum_ships      += o.sum_ships;
     }
+};
 
-    printf("  %-8s  %-12s  %-16s  %-8s  %-12s  %-12s\n",
-           "(b, n)", "count", "weighted_count", "prob", "mean_boards", "stdev_boards");
-    for (const auto& [key, e] : stats.by_bn) {
-        if (e.count == 0) continue;
-        int b = key / 10;
-        int n = key % 10;
-        double mean = e.weighted_count > 0.0 ? e.sum_sv / e.weighted_count : 0.0;
-        double var  = e.weighted_count > 0.0 ? e.sum_sv2 / e.weighted_count - mean * mean : 0.0;
-        double sd   = var > 0.0 ? std::sqrt(var) : 0.0;
-        printf("  (%d, %d)    %-12lld  %-16.0f  %-8.4f  %-12.1f  %-12.1f\n",
-               b, n, e.count, e.weighted_count, e.weighted_count / denom, mean, sd);
+struct HarnessStats {
+    std::array<StatsEntry, N_CELLS + 1>  by_depth{};   // index = click_count
+    std::map<int, StatsEntry>            by_p2;         // key = blues*10 + ships
+    std::map<std::string, StatsEntry>    by_branch;     // key = branch label string
+
+    void merge(const HarnessStats& o) {
+        for (int d = 0; d <= N_CELLS; ++d) by_depth[d].merge(o.by_depth[d]);
+        for (const auto& [k, e] : o.by_p2)     by_p2[k].merge(e);
+        for (const auto& [k, e] : o.by_branch) by_branch[k].merge(e);
     }
-    printf("==========================================\n");
-    fflush(stdout);
+};
+
+// Helper: compute mean/stdev from a StatsEntry and print a standard row.
+static void print_stats_row(const char* label_fmt, const char* label,
+                             const StatsEntry& e, double denom)
+{
+    if (e.count == 0) return;
+    double wc   = e.weighted_count;
+    double mean = wc > 0.0 ? e.sum_sv    / wc : 0.0;
+    double var  = wc > 0.0 ? e.sum_sv2   / wc - mean * mean : 0.0;
+    double sd   = var > 0.0 ? std::sqrt(var) : 0.0;
+    double mb   = wc > 0.0 ? e.sum_blues / wc : 0.0;
+    double ms   = wc > 0.0 ? e.sum_ships / wc : 0.0;
+    printf(label_fmt, label, e.count, wc, wc / denom, mean, sd, mb, ms);
 }
 
-static void print_depth_stats(const DepthStats& stats, int n_colors, long long total_boards) {
-    printf("\n=== Depth (click_count) vs n_boards stats: n_colors=%d (total_boards=%lld) ===\n",
-           n_colors, total_boards);
-
-    printf("  %-6s  %-12s  %-16s  %-8s  %-12s  %-12s  %-10s  %-10s\n",
-           "depth", "count", "weighted_count", "prob",
-           "mean_boards", "stdev_boards", "mean_blues", "mean_ships");
-
+static void print_harness_stats(const HarnessStats& stats, int n_colors,
+                                 long long total_boards)
+{
     double denom = total_boards > 0 ? (double)total_boards : 1.0;
+    const char* row_fmt =
+        "  %-20s  %-12lld  %-16.0f  %-8.4f  %-12.1f  %-12.1f  %-10.2f  %-10.2f\n";
+    const char* hdr =
+        "  %-20s  %-12s  %-16s  %-8s  %-12s  %-12s  %-10s  %-10s\n";
+
+    // --- Depth table ---
+    printf("\n=== Depth (click_count) vs n_boards: n_colors=%d (total_boards=%lld) ===\n",
+           n_colors, total_boards);
+    printf(hdr, "depth", "count", "weighted_count", "prob",
+           "mean_boards", "stdev_boards", "mean_blues", "mean_ships");
     for (int d = 0; d <= N_CELLS; ++d) {
-        const auto& e = stats.by_depth[d];
-        if (e.count == 0) continue;
-        double wc   = e.weighted_count;
-        double mean = wc > 0.0 ? e.sum_sv    / wc : 0.0;
-        double var  = wc > 0.0 ? e.sum_sv2   / wc - mean * mean : 0.0;
-        double sd   = var > 0.0 ? std::sqrt(var) : 0.0;
-        double mb   = wc > 0.0 ? e.sum_blues / wc : 0.0;
-        double ms   = wc > 0.0 ? e.sum_ships / wc : 0.0;
-        printf("  %-6d  %-12lld  %-16.0f  %-8.4f  %-12.1f  %-12.1f  %-10.2f  %-10.2f\n",
-               d, e.count, wc, wc / denom, mean, sd, mb, ms);
+        char label[8]; snprintf(label, sizeof(label), "%d", d);
+        print_stats_row(row_fmt, label, stats.by_depth[d], denom);
     }
     printf("==========================================\n");
     fflush(stdout);
+
+    // --- Phase 2 entry table ---
+    if (!stats.by_p2.empty()) {
+        printf("\n=== Phase 2 entry stats: n_colors=%d (total_boards=%lld) ===\n",
+               n_colors, total_boards);
+        printf(hdr, "(blues, ships)", "count", "weighted_count", "prob",
+               "mean_boards", "stdev_boards", "mean_blues", "mean_ships");
+        // overall row
+        StatsEntry overall;
+        for (const auto& [k, e] : stats.by_p2) overall.merge(e);
+        print_stats_row(row_fmt, "overall", overall, denom);
+        for (const auto& [key, e] : stats.by_p2) {
+            char label[32];
+            snprintf(label, sizeof(label), "(%d, %d)", key / 10, key % 10);
+            print_stats_row(row_fmt, label, e, denom);
+        }
+        printf("==========================================\n");
+        fflush(stdout);
+    }
+
+    // --- Decision branch table ---
+    if (!stats.by_branch.empty()) {
+        printf("\n=== Decision branch stats: n_colors=%d (total_boards=%lld) ===\n",
+               n_colors, total_boards);
+        printf(hdr, "branch", "count", "weighted_count", "prob",
+               "mean_boards", "stdev_boards", "mean_blues", "mean_ships");
+        // overall row
+        StatsEntry overall;
+        for (const auto& [k, e] : stats.by_branch) overall.merge(e);
+        print_stats_row(row_fmt, "overall", overall, denom);
+        for (const auto& [label, e] : stats.by_branch)
+            print_stats_row(row_fmt, label.c_str(), e, denom);
+        printf("==========================================\n");
+        fflush(stdout);
+    }
 }
 
 // accumulate: result += weight * subtree(r) with sp_delta earned at this node.
@@ -463,11 +479,20 @@ static void build_board_vec(const bool         revealed[N_CELLS],
     }
 }
 
-static std::string build_meta_json(int n_colors, int ships_hit, int blues_used) {
-    return "{\"n_colors\":"   + std::to_string(n_colors)
-         + ",\"ships_hit\":"  + std::to_string(ships_hit)
-         + ",\"blues_used\":" + std::to_string(blues_used)
-         + ",\"max_clicks\":" + std::to_string(OT_BASE_CLICKS) + "}";
+// last_click_idx  = -1 and last_click_color = "" at the root (no previous click).
+// At all other nodes, last_click_idx is the cell chosen at the parent and
+// last_click_color is the color string revealed there (e.g. "spT", "spB").
+// The strategy can use these to detect phase transitions statelessly:
+//   entering_p2 = (ships_hit == SHIPS_THRESHOLD) && ot_is_ship(last_click_color)
+static std::string build_meta_json(int n_colors, int ships_hit, int blues_used,
+                                   int last_click_idx = -1,
+                                   const char* last_click_color = "") {
+    return "{\"n_colors\":"          + std::to_string(n_colors)
+         + ",\"ships_hit\":"         + std::to_string(ships_hit)
+         + ",\"blues_used\":"        + std::to_string(blues_used)
+         + ",\"max_clicks\":"        + std::to_string(OT_BASE_CLICKS)
+         + ",\"last_click_idx\":"    + std::to_string(last_click_idx)
+         + ",\"last_click_color\":\"" + last_click_color + "\"}";
 }
 
 // ---------------------------------------------------------------------------
@@ -482,9 +507,7 @@ struct WalkContext {
     int                 n_colors;
     StrategyBridge&     bridge;
     ProgressSlot&       progress;
-    bool                record_stats = false;   // true when --with-stats
-    Phase2Stats*        p2stats      = nullptr; // per-thread, non-null when record_stats
-    DepthStats*         depth_stats  = nullptr; // per-thread, non-null when record_stats
+    HarnessStats*       stats = nullptr;  // non-null when --with-stats; per-thread
 };
 
 // ---------------------------------------------------------------------------
@@ -497,6 +520,24 @@ struct WalkContext {
 // The harness knows the exact dc slot at each branch; "which var-rare slot"
 // is unambiguous.
 // ---------------------------------------------------------------------------
+
+// Map a detailed-color index to its color string, given the ColorAssign state.
+// Used to pass last_click_color down into child tree_walk calls.
+static const char* dc_to_color_str(int dc, const ColorAssign& ca) {
+    switch (dc) {
+        case 0: return "spB";
+        case 1: return "spT";
+        case 2: return "spG";
+        case 3: return "spY";
+        case 4: return "spO";
+        default: {
+            int slot = dc - 5;
+            if (slot >= 0 && slot < ca.n_var && ca.is_assigned(slot))
+                return VAR_COLOR_NAME[(int)ca.color[slot]];
+            return "spL";  // placeholder for unresolved var slot
+        }
+    }
+}
 
 static void filter_full_sv(const FlatBoardSet& fbs,
                             std::vector<int>&   sv,
@@ -513,23 +554,23 @@ static void filter_full_sv(const FlatBoardSet& fbs,
 // ---------------------------------------------------------------------------
 // tree_walk — recursive exact EV computation over a board subset.
 //
-// ctx:           constant walk-wide context (fbs, n_colors, bridge, progress,
-//                total_ship_cells).
-// board_indices: this thread's chunk of boards consistent with the click path.
-//                Used only for probability weighting (p_color = branch/total).
-//                Never passed to the strategy.
-// full_sv:       full-population surviving boards consistent with the click
-//                path (independent of chunking).  Passed to the strategy so
-//                it sees the correct board distribution regardless of which
-//                chunk this thread owns.
-// revealed[]:    cells clicked so far.
-// revealed_dc[]: detailed color at each revealed cell.
-// ships_hit:     ship cells revealed so far.
-// blues_used:    blue clicks spent so far (Extra Chance not counted).
-// game_over:     true if the game ended before reaching this node.
-// ca:            current var-rare color assignment state.
-// ships_revealed:   ship cells revealed so far.
-// click_count:      total clicks so far.
+// ctx:              constant walk-wide context (fbs, n_colors, bridge,
+//                   progress, total_ship_cells, stats).
+// board_indices:    this thread's chunk of boards consistent with the click
+//                   path.  Used only for probability weighting.
+// full_sv:          full-population surviving boards consistent with the click
+//                   path.  Passed to the strategy.
+// revealed[]:       cells clicked so far.
+// revealed_dc[]:    detailed color at each revealed cell.
+// ships_hit:        ship cells revealed so far.
+// blues_used:       blue clicks spent so far (Extra Chance not counted).
+// game_over:        true if the game ended before reaching this node.
+// ca:               current var-rare color assignment state.
+// ships_revealed:   ship cells revealed so far (mirrors ships_hit).
+// click_count:      total clicks so far (= recursion depth).
+// last_click_idx:   cell index chosen at the parent node (-1 at root).
+// last_click_color: color string revealed at the parent node ("" at root).
+// identity_weight:  product of wc factors along the identity fan-out path.
 // ---------------------------------------------------------------------------
 
 static NodeResult tree_walk(
@@ -544,23 +585,12 @@ static NodeResult tree_walk(
     ColorAssign             ca,
     int                     ships_revealed,
     int                     click_count,
-    double                  identity_weight = 1.0)  // product of wc factors along identity fan-out path
+    int                     last_click_idx   = -1,
+    const char*             last_click_color = "",
+    double                  identity_weight  = 1.0)
 {
     int n_boards = (int)board_indices.size();
     if (n_boards == 0) return {};
-
-    // Record depth stats for every visited node (before early exits or strategy call).
-    if (ctx.record_stats && ctx.depth_stats) {
-        long long sv_size = (long long)full_sv.size();
-        double    wc      = (double)n_boards * identity_weight;
-        auto& e = ctx.depth_stats->by_depth[click_count];
-        e.count          += (long long)n_boards;
-        e.weighted_count += wc;
-        e.sum_sv         += wc * (double)sv_size;
-        e.sum_sv2        += wc * (double)sv_size * (double)sv_size;
-        e.sum_blues      += wc * (double)blues_used;
-        e.sum_ships      += wc * (double)ships_hit;
-    }
 
     // Helper: record terminal node and return result.
     auto make_terminal = [&]() -> NodeResult {
@@ -598,10 +628,32 @@ static NodeResult tree_walk(
     // used only for probability weighting below; it is never shown to the strategy.
     std::vector<Cell> board_vec;
     build_board_vec(revealed, revealed_dc, ca, board_vec);
-    std::string meta = build_meta_json(ctx.n_colors, ships_hit, blues_used);
+    std::string meta = build_meta_json(ctx.n_colors, ships_hit, blues_used,
+                                       last_click_idx, last_click_color);
 
     Click c = ctx.bridge.next_click(board_vec, meta, full_sv);
     ctx.progress.strategy_calls.fetch_add(1, std::memory_order_relaxed);
+
+    // Unified stats recording at the call site.
+    // Depth is always recorded; phase-2 entry and branch label come from
+    // Click.meta fields optionally returned by the strategy.
+    if (ctx.stats) {
+        double sv_size = (double)full_sv.size();
+        double wc      = (double)n_boards * identity_weight;
+        ctx.stats->by_depth[click_count].record(
+            n_boards, wc, sv_size, (double)blues_used, (double)ships_hit);
+
+        for (const auto& [key, val] : c.meta) {
+            if (key == "entering_p2" && val == "1") {
+                ctx.stats->by_p2[blues_used * 10 + ships_hit].record(
+                    n_boards, wc, sv_size, (double)blues_used, (double)ships_hit);
+            } else if (key == "branch" && !val.empty()) {
+                ctx.stats->by_branch[val].record(
+                    n_boards, wc, sv_size, (double)blues_used, (double)ships_hit);
+            }
+        }
+    }
+
     int cell = rc_to_idx(c.row, c.col);
     if (cell < 0 || cell >= N_CELLS || revealed[cell])
         cell = unclicked[0];  // fallback: first unclicked cell
@@ -635,6 +687,11 @@ static NodeResult tree_walk(
         std::vector<int> child_full_sv = full_sv;
         filter_full_sv(ctx.fbs, child_full_sv, cell, color);
 
+        // Color string for this branch — passed as last_click_color to children.
+        // For unassigned var-rare slots the identity isn't resolved yet; use "spL"
+        // as a placeholder (same as build_board_vec).
+        const char* child_color_str = dc_to_color_str(color, ca);
+
         if (color == 0) {
             // ---- Blue click ----
             int  new_blues_used;
@@ -660,26 +717,18 @@ static NodeResult tree_walk(
             NodeResult r = tree_walk(
                 ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                 new_ships_hit, new_blues_used, new_game_over, ca,
-                new_ships_rev, new_click_count, identity_weight);
+                new_ships_rev, new_click_count,
+                cell, child_color_str, identity_weight);
             r.loss_5050 += extra_loss_5050;
             accumulate(result, p_color, r, (double)OT_BLUE_VALUE);
 
         } else if (color <= 4) {
             // ---- Fixed-ship click (teal/green/yellow/spO) ----
-            if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
-                long long chunk_size  = (long long)by_color[color].size();
-                long long sv_size     = (long long)child_full_sv.size();
-                double    wc          = (double)chunk_size * identity_weight;
-                auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
-                e.count          += chunk_size;
-                e.weighted_count += wc;
-                e.sum_sv         += wc * sv_size;
-                e.sum_sv2        += wc * sv_size * sv_size;
-            }
             NodeResult r = tree_walk(
                 ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                 new_ships_hit, blues_used, false, ca,
-                new_ships_rev, new_click_count, identity_weight);
+                new_ships_rev, new_click_count,
+                cell, child_color_str, identity_weight);
             accumulate(result, p_color, r, (double)FIXED_SP[color]);
 
         } else {
@@ -687,20 +736,11 @@ static NodeResult tree_walk(
             int slot = color - 5;
             if (ca.is_assigned(slot)) {
                 int var_c = (int)ca.color[slot];
-                if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
-                    long long chunk_size  = (long long)by_color[color].size();
-                    long long sv_size     = (long long)child_full_sv.size();
-                    double    wc          = (double)chunk_size * identity_weight;
-                    auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
-                    e.count          += chunk_size;
-                    e.weighted_count += wc;
-                    e.sum_sv         += wc * sv_size;
-                    e.sum_sv2        += wc * sv_size * sv_size;
-                }
                 NodeResult r = tree_walk(
                     ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                     new_ships_hit, blues_used, false, ca,
-                    new_ships_rev, new_click_count, identity_weight);
+                    new_ships_rev, new_click_count,
+                    cell, child_color_str, identity_weight);
                 accumulate(result, p_color, r, (double)VAR_SP[var_c]);
             } else {
                 // Fan out over all possible var-rare identities (without-replacement draw).
@@ -711,34 +751,11 @@ static NodeResult tree_walk(
                 bool is_last_slot =
                     (__builtin_popcount((unsigned)ca.used_mask) + 1 == ca.n_var);
 
-                // Collect valid branches: raw weights (before renorm).
                 struct VarBranch { int vc; double raw_w; ColorAssign ca2; };
                 VarBranch branches[N_VAR_COLORS];
                 int n_branches = 0;
                 double total_valid_w = 0.0;
                 double rem_w = ca.remaining_weight(ctx.n_colors);
-
-                // Phase 2 entry for unassigned var-rare: record once before fan-out.
-                // raw count uses chunk_size once (same boards across all identity branches).
-                // weighted_count sums chunk_size * wc across identity branches = chunk_size * 1.0,
-                // but we accumulate per-branch below so identity_weight flows correctly downstream.
-                // Record raw count here; weighted contributions come from per-branch recording
-                // in the assigned branch on the next recursion level — so skip weighted here
-                // and let the sub-branches record their own weighted counts.
-                // Actually: the sub-branches enter with ca.is_assigned(slot)==true and
-                // new_ships_hit == SHIPS_THRESHOLD only if this IS the phase 2 click.
-                // In that case they won't recurse further for Phase 2 — they just return.
-                // So we must record both raw and weighted here, with weighted = chunk_size * identity_weight
-                // summed across branches via the fan-out loop below.
-                // Simplest: record raw count once here; record weighted inside the fan-out loop.
-                if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
-                    long long chunk_size = (long long)by_color[color].size();
-                    long long sv_size    = (long long)child_full_sv.size();
-                    auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
-                    e.count += chunk_size;
-                    // weighted_count and sum_sv/sum_sv2 accumulated inside fan-out loop below
-                    (void)sv_size;
-                }
 
                 for (int vc = 0; vc < N_VAR_COLORS; ++vc) {
                     if (ca.used_mask & (1u << vc)) continue;
@@ -761,20 +778,13 @@ static NodeResult tree_walk(
                     double wc       = branches[bi].raw_w * renorm;
                     int    vc       = branches[bi].vc;
                     double sp_delta = (double)VAR_SP[vc];
-                    // Accumulate weighted_count and sum_sv per identity branch.
-                    if (ctx.record_stats && new_ships_hit == SHIPS_THRESHOLD) {
-                        long long chunk_size = (long long)by_color[color].size();
-                        long long sv_size    = (long long)child_full_sv.size();
-                        double    w          = (double)chunk_size * identity_weight * wc;
-                        auto& e = ctx.p2stats->by_bn[blues_used * 10 + new_ships_hit];
-                        e.weighted_count += w;
-                        e.sum_sv         += w * sv_size;
-                        e.sum_sv2        += w * sv_size * sv_size;
-                    }
+                    // child_color_str for the resolved identity
+                    const char* var_color_str = VAR_COLOR_NAME[vc];
                     NodeResult r = tree_walk(
                         ctx, by_color[color], child_full_sv, rev2, rev_dc2,
                         new_ships_hit, blues_used, false, branches[bi].ca2,
-                        new_ships_rev, new_click_count, identity_weight * wc);
+                        new_ships_rev, new_click_count,
+                        cell, var_color_str, identity_weight * wc);
                     double ev_child = r.ev_sp + sp_delta;
                     var_result.ev_sp       += wc * ev_child;
                     var_result.ev_sp2      += wc * (r.ev_sp2
@@ -953,11 +963,8 @@ static OTVariantResult evaluate_variant_treewalk(
     std::vector<int> root_full_sv(n_boards);
     std::iota(root_full_sv.begin(), root_full_sv.end(), 0);
 
-    // Phase 2 stats: each thread accumulates into its own Phase2Stats (no mutex).
-    // Counts use by_color[color].size() (the thread's chunk slice), so summing
-    // across threads gives the total board count for each (b,n) bucket.
-    std::vector<Phase2Stats> p2stats_per_thread(n_threads);
-    std::vector<DepthStats>  depth_stats_per_thread(n_threads);
+    // Per-thread stats accumulators (no mutex needed — each thread owns its own).
+    std::vector<HarnessStats> stats_per_thread(n_threads);
 
     for (int t = 0; t < n_threads; ++t) {
         workers.emplace_back([&, t]() {
@@ -974,8 +981,7 @@ static OTVariantResult evaluate_variant_treewalk(
             ColorAssign ca(fbs.n_var);
 
             WalkContext ctx{fbs, total_ship_cells, n_colors, *bridges[t], progress[t],
-                            with_stats, with_stats ? &p2stats_per_thread[t] : nullptr,
-                            with_stats ? &depth_stats_per_thread[t] : nullptr};
+                            with_stats ? &stats_per_thread[t] : nullptr};
 
             progress[t].active.store(1, std::memory_order_relaxed);
             results[t] = tree_walk(
@@ -1013,35 +1019,12 @@ static OTVariantResult evaluate_variant_treewalk(
         std::chrono::steady_clock::now() - t0).count();
     variant_elapsed_out = elapsed_ev;
 
-    // Merge per-thread Phase 2 stats and print.
+    // Merge per-thread stats and print.
     if (with_stats) {
-        Phase2Stats merged;
-        for (int t = 0; t < n_threads; ++t) {
-            for (const auto& [key, e] : p2stats_per_thread[t].by_bn) {
-                auto& dst = merged.by_bn[key];
-                dst.count          += e.count;
-                dst.weighted_count += e.weighted_count;
-                dst.sum_sv         += e.sum_sv;
-                dst.sum_sv2        += e.sum_sv2;
-            }
-        }
-        print_phase2_stats(merged, n_colors, (long long)n_boards);
-
-        // Merge per-thread depth stats and print.
-        DepthStats merged_depth;
-        for (int t = 0; t < n_threads; ++t) {
-            for (int d = 0; d <= N_CELLS; ++d) {
-                auto& dst       = merged_depth.by_depth[d];
-                const auto& src = depth_stats_per_thread[t].by_depth[d];
-                dst.count          += src.count;
-                dst.weighted_count += src.weighted_count;
-                dst.sum_sv         += src.sum_sv;
-                dst.sum_sv2        += src.sum_sv2;
-                dst.sum_blues      += src.sum_blues;
-                dst.sum_ships      += src.sum_ships;
-            }
-        }
-        print_depth_stats(merged_depth, n_colors, (long long)n_boards);
+        HarnessStats merged;
+        for (int t = 0; t < n_threads; ++t)
+            merged.merge(stats_per_thread[t]);
+        print_harness_stats(merged, n_colors, (long long)n_boards);
     }
 
     // -----------------------------------------------------------------------

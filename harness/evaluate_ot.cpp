@@ -236,58 +236,129 @@ static bool ot_game_over(int blues_used, int ships_hit) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2 entry stats (populated when --with-stats is passed)
+// Stats infrastructure (populated when --with-stats is passed)
 //
-// Recorded inside run_ot_game() the first time ships_hit reaches SHIPS_THRESHOLD
-// after a ship click.  The sequential harness does not maintain a surviving
-// board set, so only counts (prob_mass) are accumulated — no n_boards stats.
-// Counts are weighted by assign.weight so the resulting fractions are directly
-// comparable to the tree-walk's probability-weighted prob_mass values.
+// Uses the same StatsEntry / HarnessStats types as the tree-walk harness.
+// The sequential harness does not maintain a surviving board set, so
+// sum_sv / sum_sv2 stay 0 (mean_boards / stdev_boards will show 0).
+// weighted_count uses assign.weight as the identity-probability weight.
+// Phase 2 entry is detected when the strategy returns entering_p2="1".
+// Branch labels come from the strategy's returned branch field.
 // ---------------------------------------------------------------------------
 
 static constexpr int SHIPS_THRESHOLD = 5;
 
-struct Phase2StatsEntry {
-    double    prob_mass = 0.0;  // weight-sum of games entering Phase 2 at this (b,n)
-    long long count     = 0;    // raw game count (unweighted)
-};
+struct StatsEntry {
+    long long count          = 0;
+    double    weighted_count = 0.0;
+    double    sum_sv         = 0.0;   // always 0 in sequential harness (no sv)
+    double    sum_sv2        = 0.0;
+    double    sum_blues      = 0.0;
+    double    sum_ships      = 0.0;
 
-struct Phase2Stats {
-    // key = blues_used * 10 + ships_hit  (ships_hit always == SHIPS_THRESHOLD at entry)
-    std::map<int, Phase2StatsEntry> by_bn;
-
-    void merge(const Phase2Stats& other) {
-        for (const auto& [key, e] : other.by_bn) {
-            by_bn[key].prob_mass += e.prob_mass;
-            by_bn[key].count     += e.count;
-        }
+    void record(long long raw_n, double wc, double /*sv*/, double blues, double ships) {
+        count          += raw_n;
+        weighted_count += wc;
+        // sum_sv / sum_sv2 intentionally omitted: no board set in sequential harness
+        sum_blues      += wc * blues;
+        sum_ships      += wc * ships;
+    }
+    void merge(const StatsEntry& o) {
+        count          += o.count;
+        weighted_count += o.weighted_count;
+        sum_sv         += o.sum_sv;
+        sum_sv2        += o.sum_sv2;
+        sum_blues      += o.sum_blues;
+        sum_ships      += o.sum_ships;
     }
 };
 
-static void print_phase2_stats_seq(const Phase2Stats& stats, int n_colors, long long n_boards) {
-    printf("\n=== Phase 2 entry stats (sequential): n_colors=%d (total_boards=%lld) ===\n",
-           n_colors, n_boards);
+struct HarnessStats {
+    std::array<StatsEntry, N_CELLS + 1>  by_depth{};
+    std::map<int, StatsEntry>            by_p2;
+    std::map<std::string, StatsEntry>    by_branch;
 
-    double    total_mass  = 0.0;
-    long long total_count = 0;
-    for (const auto& [key, e] : stats.by_bn) {
-        total_mass  += e.prob_mass;
-        total_count += e.count;
+    void merge(const HarnessStats& o) {
+        for (int d = 0; d <= N_CELLS; ++d) by_depth[d].merge(o.by_depth[d]);
+        for (const auto& [k, e] : o.by_p2)     by_p2[k].merge(e);
+        for (const auto& [k, e] : o.by_branch) by_branch[k].merge(e);
     }
+};
 
+static void print_harness_stats_seq(const HarnessStats& stats, int n_colors,
+                                     long long n_boards)
+{
     double denom = (n_boards > 0) ? (double)n_boards : 1.0;
-    printf("  overall:  count=%-12lld  prob=%.4f  weighted_count=%.0f\n",
-           total_count, total_mass / denom, total_mass);
-    printf("  %-8s  %-12s  %-8s  %-14s\n", "(b, n)", "count", "prob", "weighted_count");
-    for (const auto& [key, e] : stats.by_bn) {
-        if (e.prob_mass <= 0.0) continue;
-        int b = key / 10;
-        int n = key % 10;
-        printf("  (%d, %d)    %-12lld  %-8.4f  %-14.0f\n",
-               b, n, e.count, e.prob_mass / denom, e.prob_mass);
+    const char* row_fmt =
+        "  %-20s  %-12lld  %-16.0f  %-8.4f  %-10.2f  %-10.2f\n";
+    const char* hdr =
+        "  %-20s  %-12s  %-16s  %-8s  %-10s  %-10s\n";
+
+    // --- Depth table ---
+    printf("\n=== Depth (click_count) stats (sequential): n_colors=%d (total_boards=%lld) ===\n",
+           n_colors, n_boards);
+    printf(hdr, "depth", "count", "weighted_count", "prob", "mean_blues", "mean_ships");
+    for (int d = 0; d <= N_CELLS; ++d) {
+        const auto& e = stats.by_depth[d];
+        if (e.count == 0) continue;
+        double wc = e.weighted_count;
+        double mb = wc > 0.0 ? e.sum_blues / wc : 0.0;
+        double ms = wc > 0.0 ? e.sum_ships / wc : 0.0;
+        char label[8]; snprintf(label, sizeof(label), "%d", d);
+        printf(row_fmt, label, e.count, wc, wc / denom, mb, ms);
     }
     printf("==========================================\n");
     fflush(stdout);
+
+    // --- Phase 2 entry table ---
+    if (!stats.by_p2.empty()) {
+        printf("\n=== Phase 2 entry stats (sequential): n_colors=%d (total_boards=%lld) ===\n",
+               n_colors, n_boards);
+        printf(hdr, "(blues, ships)", "count", "weighted_count", "prob",
+               "mean_blues", "mean_ships");
+        StatsEntry overall;
+        for (const auto& [k, e] : stats.by_p2) overall.merge(e);
+        {
+            double wc = overall.weighted_count;
+            double mb = wc > 0.0 ? overall.sum_blues / wc : 0.0;
+            double ms = wc > 0.0 ? overall.sum_ships / wc : 0.0;
+            printf(row_fmt, "overall", overall.count, wc, wc / denom, mb, ms);
+        }
+        for (const auto& [key, e] : stats.by_p2) {
+            char label[32];
+            snprintf(label, sizeof(label), "(%d, %d)", key / 10, key % 10);
+            double wc = e.weighted_count;
+            double mb = wc > 0.0 ? e.sum_blues / wc : 0.0;
+            double ms = wc > 0.0 ? e.sum_ships / wc : 0.0;
+            printf(row_fmt, label, e.count, wc, wc / denom, mb, ms);
+        }
+        printf("==========================================\n");
+        fflush(stdout);
+    }
+
+    // --- Decision branch table ---
+    if (!stats.by_branch.empty()) {
+        printf("\n=== Decision branch stats (sequential): n_colors=%d (total_boards=%lld) ===\n",
+               n_colors, n_boards);
+        printf(hdr, "branch", "count", "weighted_count", "prob",
+               "mean_blues", "mean_ships");
+        StatsEntry overall;
+        for (const auto& [k, e] : stats.by_branch) overall.merge(e);
+        {
+            double wc = overall.weighted_count;
+            double mb = wc > 0.0 ? overall.sum_blues / wc : 0.0;
+            double ms = wc > 0.0 ? overall.sum_ships / wc : 0.0;
+            printf(row_fmt, "overall", overall.count, wc, wc / denom, mb, ms);
+        }
+        for (const auto& [label, e] : stats.by_branch) {
+            double wc = e.weighted_count;
+            double mb = wc > 0.0 ? e.sum_blues / wc : 0.0;
+            double ms = wc > 0.0 ? e.sum_ships / wc : 0.0;
+            printf(row_fmt, label.c_str(), e.count, wc, wc / denom, mb, ms);
+        }
+        printf("==========================================\n");
+        fflush(stdout);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -330,8 +401,8 @@ static OTGameResult run_ot_game(
     int                         n_colors,
     StrategyBridge&             strategy,
     GameTrace*                  trace    = nullptr,
-    Phase2Stats*                p2stats  = nullptr,
-    double                      p2_weight = 0.0)  // assign.weight for prob-weighted counting
+    HarnessStats*               hstats   = nullptr,
+    double                      stat_weight = 0.0)  // assign.weight for prob-weighted counting
 {
     // Full 25-cell board; all start as (color="spU", clicked=false)
     std::array<Cell, N_CELLS> game_board;
@@ -353,9 +424,11 @@ static OTGameResult run_ot_game(
     for (int k = 0; k < board.n_var_rare; ++k) all_ship_mask |= board.var_rare[k];
     total_ship_cells = __builtin_popcount(static_cast<uint32_t>(all_ship_mask));
 
+    // init_game_payload meta doesn't include last_click (none yet at game start)
     std::string meta = "{\"n_colors\":" + std::to_string(n_colors)
                      + ",\"ships_hit\":0,\"blues_used\":0"
-                     + ",\"max_clicks\":" + std::to_string(OT_BASE_CLICKS) + "}";
+                     + ",\"max_clicks\":" + std::to_string(OT_BASE_CLICKS)
+                     + ",\"last_click_idx\":-1,\"last_click_color\":\"\"}";
     strategy.init_game_payload(meta);
 
     int revealed_ship_cells = 0;
@@ -364,18 +437,40 @@ static OTGameResult run_ot_game(
     bool last_blue_was_5050 = false;
     int  move_num = 0;
 
+    // last_click tracking for meta_json
+    int         last_click_idx   = -1;
+    std::string last_click_color = "";
+
     while (true) {
         int ships_before = ships_hit;
         int blues_before = blues_used;
 
-        // Build meta
+        // Build meta including last click info
         meta = "{\"n_colors\":" + std::to_string(n_colors)
              + ",\"ships_hit\":" + std::to_string(ships_hit)
              + ",\"blues_used\":" + std::to_string(blues_used)
-             + ",\"max_clicks\":" + std::to_string(OT_BASE_CLICKS) + "}";
+             + ",\"max_clicks\":" + std::to_string(OT_BASE_CLICKS)
+             + ",\"last_click_idx\":" + std::to_string(last_click_idx)
+             + ",\"last_click_color\":\"" + last_click_color + "\"}";
 
         std::vector<Cell> board_vec(game_board.begin(), game_board.end());
         Click c = strategy.next_click(board_vec, meta);
+
+        // Record stats from Click.meta before processing the click
+        if (hstats) {
+            double wc = stat_weight;
+            hstats->by_depth[move_num].record(1, wc, 0.0,
+                                               (double)blues_used, (double)ships_hit);
+            for (const auto& [key, val] : c.meta) {
+                if (key == "entering_p2" && val == "1") {
+                    hstats->by_p2[blues_used * 10 + ships_hit].record(
+                        1, wc, 0.0, (double)blues_used, (double)ships_hit);
+                } else if (key == "branch" && !val.empty()) {
+                    hstats->by_branch[val].record(
+                        1, wc, 0.0, (double)blues_used, (double)ships_hit);
+                }
+            }
+        }
 
         int idx = rc_to_idx(c.row, c.col);
         if (idx < 0 || idx >= N_CELLS || game_board[idx].clicked) {
@@ -397,18 +492,16 @@ static OTGameResult run_ot_game(
         game_board[idx].color   = color;
         game_board[idx].clicked = true;
 
+        // Update last_click for the next iteration's meta
+        last_click_idx   = idx;
+        last_click_color = color;
+
         if (is_ship) {
             delta = ot_ship_value(color);
             score += delta;
             ++ships_hit;
             ++revealed_ship_cells;
             ++ship_clicks;
-            // Phase 2 entry: record the first time ships_hit reaches the threshold.
-            if (p2stats && ships_hit == SHIPS_THRESHOLD) {
-                auto& e = p2stats->by_bn[blues_used * 10 + ships_hit];
-                e.prob_mass += p2_weight;
-                e.count     += 1;
-            }
             // Ship click is free — no blues_used increment
         } else {
             // Blue click — awards OT_BLUE_VALUE SP and costs one blue click
@@ -570,8 +663,8 @@ static OTVariantResult evaluate_variant(
     std::vector<double>   perfect_acc(n_threads, 0.0);
     std::vector<double>   all_ships_acc(n_threads, 0.0);
     std::vector<double>   loss_5050_acc(n_threads, 0.0);
-    // Per-thread phase 2 entry stats (only populated when with_stats)
-    std::vector<Phase2Stats> p2stats_acc(with_stats ? n_threads : 0);
+    // Per-thread stats accumulators (only populated when with_stats)
+    std::vector<HarnessStats> hstats_acc(with_stats ? n_threads : 0);
 
     std::atomic<uint64_t> done_count(0);
     ProgressReporter prog(total, 2000);
@@ -662,9 +755,9 @@ static OTVariantResult evaluate_variant(
             auto colors = ot_board_colors_assigned(boards[i], assign);
             OTGameResult res{};
             try {
-                Phase2Stats* p2 = with_stats ? &p2stats_acc[tid] : nullptr;
+                HarnessStats* hs = with_stats ? &hstats_acc[tid] : nullptr;
                 res = run_ot_game(boards[i], colors, n_colors,
-                                  *bridges[tid], nullptr, p2, assign.weight);
+                                  *bridges[tid], nullptr, hs, assign.weight);
             } catch (const std::exception& e) {
                 fprintf(stderr, "\nERROR on board %lld (n_colors=%d): %s\n",
                         (long long)i, n_colors, e.what());
@@ -738,12 +831,12 @@ static OTVariantResult evaluate_variant(
     r.all_ships_rate      = count_total > 0 ? all_s    / static_cast<double>(count_total) : 0.0;
     r.loss_5050_rate      = count_total > 0 ? loss5050 / static_cast<double>(count_total) : 0.0;
 
-    // Merge per-thread Phase 2 stats and print.
+    // Merge per-thread stats and print.
     if (with_stats) {
-        Phase2Stats merged;
+        HarnessStats merged;
         for (int t = 0; t < n_threads; ++t)
-            merged.merge(p2stats_acc[t]);
-        print_phase2_stats_seq(merged, n_colors, (long long)count_total);
+            merged.merge(hstats_acc[t]);
+        print_harness_stats_seq(merged, n_colors, (long long)count_total);
     }
 
     return r;

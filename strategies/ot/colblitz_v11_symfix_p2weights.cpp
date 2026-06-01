@@ -1139,9 +1139,10 @@ static int pickPhase1CellV11Idx(
     const std::vector<int>& unclicked,
     int n_rare, int n_colors, int ships_hit, int blues_used,
     const std::unordered_map<std::string, int32_t>& rareColorGroups,
-    const std::array<double, N_WEIGHTS_CT>& weights)
+    const std::array<double, N_WEIGHTS_CT>& weights,
+    const char** branch_out = nullptr)
 {
-    if (unclicked.empty()) return -1;
+    if (unclicked.empty()) { if (branch_out) *branch_out = "p1_scorer"; return -1; }
     int n = (int)sv.size();
 
     std::vector<int32_t> occ_sv;
@@ -1152,7 +1153,10 @@ static int pickPhase1CellV11Idx(
     computeOutcomeCountsBothIdx(fbs, sv, occ_sv, unclicked, counts_dc, counts6, slot_stride);
 
     int forced = cpPrefilter(unclicked, counts6, n);
-    if (forced >= 0) return forced;
+    if (forced >= 0) {
+        if (branch_out) *branch_out = "p1_cp_prefilter";
+        return forced;
+    }
 
     int d    = std::min(ships_hit, V8_N_DEPTHS - 1);
     int b    = std::min(blues_used, V8_N_BLUES - 1);
@@ -1223,6 +1227,7 @@ static int pickPhase1CellV11Idx(
 
         if (score > best_s) { best_s = score; best = unclicked[ii]; }
     }
+    if (branch_out) *branch_out = "p1_scorer";
     return best;
 }
 
@@ -1320,11 +1325,12 @@ static int pickP2CellV11Idx(
     const std::vector<int>& unclicked,
     int n_rare, int n_colors, int blues_used,
     const double p2w[N_P2_BLUES][N_P2_CBUCKETS][N_P2_TERMS_FULL],
-    const std::unordered_map<std::string, int32_t>& rareColorGroups)
+    const std::unordered_map<std::string, int32_t>& rareColorGroups,
+    const char** branch_out = nullptr)
 {
-    if (unclicked.empty()) return -1;
+    if (unclicked.empty()) { if (branch_out) *branch_out = "p2_scorer"; return -1; }
     int n = (int)sv.size();
-    if (n == 0) return unclicked[0];
+    if (n == 0) { if (branch_out) *branch_out = "p2_scorer"; return unclicked[0]; }
 
     std::vector<int32_t> occ_sv;
     computeOccIdx(fbs, sv, occ_sv);
@@ -1372,7 +1378,10 @@ static int pickP2CellV11Idx(
                          + c6[4] * 90.0 + c6[5] * var_ev_approx) * inv_n;
             if (ev > best_ship_ev) { best_ship_ev = ev; best_ship = unclicked[ii]; }
         }
-        if (best_ship >= 0) return best_ship;
+        if (best_ship >= 0) {
+            if (branch_out) *branch_out = "p2_certain_ship";
+            return best_ship;
+        }
     }
 
     int best = -1;
@@ -1401,6 +1410,7 @@ static int pickP2CellV11Idx(
 
     // All cells were certain-blue — fall back to first unclicked
     if (best < 0) best = unclicked[0];
+    if (branch_out) *branch_out = "p2_scorer";
     return best;
 }
 
@@ -1410,6 +1420,20 @@ static int jsonGetInt(const char* json, const char* key, int def = 0) {
     p += strlen(key);
     while (*p == ' ' || *p == ':' || *p == '\t') ++p;
     return atoi(p);
+}
+
+// Extract a JSON string value (strips surrounding quotes).
+// Returns empty string if the key is absent or the value is not a string.
+static std::string jsonGetStr(const char* json, const char* key) {
+    const char* p = strstr(json, key);
+    if (!p) return "";
+    p += strlen(key);
+    while (*p == ' ' || *p == ':' || *p == '\t') ++p;
+    if (*p != '"') return "";
+    ++p;  // skip opening quote
+    const char* start = p;
+    while (*p && *p != '"') { if (*p == '\\') ++p; if (*p) ++p; }
+    return std::string(start, p - start);
 }
 
 // ---------------------------------------------------------------------------
@@ -1623,21 +1647,32 @@ public:
     // Shared decision logic
     // -----------------------------------------------------------------------
 
+    // chooseCell returns the chosen cell index and sets *branch_out to a
+    // static string literal identifying the decision path taken.
+    // branch_out may be null (e.g. when stats are not needed).
     int chooseCell(
         const BoardSet& fbs, int bs_idx,
         const std::vector<int>& sv,
         const std::vector<int>& unclicked,
         const std::unordered_map<std::string, int32_t>& rareColorGroups,
         const std::vector<std::pair<int,std::string>>& reveals,
-        int n_rare, int n_colors, int ships_hit, int blues_used) const
+        int n_rare, int n_colors, int ships_hit, int blues_used,
+        const char** branch_out = nullptr) const
     {
         int n = (int)sv.size();
-        if (n == 0) return unclicked.empty() ? 0 : unclicked[0];
+        if (n == 0) {
+            if (branch_out) *branch_out = "";
+            return unclicked.empty() ? 0 : unclicked[0];
+        }
 
         if (ships_hit >= SHIPS_HIT_THRESHOLD) {
-            // Phase 2: V11P2 learned scorer
-            return pickP2CellV11Idx(fbs, sv, unclicked, n_rare, n_colors,
-                                     blues_used, p2Weights_[bs_idx], rareColorGroups);
+            // Phase 2: V11P2 learned scorer.
+            // pickP2CellV11Idx returns the cell; we detect the certain-ship
+            // sub-branch by calling cpPrefilterShip inline here.
+            int cell = pickP2CellV11Idx(fbs, sv, unclicked, n_rare, n_colors,
+                                         blues_used, p2Weights_[bs_idx], rareColorGroups,
+                                         branch_out);
+            return cell;
         }
 
         // ---- SDP policy lookup (6/7-color only) ----
@@ -1649,7 +1684,10 @@ public:
             if (policy_cell >= 0) {
                 // Verify the cell is still unclicked
                 for (int uc : unclicked) {
-                    if (uc == policy_cell) return policy_cell;
+                    if (uc == policy_cell) {
+                        if (branch_out) *branch_out = "p1_dp_policy";
+                        return policy_cell;
+                    }
                 }
                 // Policy cell already revealed — fall through to scorer
             }
@@ -1657,10 +1695,13 @@ public:
 
         // ---- V11 cross-terms scorer (or Phase-D fallback) ----
         if (weightsLoaded_[bs_idx]) {
+            if (branch_out) *branch_out = nullptr;  // will be set inside pickPhase1CellV11Idx
             return pickPhase1CellV11Idx(fbs, sv, unclicked, n_rare, n_colors,
                                          ships_hit, blues_used,
-                                         rareColorGroups, weights_[bs_idx]);
+                                         rareColorGroups, weights_[bs_idx],
+                                         branch_out);
         } else {
+            if (branch_out) *branch_out = "p1_phase_d";
             return pickPhase1CellPhaseDIdx(fbs, sv, unclicked, n_rare, ships_hit);
         }
     }
@@ -1669,9 +1710,19 @@ public:
     // next_click — delta cache (Path B, sequential evaluator)
     // -----------------------------------------------------------------------
 
+    // Base virtual override (no branch output)
     void next_click(const std::vector<Cell>& board,
                     const std::string& meta_json,
                     ClickResult& out) override
+    {
+        next_click(board, meta_json, out, nullptr);
+    }
+
+    // Extended version used by the export functions to get branch metadata
+    void next_click(const std::vector<Cell>& board,
+                    const std::string& meta_json,
+                    ClickResult& out,
+                    const char** branch_out)
     {
         int ships_hit  = jsonGetInt(meta_json.c_str(), "\"ships_hit\"",  0);
         int blues_used = jsonGetInt(meta_json.c_str(), "\"blues_used\"", 0);
@@ -1743,11 +1794,13 @@ public:
         if (sv.empty()) {
             out.row = unclicked[0] / GRID;
             out.col = unclicked[0] % GRID;
+            if (branch_out) *branch_out = "";
             return;
         }
 
         int chosen = chooseCell(fbs, bs_idx, sv, unclicked, rareColorGroups,
-                                 reveals, n_rare, n_colors, ships_hit, blues_used);
+                                 reveals, n_rare, n_colors, ships_hit, blues_used,
+                                 branch_out);
         if (chosen < 0) chosen = unclicked[0];
         out.row = chosen / GRID;
         out.col = chosen % GRID;
@@ -1760,7 +1813,8 @@ public:
     void next_click_with_sv(const std::vector<Cell>& board,
                              const std::string& meta_json,
                              const int* sv_ptr, int sv_len,
-                             ClickResult& out)
+                             ClickResult& out,
+                             const char** branch_out = nullptr)
     {
         int ships_hit  = jsonGetInt(meta_json.c_str(), "\"ships_hit\"",  0);
         int blues_used = jsonGetInt(meta_json.c_str(), "\"blues_used\"", 0);
@@ -1791,6 +1845,7 @@ public:
         if (bs_idx < 0 || bs_idx > 3 || !boardsLoaded_[bs_idx] || sv_len == 0) {
             out.row = unclicked[0] / GRID;
             out.col = unclicked[0] % GRID;
+            if (branch_out) *branch_out = "";
             return;
         }
 
@@ -1809,7 +1864,8 @@ public:
         }
 
         int chosen = chooseCell(fbs, bs_idx, sv, unclicked, rareColorGroups,
-                                 reveals, n_rare, n_colors, ships_hit, blues_used);
+                                 reveals, n_rare, n_colors, ships_hit, blues_used,
+                                 branch_out);
         if (chosen < 0) chosen = unclicked[0];
         out.row = chosen / GRID;
         out.col = chosen % GRID;
@@ -1832,16 +1888,41 @@ extern "C" void strategy_init_game_payload(void* inst, const char* meta_json) {
         meta_json ? meta_json : "{}");
 }
 
+// Build the return JSON for strategy_next_click / strategy_next_click_sv.
+// Appends "branch" and "entering_p2" metadata fields when available.
+// entering_p2 is true when ships_hit == SHIPS_HIT_THRESHOLD and the last
+// clicked cell was a ship (i.e. that click just pushed ships_hit to 5).
+static void build_click_json(std::string& buf, int row, int col,
+                              const char* branch, bool entering_p2)
+{
+    buf = "{\"row\":" + std::to_string(row) + ",\"col\":" + std::to_string(col);
+    if (branch && *branch)
+        buf += ",\"branch\":\"" + std::string(branch) + "\"";
+    if (entering_p2)
+        buf += ",\"entering_p2\":\"1\"";
+    buf += "}";
+}
+
+static bool is_ship_color(const std::string& c) {
+    return c == "spT" || c == "spG" || c == "spY" || c == "spO"
+        || c == "spL" || c == "spD" || c == "spR" || c == "spW";
+}
+
 extern "C" const char* strategy_next_click(void* inst,
                                             const char* board_json,
                                             const char* meta_json)
 {
     thread_local static std::string buf;
     auto* s = static_cast<ColblitzV11SymfixP2WeightsOTStrategy*>(inst);
+    const char* mj = meta_json ? meta_json : "{}";
     std::vector<Cell> brd = parse_board_json(board_json ? board_json : "[]");
     ClickResult out;
-    s->next_click(brd, meta_json ? meta_json : "{}", out);
-    buf = "{\"row\":" + std::to_string(out.row) + ",\"col\":" + std::to_string(out.col) + "}";
+    const char* branch = nullptr;
+    s->next_click(brd, mj, out, &branch);
+    int ships_hit = jsonGetInt(mj, "\"ships_hit\"", 0);
+    std::string last_color = jsonGetStr(mj, "\"last_click_color\"");
+    bool entering_p2 = (ships_hit == SHIPS_HIT_THRESHOLD) && is_ship_color(last_color);
+    build_click_json(buf, out.row, out.col, branch, entering_p2);
     return buf.c_str();
 }
 
@@ -1853,9 +1934,14 @@ extern "C" const char* strategy_next_click_sv(void* inst,
 {
     thread_local static std::string buf;
     auto* s = static_cast<ColblitzV11SymfixP2WeightsOTStrategy*>(inst);
+    const char* mj = meta_json ? meta_json : "{}";
     std::vector<Cell> brd = parse_board_json(board_json ? board_json : "[]");
     ClickResult out;
-    s->next_click_with_sv(brd, meta_json ? meta_json : "{}", sv_ptr, sv_len, out);
-    buf = "{\"row\":" + std::to_string(out.row) + ",\"col\":" + std::to_string(out.col) + "}";
+    const char* branch = nullptr;
+    s->next_click_with_sv(brd, mj, sv_ptr, sv_len, out, &branch);
+    int ships_hit = jsonGetInt(mj, "\"ships_hit\"", 0);
+    std::string last_color = jsonGetStr(mj, "\"last_click_color\"");
+    bool entering_p2 = (ships_hit == SHIPS_HIT_THRESHOLD) && is_ship_color(last_color);
+    build_click_json(buf, out.row, out.col, branch, entering_p2);
     return buf.c_str();
 }

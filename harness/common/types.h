@@ -46,6 +46,12 @@ struct Cell {
 struct Click {
     int8_t row = 0;
     int8_t col = 0;
+    // Optional per-call metadata returned by the strategy.
+    // Keys are arbitrary strings; values are raw JSON substrings (numbers
+    // unquoted, strings with surrounding quotes stripped).
+    // Empty = strategy reported nothing.  Forward/backward compatible:
+    // harnesses that don't read meta simply ignore it.
+    std::vector<std::pair<std::string, std::string>> meta;
 };
 
 }  // namespace sphere
