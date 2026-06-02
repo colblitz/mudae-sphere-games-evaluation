@@ -35,11 +35,9 @@
  *
  *      Backward-compat remapping:
  *        200-weight V10 file → drop old t=2 (T_HFULL) and t=7 (T_BLUE_X_HFULL),
- *          zero-fill T_BLUE_X_INFO6 slot (index 6).
- *        140-weight V8 file → drop old t=2 (T_HFULL), zero-fill all cross-terms.
  *
- *      Weights are loaded from the most-recent data/trace_v11_weights_*.json.
- *      Missing file aborts at load time.
+ *      Weights loaded from the most-recent data/trace_v11p2_weights_*.json.
+ *      Only 180-weight native V11 format accepted; missing file aborts at load time.
  *
  *   2. Beam-DP / Capped-Branching policy (BDP):
  *      For 6-color (n_rare=2) and 7-color (n_rare=3) games, auto-discovered
@@ -49,16 +47,19 @@
  *      Same format as V10 (31-byte on-disk entries, 27-byte stored entries).
  *      Graceful skip if not found.
  *
- * Fallback hierarchy (Phase 1, ships_hit < 5):
+ * Decision hierarchy (Phase 1, ships_hit < 5):
  *   1. CP pre-filter: if a guaranteed-blue cell exists, click it (free reveal).
- *   2. BDP policy hit (6/7-color only): if observed_colors key found in policy
+ *      branch: "p1_cp_prefilter"
+ *   2. SDP policy hit (6/7-color only): if observed_colors key found in policy
  *      and the cell is still unclicked, use that cell.
+ *      branch: "p1_sdp_lookup"
  *   3. V11 cross-terms scorer: pickPhase1CellV11Idx with the 180-weight array.
- *   4. Phase-D fallback: if no V11 weights are loaded.
+ *      branch: "p1_v11_weights"
  *
  * Phase 2 (ships_hit ≥ 5): V11P2 learned scorer (6-term, indexed by
- *   blues_used × cells_remaining_bucket).  Requires "phase2_weights" key
- *   (144 floats) in the weights JSON; missing key aborts at load time.
+ *   blues_used × cells_remaining_bucket).  "phase2_weights" key (144 floats)
+ *   in the weights JSON is required; missing key aborts at load time.
+ *   branch: "p2_v11p2_weights" (or "p2_certain_ship" for certain-ship tier)
  *
  * TWO EXECUTION PATHS (identical to V10/V8 stateless):
  *   Path A — sv-passing (strategy_next_click_sv, tree-walk fast path).
@@ -69,12 +70,11 @@
  *   thread instances.
  *
  * External data files:
- *   data/trace_v11_weights_YYYYMMDD_HHMMSS.json  — V11 weights (180-weight,
- *                                                   or 200/140-weight remapped)
+ *   data/trace_v11p2_weights_YYYYMMDD_HHMMSS.json  — V11P2 weights (180w P1 + 144w P2)
  *   data/trace_shallow_dp_v11s_2_t50_b5_YYYYMMDD_HHMMSS.bin.lzma
- *       — 6-color BDP policy (same format as V10)
+ *       — 6-color BDP policy
  *   data/trace_shallow_dp_v11s_3_t200_b4_YYYYMMDD_HHMMSS.bin.lzma
- *       — 7-color BDP policy (same format as V10)
+ *       — 7-color BDP policy
  *   data/sphere_trace_boards_{2..5}.bin.lzma  — board files (shared with V8/V10)
  */
 
@@ -115,13 +115,7 @@ static constexpr int COL_RARE_START  = 3;  // spO column; var-rare begin at +1
 static constexpr int V8_N_DEPTHS  = 5;
 static constexpr int V8_N_BLUES   = 4;
 
-// V8 base weight count (used for backward-compat remapping)
-static constexpr int V8_N_TERMS   = 7;
-static constexpr int V8_N_WEIGHTS = V8_N_DEPTHS * V8_N_BLUES * V8_N_TERMS;  // 140
 
-// V10 weight count (used for backward-compat remapping)
-static constexpr int V10_N_TERMS   = 10;
-static constexpr int V10_N_WEIGHTS = V8_N_DEPTHS * V8_N_BLUES * V10_N_TERMS;  // 200
 
 // V11 scorer: 9 terms, 180 weights per n_colors variant.
 static constexpr int N_TERMS_X    = 9;
@@ -207,14 +201,6 @@ static constexpr double LN6 = 1.791759469228327;
 static constexpr double LN9 = 2.1972245773362196;
 
 static constexpr int SHIPS_HIT_THRESHOLD = 5;
-
-// Phase-D per-depth weights for (w_info6, w_hfull), indexed by [n_rare-2][depth]
-static constexpr double PHASE_D_WEIGHTS[4][5][2] = {
-    {{0.50, 0.30}, {0.50, 0.20}, {0.50, 0.30}, {0.60, 0.40}, {0.40, 0.30}},
-    {{0.40, 0.00}, {0.40, 0.60}, {0.00, 0.70}, {0.00, 1.00}, {0.00, 0.90}},
-    {{0.00, 0.00}, {0.30, 0.80}, {0.00, 0.80}, {0.00, 0.90}, {0.00, 1.00}},
-    {{0.20, 0.00}, {0.10, 1.00}, {0.00, 0.50}, {0.00, 1.00}, {0.00, 1.00}},
-};
 
 // 4-connected adjacency bitmasks for all 25 cells
 static uint32_t buildAdjMask(int cell) {
@@ -586,36 +572,11 @@ static std::string findLatestSdpPolicyFile(const std::string& prefix_str) {
 }
 
 // ---------------------------------------------------------------------------
-// V11 weights file parsing.
+// V11P2 weights file parsing.
 //
-// Accepts three input sizes and remaps to the 180-slot V11 layout:
-//
-//   180-weight (native V11):  w[d*36 + b*9 + t]  — copy directly.
-//
-//   200-weight (V10):         w[d*40 + b*10 + t_v10]
-//     V10 term mapping:  t_v10 → V11 index
-//       0: T_BLUE       →  0
-//       1: T_INFO6      →  1
-//       2: T_HFULL      →  (dropped)
-//       3: T_EV         →  2
-//       4: T_GINI       →  3
-//       5: T_VAR_SP     →  4
-//       6: T_RARE_ID    →  5
-//       7: T_BLUE_X_HFULL → (dropped)
-//       8: T_BLUE_X_RID →  7
-//       9: T_BLUE_X_EV  →  8
-//     T_BLUE_X_INFO6 (V11 index 6) → zero-filled.
-//
-//   140-weight (V8):          w[d*28 + b*7 + t_v8]
-//     V8 term mapping:   t_v8 → V11 index
-//       0: T_BLUE       →  0
-//       1: T_INFO6      →  1
-//       2: T_HFULL      →  (dropped)
-//       3: T_EV         →  2
-//       4: T_GINI       →  3
-//       5: T_VAR_SP     →  4
-//       6: T_RARE_ID    →  5
-//     Cross-terms (V11 indices 6,7,8) → zero-filled.
+// Accepts only 180-weight native V11 format: w[d*36 + b*9 + t]
+// Only trace_v11p2_weights_*.json files are accepted.
+// Any other weight count aborts.
 // ---------------------------------------------------------------------------
 
 static bool extractWeightsV11(const std::string& json, int n_colors,
@@ -635,63 +596,29 @@ static bool extractWeightsV11(const std::string& json, int n_colors,
     if (!p) return false;
     ++p;
 
-    // Maximum we'd ever read is V10_N_WEIGHTS=200; read up to that.
-    double tmp[V10_N_WEIGHTS] = {};
+    // Read exactly N_WEIGHTS_CT=180 floats.
+    double tmp[N_WEIGHTS_CT] = {};
     int n_read = 0;
-    for (int i = 0; i < V10_N_WEIGHTS; ++i) {
+    for (int i = 0; i < N_WEIGHTS_CT + 1; ++i) {  // +1 to detect oversized files
         while (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t' || *p == ',') ++p;
         if (*p == ']') break;
         char* end;
         double v = strtod(p, &end);
         if (end == p) return false;
-        tmp[n_read++] = v;
+        if (n_read < N_WEIGHTS_CT) tmp[n_read] = v;
+        n_read++;
         p = end;
     }
-    if (n_read == 0) return false;
-
-    if (n_read == N_WEIGHTS_CT) {
-        // 180-weight native V11: copy directly.
-        for (int i = 0; i < N_WEIGHTS_CT; ++i) out[i] = tmp[i];
-        native_v11_out = true;
-
-    } else if (n_read == V10_N_WEIGHTS) {
-        // 200-weight V10 file: remap d*40+b*10+t_v10 → d*36+b*9+t_v11.
-        // V10 term index → V11 term index (or -1 = drop):
-        //   0→0, 1→1, 2→-1(T_HFULL), 3→2, 4→3, 5→4, 6→5, 7→-1(T_BXH), 8→7, 9→8
-        static constexpr int V10_TO_V11[10] = {0, 1, -1, 2, 3, 4, 5, -1, 7, 8};
-        for (int fi = 0; fi < V10_N_WEIGHTS; ++fi) {
-            int d    = fi / (V8_N_BLUES * V10_N_TERMS);
-            int b    = (fi / V10_N_TERMS) % V8_N_BLUES;
-            int t_v10 = fi % V10_N_TERMS;
-            int t_v11 = V10_TO_V11[t_v10];
-            if (t_v11 < 0) continue;  // drop T_HFULL and T_BLUE_X_HFULL
-            out[d * (V8_N_BLUES * N_TERMS_X) + b * N_TERMS_X + t_v11] = tmp[fi];
-        }
-        // T_BLUE_X_INFO6 (index 6) stays zero-filled.
-        native_v11_out = false;
-
-    } else if (n_read == V8_N_WEIGHTS) {
-        // 140-weight V8 file: remap d*28+b*7+t_v8 → d*36+b*9+t_v11.
-        // V8 term index → V11 term index (or -1 = drop):
-        //   0→0, 1→1, 2→-1(T_HFULL), 3→2, 4→3, 5→4, 6→5
-        static constexpr int V8_TO_V11[7] = {0, 1, -1, 2, 3, 4, 5};
-        for (int fi = 0; fi < V8_N_WEIGHTS; ++fi) {
-            int d    = fi / (V8_N_BLUES * V8_N_TERMS);
-            int b    = (fi / V8_N_TERMS) % V8_N_BLUES;
-            int t_v8 = fi % V8_N_TERMS;
-            int t_v11 = V8_TO_V11[t_v8];
-            if (t_v11 < 0) continue;  // drop T_HFULL
-            out[d * (V8_N_BLUES * N_TERMS_X) + b * N_TERMS_X + t_v11] = tmp[fi];
-        }
-        // Cross-terms (indices 6,7,8) stay zero-filled.
-        native_v11_out = false;
-
-    } else {
-        // Unknown size — partial fill into the native V11 layout.
-        int copy_n = std::min(n_read, N_WEIGHTS_CT);
-        for (int i = 0; i < copy_n; ++i) out[i] = tmp[i];
-        native_v11_out = (n_read >= N_WEIGHTS_CT);
+    if (n_read != N_WEIGHTS_CT) {
+        fprintf(stderr,
+            "[colblitz_v11] ERROR: n_colors=%d weights array has %d entries (expected %d). "
+            "Only trace_v11p2_weights_*.json (180-weight) is accepted. Aborting.\n",
+            n_colors, n_read, N_WEIGHTS_CT);
+        fflush(stderr);
+        abort();
     }
+    for (int i = 0; i < N_WEIGHTS_CT; ++i) out[i] = tmp[i];
+    native_v11_out = true;
     return true;
 }
 
@@ -896,14 +823,7 @@ static inline double termInfo6(const int* c6, int n) {
     return s / LN6;
 }
 
-// termHfull kept for Phase-D fallback (uses full detailed-slot counts / ln9)
-static inline double termHfull(const int* cdc, int slots, int n) {
-    if (n == 0) return 0.0;
-    double inv = 1.0 / n, s = 0.0;
-    for (int i = 0; i < slots; ++i)
-        if (cdc[i] > 0) { double p = cdc[i] * inv; s -= p * std::log(p); }
-    return s / LN9;
-}
+
 
 static inline double termEvNorm(const int* cdc, int slots, int n,
                                 const std::vector<double>& slot_sp) {
@@ -1142,7 +1062,7 @@ static int pickPhase1CellV11Idx(
     const std::array<double, N_WEIGHTS_CT>& weights,
     const char** branch_out = nullptr)
 {
-    if (unclicked.empty()) { if (branch_out) *branch_out = "p1_scorer"; return -1; }
+    if (unclicked.empty()) { if (branch_out) *branch_out = "p1_v11_weights"; return -1; }
     int n = (int)sv.size();
 
     std::vector<int32_t> occ_sv;
@@ -1227,73 +1147,7 @@ static int pickPhase1CellV11Idx(
 
         if (score > best_s) { best_s = score; best = unclicked[ii]; }
     }
-    if (branch_out) *branch_out = "p1_scorer";
-    return best;
-}
-
-// ---------------------------------------------------------------------------
-// Phase 1 cell picker — Phase-D fallback (unchanged from V8/V10)
-// ---------------------------------------------------------------------------
-
-static int pickPhase1CellPhaseDIdx(
-    const BoardSet& fbs,
-    const std::vector<int>& sv,
-    const std::vector<int>& unclicked,
-    int n_rare, int ships_hit)
-{
-    if (unclicked.empty()) return -1;
-    int n = (int)sv.size();
-
-    std::vector<int32_t> occ_sv;
-    computeOccIdx(fbs, sv, occ_sv);
-
-    std::vector<int> counts_dc, counts6;
-    int slot_stride = 0;
-    computeOutcomeCountsBothIdx(fbs, sv, occ_sv, unclicked, counts_dc, counts6, slot_stride);
-
-    int forced = cpPrefilter(unclicked, counts6, n);
-    if (forced >= 0) return forced;
-
-    int nri = std::max(0, std::min(n_rare - 2, 3));
-    int d   = std::max(0, std::min(ships_hit, 4));
-    double w_info6 = PHASE_D_WEIGHTS[nri][d][0];
-    double w_hfull = PHASE_D_WEIGHTS[nri][d][1];
-
-    double inv_n = (n > 0) ? 1.0 / n : 0.0;
-    int best = unclicked[0]; double best_s = -1e18;
-    int nu = (int)unclicked.size();
-    for (int ii = 0; ii < nu; ++ii) {
-        const int* c6  = &counts6[ii * 6];
-        const int* cdc = &counts_dc[ii * slot_stride];
-        double score   = c6[0] * inv_n;
-        if (w_info6 > 0.0) score += w_info6 * termInfo6(c6, n);
-        if (w_hfull > 0.0) score += w_hfull * termHfull(cdc, slot_stride, n);
-        if (score > best_s) { best_s = score; best = unclicked[ii]; }
-    }
-    return best;
-}
-
-// ---------------------------------------------------------------------------
-// Phase 2 — SafeP2 (unchanged from V8/V10)
-// ---------------------------------------------------------------------------
-
-static int pickSafeP2CellIdx(
-    const BoardSet& fbs,
-    const std::vector<int>& sv,
-    const std::vector<int32_t>& occ_sv,
-    const std::vector<int>& unclicked)
-{
-    if (unclicked.empty()) return -1;
-    int n = (int)sv.size();
-    if (n == 0) return unclicked[0];
-    int best = unclicked[0], best_blue = n + 1;
-    for (int cell : unclicked) {
-        int32_t bit = (int32_t)(1 << cell);
-        int n_blue = 0;
-        for (int i = 0; i < n; ++i)
-            if ((occ_sv[i] & bit) == 0) ++n_blue;
-        if (n_blue < best_blue) { best_blue = n_blue; best = cell; }
-    }
+    if (branch_out) *branch_out = "p1_v11_weights";
     return best;
 }
 
@@ -1319,7 +1173,7 @@ static inline int p2_cells_bucket(int cells_remaining) {
     return std::min(5, (cells_remaining - 1) / 3);
 }
 
-static int pickP2CellV11Idx(
+static int pickPhase2CellV11Idx(
     const BoardSet& fbs,
     const std::vector<int>& sv,
     const std::vector<int>& unclicked,
@@ -1328,9 +1182,9 @@ static int pickP2CellV11Idx(
     const std::unordered_map<std::string, int32_t>& rareColorGroups,
     const char** branch_out = nullptr)
 {
-    if (unclicked.empty()) { if (branch_out) *branch_out = "p2_scorer"; return -1; }
+    if (unclicked.empty()) { if (branch_out) *branch_out = "p2_v11p2_weights"; return -1; }
     int n = (int)sv.size();
-    if (n == 0) { if (branch_out) *branch_out = "p2_scorer"; return unclicked[0]; }
+    if (n == 0) { if (branch_out) *branch_out = "p2_v11p2_weights"; return unclicked[0]; }
 
     std::vector<int32_t> occ_sv;
     computeOccIdx(fbs, sv, occ_sv);
@@ -1410,7 +1264,7 @@ static int pickP2CellV11Idx(
 
     // All cells were certain-blue — fall back to first unclicked
     if (best < 0) best = unclicked[0];
-    if (branch_out) *branch_out = "p2_scorer";
+    if (branch_out) *branch_out = "p2_v11p2_weights";
     return best;
 }
 
@@ -1484,12 +1338,12 @@ static void load_board_cache() {
         }
     }
 
-    // ---- Load V11 weights (most-recent trace_v11_weights_*.json, required) ----
+    // ---- Load V11P2 weights (most-recent trace_v11p2_weights_*.json, required) ----
     // Missing file, missing n_colors entry, or missing phase2_weights all abort.
     std::string wpath = findLatestV11P2WeightsFile();
     if (wpath.empty()) {
         fprintf(stderr,
-            "[colblitz_v11] ERROR: no trace_v11_weights_*.json found in data/. Aborting.\n");
+            "[colblitz_v11] ERROR: no trace_v11p2_weights_*.json found in data/. Aborting.\n");
         fflush(stderr);
         abort();
     }
@@ -1667,9 +1521,9 @@ public:
 
         if (ships_hit >= SHIPS_HIT_THRESHOLD) {
             // Phase 2: V11P2 learned scorer.
-            // pickP2CellV11Idx returns the cell; we detect the certain-ship
+            // pickPhase2CellV11Idx returns the cell; we detect the certain-ship
             // sub-branch by calling cpPrefilterShip inline here.
-            int cell = pickP2CellV11Idx(fbs, sv, unclicked, n_rare, n_colors,
+            int cell = pickPhase2CellV11Idx(fbs, sv, unclicked, n_rare, n_colors,
                                          blues_used, p2Weights_[bs_idx], rareColorGroups,
                                          branch_out);
             return cell;
@@ -1685,7 +1539,7 @@ public:
                 // Verify the cell is still unclicked
                 for (int uc : unclicked) {
                     if (uc == policy_cell) {
-                        if (branch_out) *branch_out = "p1_dp_policy";
+                        if (branch_out) *branch_out = "p1_sdp_lookup";
                         return policy_cell;
                     }
                 }
@@ -1693,17 +1547,18 @@ public:
             }
         }
 
-        // ---- V11 cross-terms scorer (or Phase-D fallback) ----
-        if (weightsLoaded_[bs_idx]) {
-            if (branch_out) *branch_out = nullptr;  // will be set inside pickPhase1CellV11Idx
-            return pickPhase1CellV11Idx(fbs, sv, unclicked, n_rare, n_colors,
-                                         ships_hit, blues_used,
-                                         rareColorGroups, weights_[bs_idx],
-                                         branch_out);
-        } else {
-            if (branch_out) *branch_out = "p1_phase_d";
-            return pickPhase1CellPhaseDIdx(fbs, sv, unclicked, n_rare, ships_hit);
+        // ---- V11 cross-terms scorer (required — weights always loaded at startup) ----
+        if (!weightsLoaded_[bs_idx]) {
+            fprintf(stderr, "[colblitz_v11] FATAL: Phase 1 weights not loaded for bs_idx=%d. "
+                    "This should never happen — weights are required at load time.\n", bs_idx);
+            fflush(stderr);
+            abort();
         }
+        if (branch_out) *branch_out = nullptr;  // will be set inside pickPhase1CellV11Idx
+        return pickPhase1CellV11Idx(fbs, sv, unclicked, n_rare, n_colors,
+                                     ships_hit, blues_used,
+                                     rareColorGroups, weights_[bs_idx],
+                                     branch_out);
     }
 
     // -----------------------------------------------------------------------
