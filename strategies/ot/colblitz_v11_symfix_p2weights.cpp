@@ -1072,8 +1072,12 @@ static int pickPhase1CellV11Idx(
     int slot_stride = 0;
     computeOutcomeCountsBothIdx(fbs, sv, occ_sv, unclicked, counts_dc, counts6, slot_stride);
 
+    // CP prefilter — only take the certain-blue shortcut when blues_used >= 3.
+    // At that point the Phase 1 blues counter is saturated (capped at 3) so
+    // the certain-blue click is free.  When blues_used < 3, it increments the
+    // counter and must be scored normally alongside other candidates.
     int forced = cpPrefilter(unclicked, counts6, n);
-    if (forced >= 0) {
+    if (forced >= 0 && blues_used >= 3) {
         if (branch_out) *branch_out = "p1_cp_prefilter";
         return forced;
     }
