@@ -146,17 +146,20 @@ static constexpr int N_WEIGHTS_P2    = N_P2_BLUES * N_P2_CBUCKETS * N_P2_TERMS_F
 // Phase 2 term indices
 static constexpr int P2_T_BLUE  = 0;  // P(blue)
 static constexpr int P2_T_INFO6 = 1;  // H6/ln6
-static constexpr int P2_T_EV    = 2;  // E[SP]/500
+static constexpr int P2_T_EV    = 2;  // log1p(E[SP]) / log1p(SP_MAX) — includes blue SP=10
 static constexpr int P2_T_B_I6  = 3;  // P(blue) × H6/ln6
-static constexpr int P2_T_B_EV  = 4;  // P(blue) × E[SP]/500
-static constexpr int P2_T_I6_EV = 5;  // H6/ln6 × E[SP]/500
+static constexpr int P2_T_B_EV  = 4;  // P(blue) × T_ev
+static constexpr int P2_T_I6_EV = 5;  // H6/ln6 × T_ev
 
-static constexpr double V8_EV_DENOM  = 500.0;
-static constexpr double V8_VAR_DENOM = 500.0 * 500.0;
+// Maximum SP value (spW/Rainbow = 500) — used as the log1p normalisation denominator
+// for T_ev so the term stays in [0, 1].
+static constexpr double SP_MAX       = 500.0;
+static constexpr double LOG1P_SP_MAX = 6.2146080984221655;  // log1p(500.0)
+static constexpr double VAR_SP_DENOM = SP_MAX * SP_MAX;
 
 // SP values for each detailed slot index:
-//   0=blue (unused), 1=teal=20, 2=green=35, 3=yellow=55, 4=spO=90, 5+=var-rare (per-mode EV)
-static constexpr double SLOT_SP_FIXED[5] = {0.0, 20.0, 35.0, 55.0, 90.0};
+//   0=blue (SP=10), 1=teal=20, 2=green=35, 3=yellow=55, 4=spO=90, 5+=var-rare (per-mode EV)
+static constexpr double SLOT_SP_FIXED[5] = {10.0, 20.0, 35.0, 55.0, 90.0};
 
 // SP values and per-n_colors appearance weights for variable-rare colors.
 static constexpr double VAR_RARE_SP[4]            = {76.0, 104.0, 150.0, 500.0};
@@ -825,14 +828,15 @@ static inline double termInfo6(const int* c6, int n) {
 
 
 
+// T_ev = log1p(E[SP]) / log1p(SP_MAX) — includes blue at index 0 (SP=10); result in [0,1].
 static inline double termEvNorm(const int* cdc, int slots, int n,
                                 const std::vector<double>& slot_sp) {
     if (n == 0) return 0.0;
     double inv = 1.0 / n, ev = 0.0;
     int lim = std::min(slots, (int)slot_sp.size());
-    for (int i = 1; i < lim; ++i)
+    for (int i = 0; i < lim; ++i)  // include blue at index 0 (SP=10)
         if (cdc[i] > 0) ev += cdc[i] * inv * slot_sp[i];
-    return ev / V8_EV_DENOM;
+    return std::log1p(ev) / LOG1P_SP_MAX;
 }
 
 // V11 Gini: collapse var-rare slots (indices 5+) into a single bucket,
@@ -859,13 +863,13 @@ static inline double termVarSp(const int* cdc, int slots, int n,
     if (n == 0) return 0.0;
     double inv = 1.0 / n, ev = 0.0, ev2 = 0.0;
     int lim = std::min(slots, (int)slot_sp.size());
-    for (int i = 1; i < lim; ++i) {
+    for (int i = 0; i < lim; ++i) {  // include blue at index 0 (SP=10)
         if (cdc[i] > 0) {
             double sp = slot_sp[i], p = cdc[i] * inv;
             ev += p * sp; ev2 += p * sp * sp;
         }
     }
-    return (ev2 - ev * ev) / V8_VAR_DENOM;
+    return (ev2 - ev * ev) / VAR_SP_DENOM;
 }
 
 static inline double termRareId(const int* cdc, int slots, int n,
@@ -1166,6 +1170,7 @@ static int pickPhase1CellV11Idx(
 //         + p2w[b][c][P2_T_B_EV]  * (T_blue × T_ev)
 //         + p2w[b][c][P2_T_I6_EV] * (T_info6 × T_ev)
 //
+//   T_ev = log1p(E[SP]) / log1p(SP_MAX) — includes blue SP=10; in [0, 1]
 //   b = blues_used clamped to [0, N_P2_BLUES-1]
 //   c = cells_remaining_bucket: (cells_remaining-1)/3, clamped to [0,5]
 //
