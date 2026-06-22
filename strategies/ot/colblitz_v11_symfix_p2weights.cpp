@@ -112,14 +112,14 @@ static constexpr int COL_YELLOW      = 2;
 static constexpr int COL_RARE_START  = 3;  // spO column; var-rare begin at +1
 
 // Shared depth/blues layout (same as V8/V10)
-static constexpr int V8_N_DEPTHS  = 5;
-static constexpr int V8_N_BLUES   = 4;
+static constexpr int P1_N_DEPTHS  = 5;
+static constexpr int P1_N_BLUES   = 4;
 
 
 
 // V11 scorer: 9 terms, 180 weights per n_colors variant.
 static constexpr int N_TERMS_X    = 9;
-static constexpr int N_WEIGHTS_CT = V8_N_DEPTHS * V8_N_BLUES * N_TERMS_X;   // 180
+static constexpr int N_WEIGHTS_CT = P1_N_DEPTHS * P1_N_BLUES * N_TERMS_X;   // 180
 
 // V11 term indices
 static constexpr int T_BLUE           = 0;
@@ -1086,9 +1086,9 @@ static int pickPhase1CellV11Idx(
         return forced;
     }
 
-    int d    = std::min(ships_hit, V8_N_DEPTHS - 1);
-    int b    = std::min(blues_used, V8_N_BLUES - 1);
-    int base = d * (V8_N_BLUES * N_TERMS_X) + b * N_TERMS_X;
+    int d    = std::min(ships_hit, P1_N_DEPTHS - 1);
+    int b    = std::min(blues_used, P1_N_BLUES - 1);
+    int base = d * (P1_N_BLUES * N_TERMS_X) + b * N_TERMS_X;
 
     double w_blue        = weights[base + T_BLUE];
     double w_info6       = weights[base + T_INFO6];
