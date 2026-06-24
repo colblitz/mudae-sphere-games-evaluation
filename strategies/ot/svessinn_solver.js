@@ -1,3 +1,6 @@
+// OUTDATED — pre-v2 solver; missing ALL_COLORS reorder, Pass 3/4 rewrites, and selection changes.
+// The latest version is svessinn_solver_fast_v2.cpp / svessinn_solver_v2_engine.h;
+// playable strategy entry points are svessinn_{blue_focus,ship_hunter,anti_teal}_20260427.cpp.
 /**
  * svessinn_solver.js — Faithful port of Svessinn's Trace solver for /sphere trace (ot).
  *

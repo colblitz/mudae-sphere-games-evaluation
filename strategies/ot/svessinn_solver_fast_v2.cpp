@@ -1,4 +1,11 @@
 // sphere:stateless
+// Latest standalone port of the Svessinn v2 solver algorithm.
+// The shared engine (svessinn_solver_v2_engine.h) contains the upstream sync check;
+// see its header comment for the GitHub API command to detect upstream changes.
+// The current playable strategy entry points built on that engine are:
+//   svessinn_blue_focus_20260427.cpp  (standard / blue-focus mode)
+//   svessinn_ship_hunter_20260427.cpp (aggressive / ship-hunter mode)
+//   svessinn_anti_teal_20260427.cpp   (anti-teal mode)
 /**
  * svessinn_solver_fast_v2.cpp — Optimised C++ port of Svessinn's updated Trace solver.
  *

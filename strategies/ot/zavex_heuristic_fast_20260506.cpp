@@ -1,8 +1,13 @@
 // sphere:stateless
+// Frozen snapshot of the upstream as of 2026-05-06.
 // Source: https://ouro-trace.zavex.workers.dev/mcts_book.js
 // Synced: 2026-05-06
 // Source hash (SHA-256, first 16 hex): d5e0495043d8892b
-// To check: curl -s https://ouro-trace.zavex.workers.dev/mcts_book.js | sha256sum | cut -c1-16
+// Integrity check: curl -s https://ouro-trace.zavex.workers.dev/mcts_book.js | sha256sum | cut -c1-16
+//   (should print d5e0495043d8892b if the upstream has not changed since 2026-05-06)
+// To create a newer snapshot: copy this file with a new date suffix, replace the
+//   embedded MCTS_BOOK with the current upstream mcts_book.js, update the hash
+//   and date above, and adjust tryBook's reveal-count guard if book depth changes.
 /**
  * zavex_heuristic_fast_20260506.cpp — Optimized C++ port of the heuristic strategy
  * for /sphere trace (ot), mirroring the live source as of 2026-05-06.

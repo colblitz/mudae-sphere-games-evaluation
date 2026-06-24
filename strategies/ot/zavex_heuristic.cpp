@@ -1,4 +1,6 @@
 // sphere:stateless
+// OUTDATED — this file has a stale MCTS book and is missing algorithm updates from the upstream.
+// The latest snapshot is zavex_heuristic_fast_20260506.cpp; see its header for the update process.
 /**
  * zavex_heuristic.cpp — Faithful C++ port of the heuristic strategy for /sphere trace (ot).
  *
