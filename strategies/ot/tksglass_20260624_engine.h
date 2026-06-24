@@ -255,25 +255,6 @@ static inline double colorToEV(CellColor c) {
 }
 
 // ---------------------------------------------------------------------------
-// Diagonal mask table (mirrors JS DIAGONAL_MASKS)
-// ---------------------------------------------------------------------------
-
-static uint32_t DIAGONAL_MASKS[GRID];
-
-static void initDiagonalMasks() {
-    for (int i = 0; i < GRID; ++i) {
-        int r = i / 5, c = i % 5;
-        uint32_t m = 0;
-        const int drs[4] = {r-1, r-1, r+1, r+1};
-        const int dcs[4] = {c-1, c+1, c-1, c+1};
-        for (int k = 0; k < 4; ++k)
-            if (drs[k] >= 0 && dcs[k] >= 0 && drs[k] < 5 && dcs[k] < 5)
-                m |= 1u << (drs[k] * 5 + dcs[k]);
-        DIAGONAL_MASKS[i] = m;
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Placements (mirrors buildRawPlacements in JS)
 // Each placement: mask, diagonalMask, key=cells[0], horiz
 // ---------------------------------------------------------------------------
@@ -285,45 +266,66 @@ struct Placement {
     bool     horiz;
 };
 
-static std::vector<Placement> buildRawPlacements(int size) {
-    std::vector<Placement> pl;
-    for (int r = 0; r < 5; ++r) {
-        for (int c = 0; c < 5; ++c) {
-            for (int h = 1; h >= 0; --h) {  // horiz=true first, then false
-                bool horiz = (h == 1);
-                int cells[4]; int n = 0; bool valid = true;
-                for (int k = 0; k < size; ++k) {
-                    int rr = r + (horiz ? 0 : k);
-                    int cc = c + (horiz ? k : 0);
-                    if (rr >= 5 || cc >= 5) { valid = false; break; }
-                    cells[n++] = rr * 5 + cc;
+// All placement tables are built inside a single struct whose construction
+// is a C++11 magic-static — guaranteed to execute exactly once, thread-safely,
+// before any thread can read the tables.  This avoids the data race that a
+// hand-rolled `inited` guard + separate global DIAGONAL_MASKS array would have
+// under a multi-threaded harness.
+struct PlacementTables {
+    uint32_t diagonalMasks[GRID];
+    std::vector<Placement> p2, p3, p4;
+
+    PlacementTables() {
+        // Build diagonal masks
+        for (int i = 0; i < GRID; ++i) {
+            int r = i / 5, c = i % 5;
+            uint32_t m = 0;
+            const int drs[4] = {r-1, r-1, r+1, r+1};
+            const int dcs[4] = {c-1, c+1, c-1, c+1};
+            for (int k = 0; k < 4; ++k)
+                if (drs[k] >= 0 && dcs[k] >= 0 && drs[k] < 5 && dcs[k] < 5)
+                    m |= 1u << (drs[k] * 5 + dcs[k]);
+            diagonalMasks[i] = m;
+        }
+        // Build placement lists for each ship size
+        for (int size : {2, 3, 4}) {
+            std::vector<Placement>& pl = (size == 2) ? p2 : (size == 3) ? p3 : p4;
+            for (int r = 0; r < 5; ++r) {
+                for (int c = 0; c < 5; ++c) {
+                    for (int h = 1; h >= 0; --h) {  // horiz=true first, then false
+                        bool horiz = (h == 1);
+                        int cells[4]; int n = 0; bool valid = true;
+                        for (int k = 0; k < size; ++k) {
+                            int rr = r + (horiz ? 0 : k);
+                            int cc = c + (horiz ? k : 0);
+                            if (rr >= 5 || cc >= 5) { valid = false; break; }
+                            cells[n++] = rr * 5 + cc;
+                        }
+                        if (!valid || n != size) continue;
+                        uint32_t mask = 0, diag = 0;
+                        for (int k = 0; k < n; ++k) {
+                            mask |= 1u << cells[k];
+                            diag |= diagonalMasks[cells[k]];
+                        }
+                        pl.push_back({mask, diag, cells[0], horiz});
+                    }
                 }
-                if (!valid || n != size) continue;
-                uint32_t mask = 0, diag = 0;
-                for (int k = 0; k < n; ++k) {
-                    mask |= 1u << cells[k];
-                    diag |= DIAGONAL_MASKS[cells[k]];
-                }
-                pl.push_back({mask, diag, cells[0], horiz});
             }
         }
     }
-    return pl;
+};
+
+static const PlacementTables& getPlacementTables() {
+    // C++11 guarantees this is initialised exactly once, thread-safely.
+    static PlacementTables tables;
+    return tables;
 }
 
 static const std::vector<Placement>& rawPlacements(int size) {
-    static bool inited = false;
-    static std::vector<Placement> p2, p3, p4;
-    if (!inited) {
-        initDiagonalMasks();
-        p2 = buildRawPlacements(2);
-        p3 = buildRawPlacements(3);
-        p4 = buildRawPlacements(4);
-        inited = true;
-    }
-    if (size == 2) return p2;
-    if (size == 3) return p3;
-    return p4;
+    const PlacementTables& t = getPlacementTables();
+    if (size == 2) return t.p2;
+    if (size == 3) return t.p3;
+    return t.p4;
 }
 
 // ---------------------------------------------------------------------------
