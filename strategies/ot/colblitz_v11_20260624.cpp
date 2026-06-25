@@ -35,11 +35,9 @@
  *
  *      Backward-compat remapping:
  *        200-weight V10 file → drop old t=2 (T_HFULL) and t=7 (T_BLUE_X_HFULL),
- *          zero-fill T_BLUE_X_INFO6 slot (index 6).
- *        140-weight V8 file → drop old t=2 (T_HFULL), zero-fill all cross-terms.
  *
- *      Weights are loaded from the most-recent data/trace_v11_weights_*.json.
- *      Missing file aborts at load time.
+ *      Weights loaded from the most-recent data/trace_v11p2_weights_*.json.
+ *      Only 180-weight native V11 format accepted; missing file aborts at load time.
  *
  *   2. Beam-DP / Capped-Branching policy (BDP):
  *      For 6-color (n_rare=2) and 7-color (n_rare=3) games, auto-discovered
@@ -49,16 +47,19 @@
  *      Same format as V10 (31-byte on-disk entries, 27-byte stored entries).
  *      Graceful skip if not found.
  *
- * Fallback hierarchy (Phase 1, ships_hit < 5):
+ * Decision hierarchy (Phase 1, ships_hit < 5):
  *   1. CP pre-filter: if a guaranteed-blue cell exists, click it (free reveal).
- *   2. BDP policy hit (6/7-color only): if observed_colors key found in policy
+ *      branch: "p1_cp_prefilter"
+ *   2. SDP policy hit (6/7-color only): if observed_colors key found in policy
  *      and the cell is still unclicked, use that cell.
+ *      branch: "p1_sdp_lookup"
  *   3. V11 cross-terms scorer: pickPhase1CellV11Idx with the 180-weight array.
- *   4. Phase-D fallback: if no V11 weights are loaded.
+ *      branch: "p1_v11_weights"
  *
  * Phase 2 (ships_hit ≥ 5): V11P2 learned scorer (6-term, indexed by
- *   blues_used × cells_remaining_bucket).  Requires "phase2_weights" key
- *   (144 floats) in the weights JSON; missing key aborts at load time.
+ *   blues_used × cells_remaining_bucket).  "phase2_weights" key (144 floats)
+ *   in the weights JSON is required; missing key aborts at load time.
+ *   branch: "p2_v11p2_weights" (or "p2_certain_ship" for certain-ship tier)
  *
  * TWO EXECUTION PATHS (identical to V10/V8 stateless):
  *   Path A — sv-passing (strategy_next_click_sv, tree-walk fast path).
@@ -69,12 +70,11 @@
  *   thread instances.
  *
  * External data files:
- *   data/trace_v11_weights_YYYYMMDD_HHMMSS.json  — V11 weights (180-weight,
- *                                                   or 200/140-weight remapped)
+ *   data/trace_v11p2_weights_YYYYMMDD_HHMMSS.json  — V11P2 weights (180w P1 + 144w P2)
  *   data/trace_shallow_dp_v11s_2_t50_b5_YYYYMMDD_HHMMSS.bin.lzma
- *       — 6-color BDP policy (same format as V10)
+ *       — 6-color BDP policy
  *   data/trace_shallow_dp_v11s_3_t200_b4_YYYYMMDD_HHMMSS.bin.lzma
- *       — 7-color BDP policy (same format as V10)
+ *       — 7-color BDP policy
  *   data/sphere_trace_boards_{2..5}.bin.lzma  — board files (shared with V8/V10)
  */
 
@@ -112,20 +112,14 @@ static constexpr int COL_YELLOW      = 2;
 static constexpr int COL_RARE_START  = 3;  // spO column; var-rare begin at +1
 
 // Shared depth/blues layout (same as V8/V10)
-static constexpr int V8_N_DEPTHS  = 5;
-static constexpr int V8_N_BLUES   = 4;
+static constexpr int P1_N_DEPTHS  = 5;
+static constexpr int P1_N_BLUES   = 4;
 
-// V8 base weight count (used for backward-compat remapping)
-static constexpr int V8_N_TERMS   = 7;
-static constexpr int V8_N_WEIGHTS = V8_N_DEPTHS * V8_N_BLUES * V8_N_TERMS;  // 140
 
-// V10 weight count (used for backward-compat remapping)
-static constexpr int V10_N_TERMS   = 10;
-static constexpr int V10_N_WEIGHTS = V8_N_DEPTHS * V8_N_BLUES * V10_N_TERMS;  // 200
 
 // V11 scorer: 9 terms, 180 weights per n_colors variant.
 static constexpr int N_TERMS_X    = 9;
-static constexpr int N_WEIGHTS_CT = V8_N_DEPTHS * V8_N_BLUES * N_TERMS_X;   // 180
+static constexpr int N_WEIGHTS_CT = P1_N_DEPTHS * P1_N_BLUES * N_TERMS_X;   // 180
 
 // V11 term indices
 static constexpr int T_BLUE           = 0;
@@ -152,17 +146,20 @@ static constexpr int N_WEIGHTS_P2    = N_P2_BLUES * N_P2_CBUCKETS * N_P2_TERMS_F
 // Phase 2 term indices
 static constexpr int P2_T_BLUE  = 0;  // P(blue)
 static constexpr int P2_T_INFO6 = 1;  // H6/ln6
-static constexpr int P2_T_EV    = 2;  // E[SP]/500
+static constexpr int P2_T_EV    = 2;  // log1p(E[SP]) / log1p(SP_MAX) — includes blue SP=10
 static constexpr int P2_T_B_I6  = 3;  // P(blue) × H6/ln6
-static constexpr int P2_T_B_EV  = 4;  // P(blue) × E[SP]/500
-static constexpr int P2_T_I6_EV = 5;  // H6/ln6 × E[SP]/500
+static constexpr int P2_T_B_EV  = 4;  // P(blue) × T_ev
+static constexpr int P2_T_I6_EV = 5;  // H6/ln6 × T_ev
 
-static constexpr double V8_EV_DENOM  = 500.0;
-static constexpr double V8_VAR_DENOM = 500.0 * 500.0;
+// Maximum SP value (spW/Rainbow = 500) — used as the log1p normalisation denominator
+// for T_ev so the term stays in [0, 1].
+static constexpr double SP_MAX       = 500.0;
+static constexpr double LOG1P_SP_MAX = 6.2146080984221655;  // log1p(500.0)
+static constexpr double VAR_SP_DENOM = SP_MAX * SP_MAX;
 
 // SP values for each detailed slot index:
-//   0=blue (unused), 1=teal=20, 2=green=35, 3=yellow=55, 4=spO=90, 5+=var-rare (per-mode EV)
-static constexpr double SLOT_SP_FIXED[5] = {0.0, 20.0, 35.0, 55.0, 90.0};
+//   0=blue (SP=10), 1=teal=20, 2=green=35, 3=yellow=55, 4=spO=90, 5+=var-rare (per-mode EV)
+static constexpr double SLOT_SP_FIXED[5] = {10.0, 20.0, 35.0, 55.0, 90.0};
 
 // SP values and per-n_colors appearance weights for variable-rare colors.
 static constexpr double VAR_RARE_SP[4]            = {76.0, 104.0, 150.0, 500.0};
@@ -180,18 +177,33 @@ static double computeVarRareEV(int n_colors) {
     return wsum > 0.0 ? ev / wsum : 0.0;
 }
 
+// Conditional weighted-mean SP for an unbound var-rare slot, excluding color
+// identities already assigned to other slots (indicated by used_mask bitmask,
+// bit i = VAR_RARE_SP index i).  Mirrors ColorAssign::expected_sp() in trace_common.h.
+static double computeVarRareEVConditional(int n_colors, uint8_t used_mask) {
+    double wsum = 0.0, ev = 0.0;
+    const double* w = VAR_RARE_WEIGHT_BY_NC[n_colors - 6];
+    for (int i = 0; i < 4; ++i) {
+        if (used_mask & (1u << i)) continue;
+        wsum += w[i]; ev += w[i] * VAR_RARE_SP[i];
+    }
+    return wsum > 0.0 ? ev / wsum : 0.0;
+}
+
+// Maps color name (as stored in rareColorGroups keys) to VAR_RARE_SP index.
+// Returns -1 for unknown names.
+static int colorNameToVarIdx(const std::string& name) {
+    if (name == "spL") return 0;
+    if (name == "spD") return 1;
+    if (name == "spR") return 2;
+    if (name == "spW") return 3;
+    return -1;
+}
+
 static constexpr double LN6 = 1.791759469228327;
 static constexpr double LN9 = 2.1972245773362196;
 
 static constexpr int SHIPS_HIT_THRESHOLD = 5;
-
-// Phase-D per-depth weights for (w_info6, w_hfull), indexed by [n_rare-2][depth]
-static constexpr double PHASE_D_WEIGHTS[4][5][2] = {
-    {{0.50, 0.30}, {0.50, 0.20}, {0.50, 0.30}, {0.60, 0.40}, {0.40, 0.30}},
-    {{0.40, 0.00}, {0.40, 0.60}, {0.00, 0.70}, {0.00, 1.00}, {0.00, 0.90}},
-    {{0.00, 0.00}, {0.30, 0.80}, {0.00, 0.80}, {0.00, 0.90}, {0.00, 1.00}},
-    {{0.20, 0.00}, {0.10, 1.00}, {0.00, 0.50}, {0.00, 1.00}, {0.00, 1.00}},
-};
 
 // 4-connected adjacency bitmasks for all 25 cells
 static uint32_t buildAdjMask(int cell) {
@@ -563,36 +575,11 @@ static std::string findLatestSdpPolicyFile(const std::string& prefix_str) {
 }
 
 // ---------------------------------------------------------------------------
-// V11 weights file parsing.
+// V11P2 weights file parsing.
 //
-// Accepts three input sizes and remaps to the 180-slot V11 layout:
-//
-//   180-weight (native V11):  w[d*36 + b*9 + t]  — copy directly.
-//
-//   200-weight (V10):         w[d*40 + b*10 + t_v10]
-//     V10 term mapping:  t_v10 → V11 index
-//       0: T_BLUE       →  0
-//       1: T_INFO6      →  1
-//       2: T_HFULL      →  (dropped)
-//       3: T_EV         →  2
-//       4: T_GINI       →  3
-//       5: T_VAR_SP     →  4
-//       6: T_RARE_ID    →  5
-//       7: T_BLUE_X_HFULL → (dropped)
-//       8: T_BLUE_X_RID →  7
-//       9: T_BLUE_X_EV  →  8
-//     T_BLUE_X_INFO6 (V11 index 6) → zero-filled.
-//
-//   140-weight (V8):          w[d*28 + b*7 + t_v8]
-//     V8 term mapping:   t_v8 → V11 index
-//       0: T_BLUE       →  0
-//       1: T_INFO6      →  1
-//       2: T_HFULL      →  (dropped)
-//       3: T_EV         →  2
-//       4: T_GINI       →  3
-//       5: T_VAR_SP     →  4
-//       6: T_RARE_ID    →  5
-//     Cross-terms (V11 indices 6,7,8) → zero-filled.
+// Accepts only 180-weight native V11 format: w[d*36 + b*9 + t]
+// Only trace_v11p2_weights_*.json files are accepted.
+// Any other weight count aborts.
 // ---------------------------------------------------------------------------
 
 static bool extractWeightsV11(const std::string& json, int n_colors,
@@ -612,63 +599,29 @@ static bool extractWeightsV11(const std::string& json, int n_colors,
     if (!p) return false;
     ++p;
 
-    // Maximum we'd ever read is V10_N_WEIGHTS=200; read up to that.
-    double tmp[V10_N_WEIGHTS] = {};
+    // Read exactly N_WEIGHTS_CT=180 floats.
+    double tmp[N_WEIGHTS_CT] = {};
     int n_read = 0;
-    for (int i = 0; i < V10_N_WEIGHTS; ++i) {
+    for (int i = 0; i < N_WEIGHTS_CT + 1; ++i) {  // +1 to detect oversized files
         while (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t' || *p == ',') ++p;
         if (*p == ']') break;
         char* end;
         double v = strtod(p, &end);
         if (end == p) return false;
-        tmp[n_read++] = v;
+        if (n_read < N_WEIGHTS_CT) tmp[n_read] = v;
+        n_read++;
         p = end;
     }
-    if (n_read == 0) return false;
-
-    if (n_read == N_WEIGHTS_CT) {
-        // 180-weight native V11: copy directly.
-        for (int i = 0; i < N_WEIGHTS_CT; ++i) out[i] = tmp[i];
-        native_v11_out = true;
-
-    } else if (n_read == V10_N_WEIGHTS) {
-        // 200-weight V10 file: remap d*40+b*10+t_v10 → d*36+b*9+t_v11.
-        // V10 term index → V11 term index (or -1 = drop):
-        //   0→0, 1→1, 2→-1(T_HFULL), 3→2, 4→3, 5→4, 6→5, 7→-1(T_BXH), 8→7, 9→8
-        static constexpr int V10_TO_V11[10] = {0, 1, -1, 2, 3, 4, 5, -1, 7, 8};
-        for (int fi = 0; fi < V10_N_WEIGHTS; ++fi) {
-            int d    = fi / (V8_N_BLUES * V10_N_TERMS);
-            int b    = (fi / V10_N_TERMS) % V8_N_BLUES;
-            int t_v10 = fi % V10_N_TERMS;
-            int t_v11 = V10_TO_V11[t_v10];
-            if (t_v11 < 0) continue;  // drop T_HFULL and T_BLUE_X_HFULL
-            out[d * (V8_N_BLUES * N_TERMS_X) + b * N_TERMS_X + t_v11] = tmp[fi];
-        }
-        // T_BLUE_X_INFO6 (index 6) stays zero-filled.
-        native_v11_out = false;
-
-    } else if (n_read == V8_N_WEIGHTS) {
-        // 140-weight V8 file: remap d*28+b*7+t_v8 → d*36+b*9+t_v11.
-        // V8 term index → V11 term index (or -1 = drop):
-        //   0→0, 1→1, 2→-1(T_HFULL), 3→2, 4→3, 5→4, 6→5
-        static constexpr int V8_TO_V11[7] = {0, 1, -1, 2, 3, 4, 5};
-        for (int fi = 0; fi < V8_N_WEIGHTS; ++fi) {
-            int d    = fi / (V8_N_BLUES * V8_N_TERMS);
-            int b    = (fi / V8_N_TERMS) % V8_N_BLUES;
-            int t_v8 = fi % V8_N_TERMS;
-            int t_v11 = V8_TO_V11[t_v8];
-            if (t_v11 < 0) continue;  // drop T_HFULL
-            out[d * (V8_N_BLUES * N_TERMS_X) + b * N_TERMS_X + t_v11] = tmp[fi];
-        }
-        // Cross-terms (indices 6,7,8) stay zero-filled.
-        native_v11_out = false;
-
-    } else {
-        // Unknown size — partial fill into the native V11 layout.
-        int copy_n = std::min(n_read, N_WEIGHTS_CT);
-        for (int i = 0; i < copy_n; ++i) out[i] = tmp[i];
-        native_v11_out = (n_read >= N_WEIGHTS_CT);
+    if (n_read != N_WEIGHTS_CT) {
+        fprintf(stderr,
+            "[colblitz_v11] ERROR: n_colors=%d weights array has %d entries (expected %d). "
+            "Only trace_v11p2_weights_*.json (180-weight) is accepted. Aborting.\n",
+            n_colors, n_read, N_WEIGHTS_CT);
+        fflush(stderr);
+        abort();
     }
+    for (int i = 0; i < N_WEIGHTS_CT; ++i) out[i] = tmp[i];
+    native_v11_out = true;
     return true;
 }
 
@@ -873,23 +826,17 @@ static inline double termInfo6(const int* c6, int n) {
     return s / LN6;
 }
 
-// termHfull kept for Phase-D fallback (uses full detailed-slot counts / ln9)
-static inline double termHfull(const int* cdc, int slots, int n) {
-    if (n == 0) return 0.0;
-    double inv = 1.0 / n, s = 0.0;
-    for (int i = 0; i < slots; ++i)
-        if (cdc[i] > 0) { double p = cdc[i] * inv; s -= p * std::log(p); }
-    return s / LN9;
-}
 
+
+// T_ev = log1p(E[SP]) / log1p(SP_MAX) — includes blue at index 0 (SP=10); result in [0,1].
 static inline double termEvNorm(const int* cdc, int slots, int n,
                                 const std::vector<double>& slot_sp) {
     if (n == 0) return 0.0;
     double inv = 1.0 / n, ev = 0.0;
     int lim = std::min(slots, (int)slot_sp.size());
-    for (int i = 1; i < lim; ++i)
+    for (int i = 0; i < lim; ++i)  // include blue at index 0 (SP=10)
         if (cdc[i] > 0) ev += cdc[i] * inv * slot_sp[i];
-    return ev / V8_EV_DENOM;
+    return std::log1p(ev) / LOG1P_SP_MAX;
 }
 
 // V11 Gini: collapse var-rare slots (indices 5+) into a single bucket,
@@ -916,13 +863,13 @@ static inline double termVarSp(const int* cdc, int slots, int n,
     if (n == 0) return 0.0;
     double inv = 1.0 / n, ev = 0.0, ev2 = 0.0;
     int lim = std::min(slots, (int)slot_sp.size());
-    for (int i = 1; i < lim; ++i) {
+    for (int i = 0; i < lim; ++i) {  // include blue at index 0 (SP=10)
         if (cdc[i] > 0) {
             double sp = slot_sp[i], p = cdc[i] * inv;
             ev += p * sp; ev2 += p * sp * sp;
         }
     }
-    return (ev2 - ev * ev) / V8_VAR_DENOM;
+    return (ev2 - ev * ev) / VAR_SP_DENOM;
 }
 
 static inline double termRareId(const int* cdc, int slots, int n,
@@ -943,15 +890,17 @@ static inline double termRareId(const int* cdc, int slots, int n,
 // Identified slots (unchanged from V8/V10)
 // ---------------------------------------------------------------------------
 
-static std::vector<bool> getIdentifiedSlotsIdx(
+// Returns a vector of length n_var where entry k is the VAR_RARE_SP index (0–3)
+// of the color identity assigned to slot k, or -1 if the slot is unidentified.
+static std::vector<int> getSlotColorAssignment(
     const BoardSet& fbs,
     const std::vector<int>& sv,
     const std::unordered_map<std::string, int32_t>& rareColorGroups,
     int n_rare)
 {
     int n_var = n_rare - 1;
-    std::vector<bool> identified(n_var, false);
-    if (n_var <= 0 || rareColorGroups.empty() || sv.empty()) return identified;
+    std::vector<int> slot_colors(n_var, -1);
+    if (n_var <= 0 || rareColorGroups.empty() || sv.empty()) return slot_colors;
     int var_start   = COL_RARE_START + 1;
     const int32_t* data   = fbs.data.data();
     int            fields = fbs.fields;
@@ -968,16 +917,32 @@ static std::vector<bool> getIdentifiedSlotsIdx(
                 if (has_any) any_found = true;
                 if (has_any != has_all) { all_match = false; break; }
             }
-            if (all_match && any_found) { identified[k] = true; break; }
+            if (all_match && any_found) {
+                slot_colors[k] = colorNameToVarIdx(kv.first);
+                break;
+            }
         }
     }
-    return identified;
+    return slot_colors;
 }
 
-static std::vector<double> buildSlotSp(int n_rare, int n_colors) {
+// Build per-slot SP lookup.  slot_colors[k] = VAR_RARE_SP index for identified
+// slot k, or -1 for unbound.  Identified slots use exact SP; unbound slots use
+// conditional weighted-mean excluding already-assigned color identities.
+static std::vector<double> buildSlotSp(int n_rare, int n_colors,
+                                        const std::vector<int>& slot_colors) {
     std::vector<double> sp(SLOT_SP_FIXED, SLOT_SP_FIXED + 5);
-    double ev = computeVarRareEV(n_colors);
-    for (int k = 0; k < n_rare - 1; ++k) sp.push_back(ev);
+    // Build used_mask from all identified slots.
+    uint8_t used_mask = 0;
+    for (int k = 0; k < (int)slot_colors.size(); ++k)
+        if (slot_colors[k] >= 0) used_mask |= (uint8_t)(1u << slot_colors[k]);
+    int n_var = n_rare - 1;
+    for (int k = 0; k < n_var; ++k) {
+        if (k < (int)slot_colors.size() && slot_colors[k] >= 0)
+            sp.push_back(VAR_RARE_SP[slot_colors[k]]);  // exact SP for known identity
+        else
+            sp.push_back(computeVarRareEVConditional(n_colors, used_mask));
+    }
     return sp;
 }
 
@@ -1098,9 +1063,10 @@ static int pickPhase1CellV11Idx(
     const std::vector<int>& unclicked,
     int n_rare, int n_colors, int ships_hit, int blues_used,
     const std::unordered_map<std::string, int32_t>& rareColorGroups,
-    const std::array<double, N_WEIGHTS_CT>& weights)
+    const std::array<double, N_WEIGHTS_CT>& weights,
+    const char** branch_out = nullptr)
 {
-    if (unclicked.empty()) return -1;
+    if (unclicked.empty()) { if (branch_out) *branch_out = "p1_v11_weights"; return -1; }
     int n = (int)sv.size();
 
     std::vector<int32_t> occ_sv;
@@ -1110,12 +1076,19 @@ static int pickPhase1CellV11Idx(
     int slot_stride = 0;
     computeOutcomeCountsBothIdx(fbs, sv, occ_sv, unclicked, counts_dc, counts6, slot_stride);
 
+    // CP prefilter — only take the certain-blue shortcut when blues_used >= 3.
+    // At that point the Phase 1 blues counter is saturated (capped at 3) so
+    // the certain-blue click is free.  When blues_used < 3, it increments the
+    // counter and must be scored normally alongside other candidates.
     int forced = cpPrefilter(unclicked, counts6, n);
-    if (forced >= 0) return forced;
+    if (forced >= 0 && blues_used >= 3) {
+        if (branch_out) *branch_out = "p1_cp_prefilter";
+        return forced;
+    }
 
-    int d    = std::min(ships_hit, V8_N_DEPTHS - 1);
-    int b    = std::min(blues_used, V8_N_BLUES - 1);
-    int base = d * (V8_N_BLUES * N_TERMS_X) + b * N_TERMS_X;
+    int d    = std::min(ships_hit, P1_N_DEPTHS - 1);
+    int b    = std::min(blues_used, P1_N_BLUES - 1);
+    int base = d * (P1_N_BLUES * N_TERMS_X) + b * N_TERMS_X;
 
     double w_blue        = weights[base + T_BLUE];
     double w_info6       = weights[base + T_INFO6];
@@ -1141,12 +1114,12 @@ static int pickPhase1CellV11Idx(
 
     int n_var = n_rare - 1;
     std::vector<double> slot_sp;
-    std::vector<bool>   identified;
+    std::vector<int>    slot_colors(n_var, -1);
+    std::vector<bool>   identified_bool(n_var, false);
     if (need_slot_sp) {
-        identified = getIdentifiedSlotsIdx(fbs, sv, rareColorGroups, n_rare);
-        slot_sp    = buildSlotSp(n_rare, n_colors);
-    } else {
-        identified.assign(n_var, false);
+        slot_colors = getSlotColorAssignment(fbs, sv, rareColorGroups, n_rare);
+        slot_sp     = buildSlotSp(n_rare, n_colors, slot_colors);
+        for (int k = 0; k < n_var; ++k) identified_bool[k] = (slot_colors[k] >= 0);
     }
 
     double inv_n = (n > 0) ? 1.0 / n : 0.0;
@@ -1164,7 +1137,7 @@ static int pickPhase1CellV11Idx(
         double t_var_sp  = (std::abs(w_var_sp) > 1e-15) && !slot_sp.empty()
                                ? termVarSp(cdc, slot_stride, n, slot_sp) : 0.0;
         double t_rare_id = (std::abs(w_rare_id) > 1e-15 || std::abs(w_blue_rid) > 1e-15)
-                               ? termRareId(cdc, slot_stride, n, identified, n_var) : 0.0;
+                               ? termRareId(cdc, slot_stride, n, identified_bool, n_var) : 0.0;
 
         double score = w_blue    * t_blue
                      + w_info6   * t_info6
@@ -1182,72 +1155,7 @@ static int pickPhase1CellV11Idx(
 
         if (score > best_s) { best_s = score; best = unclicked[ii]; }
     }
-    return best;
-}
-
-// ---------------------------------------------------------------------------
-// Phase 1 cell picker — Phase-D fallback (unchanged from V8/V10)
-// ---------------------------------------------------------------------------
-
-static int pickPhase1CellPhaseDIdx(
-    const BoardSet& fbs,
-    const std::vector<int>& sv,
-    const std::vector<int>& unclicked,
-    int n_rare, int ships_hit)
-{
-    if (unclicked.empty()) return -1;
-    int n = (int)sv.size();
-
-    std::vector<int32_t> occ_sv;
-    computeOccIdx(fbs, sv, occ_sv);
-
-    std::vector<int> counts_dc, counts6;
-    int slot_stride = 0;
-    computeOutcomeCountsBothIdx(fbs, sv, occ_sv, unclicked, counts_dc, counts6, slot_stride);
-
-    int forced = cpPrefilter(unclicked, counts6, n);
-    if (forced >= 0) return forced;
-
-    int nri = std::max(0, std::min(n_rare - 2, 3));
-    int d   = std::max(0, std::min(ships_hit, 4));
-    double w_info6 = PHASE_D_WEIGHTS[nri][d][0];
-    double w_hfull = PHASE_D_WEIGHTS[nri][d][1];
-
-    double inv_n = (n > 0) ? 1.0 / n : 0.0;
-    int best = unclicked[0]; double best_s = -1e18;
-    int nu = (int)unclicked.size();
-    for (int ii = 0; ii < nu; ++ii) {
-        const int* c6  = &counts6[ii * 6];
-        const int* cdc = &counts_dc[ii * slot_stride];
-        double score   = c6[0] * inv_n;
-        if (w_info6 > 0.0) score += w_info6 * termInfo6(c6, n);
-        if (w_hfull > 0.0) score += w_hfull * termHfull(cdc, slot_stride, n);
-        if (score > best_s) { best_s = score; best = unclicked[ii]; }
-    }
-    return best;
-}
-
-// ---------------------------------------------------------------------------
-// Phase 2 — SafeP2 (unchanged from V8/V10)
-// ---------------------------------------------------------------------------
-
-static int pickSafeP2CellIdx(
-    const BoardSet& fbs,
-    const std::vector<int>& sv,
-    const std::vector<int32_t>& occ_sv,
-    const std::vector<int>& unclicked)
-{
-    if (unclicked.empty()) return -1;
-    int n = (int)sv.size();
-    if (n == 0) return unclicked[0];
-    int best = unclicked[0], best_blue = n + 1;
-    for (int cell : unclicked) {
-        int32_t bit = (int32_t)(1 << cell);
-        int n_blue = 0;
-        for (int i = 0; i < n; ++i)
-            if ((occ_sv[i] & bit) == 0) ++n_blue;
-        if (n_blue < best_blue) { best_blue = n_blue; best = cell; }
-    }
+    if (branch_out) *branch_out = "p1_v11_weights";
     return best;
 }
 
@@ -1262,6 +1170,7 @@ static int pickSafeP2CellIdx(
 //         + p2w[b][c][P2_T_B_EV]  * (T_blue × T_ev)
 //         + p2w[b][c][P2_T_I6_EV] * (T_info6 × T_ev)
 //
+//   T_ev = log1p(E[SP]) / log1p(SP_MAX) — includes blue SP=10; in [0, 1]
 //   b = blues_used clamped to [0, N_P2_BLUES-1]
 //   c = cells_remaining_bucket: (cells_remaining-1)/3, clamped to [0,5]
 //
@@ -1273,16 +1182,18 @@ static inline int p2_cells_bucket(int cells_remaining) {
     return std::min(5, (cells_remaining - 1) / 3);
 }
 
-static int pickP2CellV11Idx(
+static int pickPhase2CellV11Idx(
     const BoardSet& fbs,
     const std::vector<int>& sv,
     const std::vector<int>& unclicked,
     int n_rare, int n_colors, int blues_used,
-    const double p2w[N_P2_BLUES][N_P2_CBUCKETS][N_P2_TERMS_FULL])
+    const double p2w[N_P2_BLUES][N_P2_CBUCKETS][N_P2_TERMS_FULL],
+    const std::unordered_map<std::string, int32_t>& rareColorGroups,
+    const char** branch_out = nullptr)
 {
-    if (unclicked.empty()) return -1;
+    if (unclicked.empty()) { if (branch_out) *branch_out = "p2_v11p2_weights"; return -1; }
     int n = (int)sv.size();
-    if (n == 0) return unclicked[0];
+    if (n == 0) { if (branch_out) *branch_out = "p2_v11p2_weights"; return unclicked[0]; }
 
     std::vector<int32_t> occ_sv;
     computeOccIdx(fbs, sv, occ_sv);
@@ -1307,12 +1218,37 @@ static int pickP2CellV11Idx(
                        std::abs(w_i6_ev) > 1e-15);
 
     std::vector<double> slot_sp;
-    if (need_ev) slot_sp = buildSlotSp(n_rare, n_colors);
+    if (need_ev) {
+        std::vector<int> slot_colors = getSlotColorAssignment(fbs, sv, rareColorGroups, n_rare);
+        slot_sp = buildSlotSp(n_rare, n_colors, slot_colors);
+    }
 
     double inv_n = 1.0 / n;
+    int nu = (int)unclicked.size();
+
+    // Certain-ship tier: guaranteed ship cells (P(blue)=0) are always free and
+    // provide no information (boards unchanged), so they dominate any ambiguous
+    // or certain-blue cell.  EV tiebreak uses 6-bucket SP with unconditional
+    // var-rare EV (accurate enough for a tiebreak among certain-ship cells).
+    {
+        double var_ev_approx = computeVarRareEV(n_colors);
+        int    best_ship    = -1;
+        double best_ship_ev = -1.0;
+        for (int ii = 0; ii < nu; ++ii) {
+            const int* c6 = &counts6[ii * 6];
+            if (c6[0] != 0) continue;  // not certain-ship
+            double ev = (c6[1] * 20.0 + c6[2] * 35.0 + c6[3] * 55.0
+                         + c6[4] * 90.0 + c6[5] * var_ev_approx) * inv_n;
+            if (ev > best_ship_ev) { best_ship_ev = ev; best_ship = unclicked[ii]; }
+        }
+        if (best_ship >= 0) {
+            if (branch_out) *branch_out = "p2_certain_ship";
+            return best_ship;
+        }
+    }
+
     int best = -1;
     double best_score = -1e30;
-    int nu = (int)unclicked.size();
 
     for (int ii = 0; ii < nu; ++ii) {
         const int* c6  = &counts6[ii * 6];
@@ -1337,6 +1273,7 @@ static int pickP2CellV11Idx(
 
     // All cells were certain-blue — fall back to first unclicked
     if (best < 0) best = unclicked[0];
+    if (branch_out) *branch_out = "p2_v11p2_weights";
     return best;
 }
 
@@ -1346,6 +1283,20 @@ static int jsonGetInt(const char* json, const char* key, int def = 0) {
     p += strlen(key);
     while (*p == ' ' || *p == ':' || *p == '\t') ++p;
     return atoi(p);
+}
+
+// Extract a JSON string value (strips surrounding quotes).
+// Returns empty string if the key is absent or the value is not a string.
+static std::string jsonGetStr(const char* json, const char* key) {
+    const char* p = strstr(json, key);
+    if (!p) return "";
+    p += strlen(key);
+    while (*p == ' ' || *p == ':' || *p == '\t') ++p;
+    if (*p != '"') return "";
+    ++p;  // skip opening quote
+    const char* start = p;
+    while (*p && *p != '"') { if (*p == '\\') ++p; if (*p) ++p; }
+    return std::string(start, p - start);
 }
 
 // ---------------------------------------------------------------------------
@@ -1396,12 +1347,12 @@ static void load_board_cache() {
         }
     }
 
-    // ---- Load V11 weights (most-recent trace_v11_weights_*.json, required) ----
+    // ---- Load V11P2 weights (most-recent trace_v11p2_weights_*.json, required) ----
     // Missing file, missing n_colors entry, or missing phase2_weights all abort.
     std::string wpath = findLatestV11P2WeightsFile();
     if (wpath.empty()) {
         fprintf(stderr,
-            "[colblitz_v11] ERROR: no trace_v11_weights_*.json found in data/. Aborting.\n");
+            "[colblitz_v11] ERROR: no trace_v11p2_weights_*.json found in data/. Aborting.\n");
         fflush(stderr);
         abort();
     }
@@ -1559,21 +1510,32 @@ public:
     // Shared decision logic
     // -----------------------------------------------------------------------
 
+    // chooseCell returns the chosen cell index and sets *branch_out to a
+    // static string literal identifying the decision path taken.
+    // branch_out may be null (e.g. when stats are not needed).
     int chooseCell(
         const BoardSet& fbs, int bs_idx,
         const std::vector<int>& sv,
         const std::vector<int>& unclicked,
         const std::unordered_map<std::string, int32_t>& rareColorGroups,
         const std::vector<std::pair<int,std::string>>& reveals,
-        int n_rare, int n_colors, int ships_hit, int blues_used) const
+        int n_rare, int n_colors, int ships_hit, int blues_used,
+        const char** branch_out = nullptr) const
     {
         int n = (int)sv.size();
-        if (n == 0) return unclicked.empty() ? 0 : unclicked[0];
+        if (n == 0) {
+            if (branch_out) *branch_out = "";
+            return unclicked.empty() ? 0 : unclicked[0];
+        }
 
         if (ships_hit >= SHIPS_HIT_THRESHOLD) {
-            // Phase 2: V11P2 learned scorer
-            return pickP2CellV11Idx(fbs, sv, unclicked, n_rare, n_colors,
-                                     blues_used, p2Weights_[bs_idx]);
+            // Phase 2: V11P2 learned scorer.
+            // pickPhase2CellV11Idx returns the cell; we detect the certain-ship
+            // sub-branch by calling cpPrefilterShip inline here.
+            int cell = pickPhase2CellV11Idx(fbs, sv, unclicked, n_rare, n_colors,
+                                         blues_used, p2Weights_[bs_idx], rareColorGroups,
+                                         branch_out);
+            return cell;
         }
 
         // ---- SDP policy lookup (6/7-color only) ----
@@ -1585,29 +1547,46 @@ public:
             if (policy_cell >= 0) {
                 // Verify the cell is still unclicked
                 for (int uc : unclicked) {
-                    if (uc == policy_cell) return policy_cell;
+                    if (uc == policy_cell) {
+                        if (branch_out) *branch_out = "p1_sdp_lookup";
+                        return policy_cell;
+                    }
                 }
                 // Policy cell already revealed — fall through to scorer
             }
         }
 
-        // ---- V11 cross-terms scorer (or Phase-D fallback) ----
-        if (weightsLoaded_[bs_idx]) {
-            return pickPhase1CellV11Idx(fbs, sv, unclicked, n_rare, n_colors,
-                                         ships_hit, blues_used,
-                                         rareColorGroups, weights_[bs_idx]);
-        } else {
-            return pickPhase1CellPhaseDIdx(fbs, sv, unclicked, n_rare, ships_hit);
+        // ---- V11 cross-terms scorer (required — weights always loaded at startup) ----
+        if (!weightsLoaded_[bs_idx]) {
+            fprintf(stderr, "[colblitz_v11] FATAL: Phase 1 weights not loaded for bs_idx=%d. "
+                    "This should never happen — weights are required at load time.\n", bs_idx);
+            fflush(stderr);
+            abort();
         }
+        if (branch_out) *branch_out = nullptr;  // will be set inside pickPhase1CellV11Idx
+        return pickPhase1CellV11Idx(fbs, sv, unclicked, n_rare, n_colors,
+                                     ships_hit, blues_used,
+                                     rareColorGroups, weights_[bs_idx],
+                                     branch_out);
     }
 
     // -----------------------------------------------------------------------
     // next_click — delta cache (Path B, sequential evaluator)
     // -----------------------------------------------------------------------
 
+    // Base virtual override (no branch output)
     void next_click(const std::vector<Cell>& board,
                     const std::string& meta_json,
                     ClickResult& out) override
+    {
+        next_click(board, meta_json, out, nullptr);
+    }
+
+    // Extended version used by the export functions to get branch metadata
+    void next_click(const std::vector<Cell>& board,
+                    const std::string& meta_json,
+                    ClickResult& out,
+                    const char** branch_out)
     {
         int ships_hit  = jsonGetInt(meta_json.c_str(), "\"ships_hit\"",  0);
         int blues_used = jsonGetInt(meta_json.c_str(), "\"blues_used\"", 0);
@@ -1679,11 +1658,13 @@ public:
         if (sv.empty()) {
             out.row = unclicked[0] / GRID;
             out.col = unclicked[0] % GRID;
+            if (branch_out) *branch_out = "";
             return;
         }
 
         int chosen = chooseCell(fbs, bs_idx, sv, unclicked, rareColorGroups,
-                                 reveals, n_rare, n_colors, ships_hit, blues_used);
+                                 reveals, n_rare, n_colors, ships_hit, blues_used,
+                                 branch_out);
         if (chosen < 0) chosen = unclicked[0];
         out.row = chosen / GRID;
         out.col = chosen % GRID;
@@ -1696,7 +1677,8 @@ public:
     void next_click_with_sv(const std::vector<Cell>& board,
                              const std::string& meta_json,
                              const int* sv_ptr, int sv_len,
-                             ClickResult& out)
+                             ClickResult& out,
+                             const char** branch_out = nullptr)
     {
         int ships_hit  = jsonGetInt(meta_json.c_str(), "\"ships_hit\"",  0);
         int blues_used = jsonGetInt(meta_json.c_str(), "\"blues_used\"", 0);
@@ -1727,6 +1709,7 @@ public:
         if (bs_idx < 0 || bs_idx > 3 || !boardsLoaded_[bs_idx] || sv_len == 0) {
             out.row = unclicked[0] / GRID;
             out.col = unclicked[0] % GRID;
+            if (branch_out) *branch_out = "";
             return;
         }
 
@@ -1745,7 +1728,8 @@ public:
         }
 
         int chosen = chooseCell(fbs, bs_idx, sv, unclicked, rareColorGroups,
-                                 reveals, n_rare, n_colors, ships_hit, blues_used);
+                                 reveals, n_rare, n_colors, ships_hit, blues_used,
+                                 branch_out);
         if (chosen < 0) chosen = unclicked[0];
         out.row = chosen / GRID;
         out.col = chosen % GRID;
@@ -1768,16 +1752,41 @@ extern "C" void strategy_init_game_payload(void* inst, const char* meta_json) {
         meta_json ? meta_json : "{}");
 }
 
+// Build the return JSON for strategy_next_click / strategy_next_click_sv.
+// Appends "branch" and "entering_p2" metadata fields when available.
+// entering_p2 is true when ships_hit == SHIPS_HIT_THRESHOLD and the last
+// clicked cell was a ship (i.e. that click just pushed ships_hit to 5).
+static void build_click_json(std::string& buf, int row, int col,
+                              const char* branch, bool entering_p2)
+{
+    buf = "{\"row\":" + std::to_string(row) + ",\"col\":" + std::to_string(col);
+    if (branch && *branch)
+        buf += ",\"branch\":\"" + std::string(branch) + "\"";
+    if (entering_p2)
+        buf += ",\"entering_p2\":\"1\"";
+    buf += "}";
+}
+
+static bool is_ship_color(const std::string& c) {
+    return c == "spT" || c == "spG" || c == "spY" || c == "spO"
+        || c == "spL" || c == "spD" || c == "spR" || c == "spW";
+}
+
 extern "C" const char* strategy_next_click(void* inst,
                                             const char* board_json,
                                             const char* meta_json)
 {
     thread_local static std::string buf;
     auto* s = static_cast<ColblitzV11SymfixP2WeightsOTStrategy*>(inst);
+    const char* mj = meta_json ? meta_json : "{}";
     std::vector<Cell> brd = parse_board_json(board_json ? board_json : "[]");
     ClickResult out;
-    s->next_click(brd, meta_json ? meta_json : "{}", out);
-    buf = "{\"row\":" + std::to_string(out.row) + ",\"col\":" + std::to_string(out.col) + "}";
+    const char* branch = nullptr;
+    s->next_click(brd, mj, out, &branch);
+    int ships_hit = jsonGetInt(mj, "\"ships_hit\"", 0);
+    std::string last_color = jsonGetStr(mj, "\"last_click_color\"");
+    bool entering_p2 = (ships_hit == SHIPS_HIT_THRESHOLD) && is_ship_color(last_color);
+    build_click_json(buf, out.row, out.col, branch, entering_p2);
     return buf.c_str();
 }
 
@@ -1789,9 +1798,14 @@ extern "C" const char* strategy_next_click_sv(void* inst,
 {
     thread_local static std::string buf;
     auto* s = static_cast<ColblitzV11SymfixP2WeightsOTStrategy*>(inst);
+    const char* mj = meta_json ? meta_json : "{}";
     std::vector<Cell> brd = parse_board_json(board_json ? board_json : "[]");
     ClickResult out;
-    s->next_click_with_sv(brd, meta_json ? meta_json : "{}", sv_ptr, sv_len, out);
-    buf = "{\"row\":" + std::to_string(out.row) + ",\"col\":" + std::to_string(out.col) + "}";
+    const char* branch = nullptr;
+    s->next_click_with_sv(brd, mj, sv_ptr, sv_len, out, &branch);
+    int ships_hit = jsonGetInt(mj, "\"ships_hit\"", 0);
+    std::string last_color = jsonGetStr(mj, "\"last_click_color\"");
+    bool entering_p2 = (ships_hit == SHIPS_HIT_THRESHOLD) && is_ship_color(last_color);
+    build_click_json(buf, out.row, out.col, branch, entering_p2);
     return buf.c_str();
 }
