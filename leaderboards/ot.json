@@ -1,8 +1,20 @@
 {
   "game": "ot",
   "metric": "ev",
-  "updated": "2026-06-24",
+  "updated": "2026-06-25",
   "top15": [
+    {
+      "filename": "colblitz_v11_20260624.cpp",
+      "commit": "1fdce3a",
+      "date": "2026-06-25",
+      "aggregate_ev": 834.6508236288029,
+      "games_per_cpu_s": 1134.7,
+      "setup_cpu_s": 95.684,
+      "harness_elapsed_s": 1489.121,
+      "n_threads": 20,
+      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+      "ev": 834.6508236288029
+    },
     {
       "filename": "colblitz_v11_symfix_p2weights.cpp",
       "commit": "dc817aa",
@@ -176,6 +188,29 @@
     "6": {
       "n_colors": 6,
       "top15": [
+        {
+          "filename": "colblitz_v11_20260624.cpp",
+          "commit": "1fdce3a",
+          "date": "2026-06-25",
+          "aggregate_ev": 834.6508236288029,
+          "games_per_cpu_s": 1134.7,
+          "setup_cpu_s": 95.684,
+          "harness_elapsed_s": 1489.121,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 6,
+          "n_boards": 1194816,
+          "ev": 739.4924,
+          "stdev_ev": 91.2403,
+          "avg_clicks": 21.5569,
+          "stdev_clicks": 31.3395,
+          "avg_ship_clicks": 13.1701,
+          "stdev_ship_clicks": 1.5331,
+          "perfect_rate": 0.2697,
+          "all_ships_rate": 0.65,
+          "loss_5050_rate": 0.2839,
+          "total_strategy_calls": 15865476
+        },
         {
           "filename": "colblitz_v11_symfix_p2weights.cpp",
           "commit": "dc817aa",
@@ -504,6 +539,29 @@
       "n_colors": 7,
       "top15": [
         {
+          "filename": "colblitz_v11_20260624.cpp",
+          "commit": "1fdce3a",
+          "date": "2026-06-25",
+          "aggregate_ev": 834.6508236288029,
+          "games_per_cpu_s": 1134.7,
+          "setup_cpu_s": 95.684,
+          "harness_elapsed_s": 1489.121,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 7,
+          "n_boards": 5672880,
+          "ev": 1043.5204,
+          "stdev_ev": 309.12,
+          "avg_clicks": 20.1996,
+          "stdev_clicks": 29.3176,
+          "avg_ship_clicks": 14.657,
+          "stdev_ship_clicks": 1.8546,
+          "perfect_rate": 0.1026,
+          "all_ships_rate": 0.496,
+          "loss_5050_rate": 0.4013,
+          "total_strategy_calls": 241339490
+        },
+        {
           "filename": "colblitz_v11_symfix_p2weights.cpp",
           "commit": "dc817aa",
           "date": "2026-05-28",
@@ -831,6 +889,29 @@
       "n_colors": 8,
       "top15": [
         {
+          "filename": "colblitz_v11_20260624.cpp",
+          "commit": "1fdce3a",
+          "date": "2026-06-25",
+          "aggregate_ev": 834.6508236288029,
+          "games_per_cpu_s": 1134.7,
+          "setup_cpu_s": 95.684,
+          "harness_elapsed_s": 1489.121,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 8,
+          "n_boards": 12328128,
+          "ev": 1601.2983,
+          "stdev_ev": 408.6136,
+          "avg_clicks": 21.4057,
+          "stdev_clicks": 30.7919,
+          "avg_ship_clicks": 17.0093,
+          "stdev_ship_clicks": 1.6277,
+          "perfect_rate": 0.0551,
+          "all_ships_rate": 0.5914,
+          "loss_5050_rate": 0.3179,
+          "total_strategy_calls": 1165418479
+        },
+        {
           "filename": "colblitz_v11_symfix_p2weights.cpp",
           "commit": "dc817aa",
           "date": "2026-05-28",
@@ -1157,6 +1238,29 @@
     "9": {
       "n_colors": 9,
       "top15": [
+        {
+          "filename": "colblitz_v11_20260624.cpp",
+          "commit": "1fdce3a",
+          "date": "2026-06-25",
+          "aggregate_ev": 834.6508236288029,
+          "games_per_cpu_s": 1134.7,
+          "setup_cpu_s": 95.684,
+          "harness_elapsed_s": 1489.121,
+          "n_threads": 20,
+          "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+          "n_colors": 9,
+          "n_boards": 12428080,
+          "ev": 2209.5686,
+          "stdev_ev": 73.3098,
+          "avg_clicks": 23.7684,
+          "stdev_clicks": 33.9916,
+          "avg_ship_clicks": 19.7294,
+          "stdev_ship_clicks": 0.7505,
+          "perfect_rate": 0.0311,
+          "all_ships_rate": 0.8327,
+          "loss_5050_rate": 0.1268,
+          "total_strategy_calls": 1529901175
+        },
         {
           "filename": "colblitz_v11_symfix_p2weights.cpp",
           "commit": "dc817aa",
