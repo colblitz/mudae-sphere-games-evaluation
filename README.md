@@ -192,22 +192,22 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 
 | Rank | Strategy | EV | Stdev | Red Rate | Commit | Date |
 |------|----------|----|-------|-------|--------|------|
-| 1 | `zavex_wr.js` | 352.44 | 44.32 | 98.96% | `bb90da3` | 2026-06-28 |
-| 2 | `zavex_book_heuristic.js` | 350.86 | 44.04 | 98.96% | `da54712` | 2026-04-25 |
-| 3 | `kelinimo_adaptive_ev.js` | 348.03 | 50.85 | 96.20% | `7ac88d8` | 2026-04-25 |
-| 4 | `gap22_backtrack_solver.js` | 346.59 | 58.72 | 92.66% | `daf7d9b` | 2026-04-25 |
-| 5 | `colblitz_mixed_gini.cpp` | 342.56 | 52.18 | 95.35% | `37b0f7f` | 2026-04-25 |
+| 1 | `zavex_ev.js` | 355.95 | 45.75 | 98.12% | `bb90da3` | 2026-06-28 |
+| 2 | `zavex_wr.js` | 352.44 | 44.32 | 98.96% | `bb90da3` | 2026-06-28 |
+| 3 | `zavex_book_heuristic.js` | 350.86 | 44.04 | 98.96% | `da54712` | 2026-04-25 |
+| 4 | `kelinimo_adaptive_ev.js` | 348.03 | 50.85 | 96.20% | `7ac88d8` | 2026-04-25 |
+| 5 | `gap22_backtrack_solver.js` | 346.59 | 58.72 | 92.66% | `daf7d9b` | 2026-04-25 |
 
 <details>
 <summary>Performance</summary>
 
 | Strategy | Games/CPU-s | Setup CPU-s | Harness wall-s | Threads | CPU |
 |----------|-------------|-------------|----------------|---------|-----|
+| `zavex_ev.js` | 662 | 2.16 | 3.0 | 24 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `zavex_wr.js` | 487 | 2.15 | 3.2 | 24 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `zavex_book_heuristic.js` | 919 | 1.91 | 2.6 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `kelinimo_adaptive_ev.js` | 47 | 0.04 | 13.5 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `gap22_backtrack_solver.js` | 268 | 0.04 | 2.4 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
-| `colblitz_mixed_gini.cpp` | 675 | — | 0.9 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 
 </details>
 
