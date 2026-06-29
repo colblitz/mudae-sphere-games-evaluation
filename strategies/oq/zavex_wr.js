@@ -1,18 +1,13 @@
 /**
- * @deprecated Use zavex_wr.js (WR-optimal) or zavex_ev.js (EV-optimal) instead.
- * This file uses data/oq_books.json (stale, superseded by oq_books_20260628_221107.json).
- */
-
-/**
- * book_heuristic.js — Book + adaptive heuristic strategy for /sphere quest (oq).
+ * zavex_wr.js — WR-optimal book + adaptive heuristic strategy for /sphere quest (oq).
  *
- * Port of the solver logic from https://orb-quest-book.pages.dev/
+ * Port of the solver logic from https://orb-quest-book.pages.dev/ in WR mode.
  *
  * Algorithm:
  *   PLAYING phase:
  *     1. Walk the WR-optimal opening book (WR_BOOKS) using D4 symmetry (8
  *        transforms). If the revealed cells match any (book, transform) pair,
- *        follow the trie recommendation. Falls back to ALL_BOOKS if no WR match.
+ *        follow the trie recommendation.
  *     2. Off-book fallback — adaptive heuristic:
  *          - Filter all 12,650 possible 4-purple layouts to those consistent
  *            with revealed outcomes.
@@ -27,12 +22,17 @@
  *     - Click highest-value unrevealed non-mine cell each turn.
  *       Value = adjacency to all 4 mines: 0adj=10, 1=20, 2=35, 3=55, 4=90 SP.
  *
+ * Opening selection (empty board):
+ *   Matches the live source WR-mode behavior: sort WR_BOOKS openers by meta.wr
+ *   descending, pick index 1 (inner corner). The live source deliberately skips
+ *   the #1 WR opener in favor of inner corner as a risk/reward tradeoff.
+ *
  * External data:
- *   data/oq_books.json  (~4.3 MB, committed with git add -f)
+ *   data/oq_books_20260628_221107.json  (~3.8 MB, committed with git add -f)
  *   Contains ALL_BOOKS and WR_BOOKS extracted from the page's embedded_data.js.
  *
  * State design:
- *   All precomputed data (world array, outcomes, constraint map, book tries)
+ *   All precomputed data (world array, outcomes, constraint map, book trie)
  *   is stored on `this` in initEvaluationRun(). Both initEvaluationRun() and
  *   initGamePayload() return null so the harness never JSON-serialises the
  *   large data structures.
@@ -53,15 +53,16 @@ const {
   harvestRanking,
 } = require("./zavex_core.js");
 
+const DATA_FILE = "oq_books_20260628_221107.json";
+
 // ---------------------------------------------------------------------------
 // Strategy class
 // ---------------------------------------------------------------------------
-class BookHeuristicOQStrategy extends OQStrategy {
+class WROQStrategy extends OQStrategy {
 
   /**
    * Called once before all games.
-   * Stores precomputed world data and book data on `this` — never returned
-   * through the state payload so it is never JSON-serialised.
+   * Stores precomputed world data and WR book trie on `this`.
    */
   initEvaluationRun() {
     // World precomputation
@@ -70,29 +71,38 @@ class BookHeuristicOQStrategy extends OQStrategy {
     this._worldOutcomes = worldOutcomes;
     this._constraint    = constraint;
 
-    // Load book data
-    const dataPath = path.join(__dirname, "..", "..", "data", "oq_books.json");
-    this._allBooks = null;
-    this._wrBooks  = null;
+    // Load WR_BOOKS from the timestamped data file
+    const dataPath = path.join(__dirname, "..", "..", "data", DATA_FILE);
+    this._books = null;
     try {
       const raw    = fs.readFileSync(dataPath, "utf8");
       const parsed = JSON.parse(raw);
-      this._allBooks = parsed.ALL_BOOKS || null;
-      this._wrBooks  = parsed.WR_BOOKS  || null;
+      this._books = parsed.WR_BOOKS || null;
     } catch (e) {
       process.stderr.write(
-        `[oq/book_heuristic] Warning: could not load oq_books.json: ${e.message}\n` +
-        `[oq/book_heuristic] Falling back to heuristic-only mode.\n`
+        `[oq/zavex_wr] Warning: could not load ${DATA_FILE}: ${e.message}\n` +
+        `[oq/zavex_wr] Falling back to heuristic-only mode.\n`
       );
     }
 
-    // Return null — we don't use the state payload for large data
+    // Precompute WR-mode opening: sort canons by meta.wr descending, pick index 1.
+    // Matches the live source behavior (inner corner = canon 6 with current data).
+    this._opener = 6;  // default fallback
+    if (this._books) {
+      const sorted = Object.values(this._books)
+        .sort((a, b) => b.meta.wr - a.meta.wr);
+      if (sorted.length > 1) {
+        this._opener = sorted[1].root.m;
+      } else if (sorted.length === 1) {
+        this._opener = sorted[0].root.m;
+      }
+    }
+
     return null;
   }
 
   /**
-   * Called once per game. Returns null — no per-game state needed since
-   * the full revealed list is passed to nextClick each call.
+   * Called once per game. Returns null — no per-game state needed.
    */
   initGamePayload(meta, evaluationRunState) {
     return null;
@@ -101,7 +111,7 @@ class BookHeuristicOQStrategy extends OQStrategy {
   /**
    * Choose the next cell to click.
    *
-   * @param {Array<{row,col,color}>} board  All cells with current state.
+   * @param {Array<{row,col,color,clicked}>} board  All 25 cells with current state.
    * @param {{clicks_left,max_clicks,purples_found}} meta
    * @param {*} gameState  null (unused)
    * @returns {{ row, col, gameState }}
@@ -164,25 +174,18 @@ class BookHeuristicOQStrategy extends OQStrategy {
     // PLAYING phase
     // ------------------------------------------------------------------
 
-    // Empty board → inner corner (cell 6), matching original WR-mode default
+    // Empty board → WR-mode recommended opener (index 1 by meta.wr, per live source)
     if (revealedSet.size === 0) {
-      const opener = (this._wrBooks && this._wrBooks["6"])
-        ? this._wrBooks["6"].root.m
-        : (this._allBooks && this._allBooks["6"])
-          ? this._allBooks["6"].root.m
-          : 6;
-      const r = pick(opener);
+      const r = pick(this._opener);
       if (r) return r;
     }
 
-    // Book walk — try WR_BOOKS first, then ALL_BOOKS (original behavior)
-    if (this._wrBooks || this._allBooks) {
-      for (const books of [this._wrBooks, this._allBooks]) {
-        const { bestMove, onBook } = walkBook(cellStates, books);
-        if (onBook && bestMove >= 0) {
-          const r = pick(bestMove);
-          if (r) return r;
-        }
+    // Book walk — WR_BOOKS only (single book set, matching live source WR mode)
+    if (this._books) {
+      const { bestMove, onBook } = walkBook(cellStates, this._books);
+      if (onBook && bestMove >= 0) {
+        const r = pick(bestMove);
+        if (r) return r;
       }
     }
 
@@ -210,4 +213,4 @@ class BookHeuristicOQStrategy extends OQStrategy {
   }
 }
 
-register(new BookHeuristicOQStrategy());
+register(new WROQStrategy());
