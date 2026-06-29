@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-06-28T22:26:27",
+  "commit": "0ae66ae",
+  "filename": "colblitz_v4.cpp",
+  "game": "oq",
+  "strategy": "/home/colblitz/mudae-sphere-games-evaluation/strategies/oq/colblitz_v4.cpp",
+  "n_boards": 12650,
+  "ev": 356.3071,
+  "stdev": 45.9176,
+  "red_rate": 0.981,
+  "init_run_elapsed_s": 18.7629,
+  "harness_elapsed_s": 19.325,
+  "n_threads": 24,
+  "games_per_cpu_s": 938.1,
+  "setup_cpu_s": 18.763,
+  "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+}

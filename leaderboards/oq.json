@@ -4,6 +4,20 @@
   "updated": "2026-06-28",
   "top5": [
     {
+      "filename": "colblitz_v4.cpp",
+      "commit": "0ae66ae",
+      "date": "2026-06-28",
+      "ev": 356.3071,
+      "stdev": 45.9176,
+      "red_rate": 0.981,
+      "n_boards": 12650,
+      "games_per_cpu_s": 938.1,
+      "setup_cpu_s": 18.763,
+      "harness_elapsed_s": 19.325,
+      "n_threads": 24,
+      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+    },
+    {
       "filename": "zavex_ev.js",
       "commit": "bb90da3",
       "date": "2026-06-28",
@@ -58,20 +72,6 @@
       "harness_elapsed_s": 13.525,
       "games_per_cpu_s": 46.9,
       "setup_cpu_s": 0.044,
-      "n_threads": 20,
-      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
-    },
-    {
-      "filename": "gap22_backtrack_solver.js",
-      "commit": "daf7d9b",
-      "date": "2026-04-25",
-      "ev": 346.5909,
-      "stdev": 58.7161,
-      "red_rate": 0.9266,
-      "n_boards": 12650,
-      "games_per_cpu_s": 268.4,
-      "setup_cpu_s": 0.043,
-      "harness_elapsed_s": 2.4,
       "n_threads": 20,
       "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
     }
