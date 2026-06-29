@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-06-28T22:25:44",
+  "commit": "bb90da3",
+  "filename": "zavex_wr.js",
+  "game": "oq",
+  "strategy": "/home/colblitz/mudae-sphere-games-evaluation/strategies/oq/zavex_wr.js",
+  "n_boards": 12650,
+  "ev": 352.4387,
+  "stdev": 44.3172,
+  "red_rate": 0.9896,
+  "init_run_elapsed_s": 2.1518,
+  "harness_elapsed_s": 3.234,
+  "n_threads": 24,
+  "games_per_cpu_s": 487.2,
+  "setup_cpu_s": 2.152,
+  "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+}
