@@ -14,7 +14,7 @@ Normal usage — iterate freely, results printed:
      stable hash.  Skipped if the file is already committed and unmodified.
   2. "scores: oc my_strategy.py ev=78.43" — writes a scores artifact to
      scores/<game>/<timestamp>_<commit>_<basename>.json and updates
-     leaderboards/<game>.json and README.md if the result enters the top 10 (ot) or top 5 (other games).
+     leaderboards/<game>.json and README.md if the result enters the top 10 (ot, oq) or top 5 (oh, oc).
      All changed files are bundled into this single commit.
 
 Trace mode — inspect individual games:
@@ -311,6 +311,8 @@ def load_leaderboard(game: str) -> dict[str, Any]:
     if game == "ot":
         lb["top15"] = lb.pop("top5")
         lb["by_variant"] = {str(nc): {"n_colors": nc, "top15": []} for nc in [6, 7, 8, 9]}
+    elif game == "oq":
+        lb["top10"] = lb.pop("top5")
     return lb
 
 
@@ -495,6 +497,12 @@ def update_leaderboard(game: str, result: dict[str, Any], strategy_path: str) ->
             if vch:
                 lb["by_variant"][key]["top15"] = new_v
                 changed = True
+    elif game == "oq":
+        entry = make_entry(result, strategy_path)
+        new_top10, ch = update_leaderboard_top5(lb.get("top10", []), entry, max_entries=10)
+        if ch:
+            lb["top10"] = new_top10
+            changed = True
     else:
         entry = make_entry(result, strategy_path)
         new_top5, ch = update_leaderboard_top5(lb.get("top5", []), entry)
@@ -653,7 +661,12 @@ def render_leaderboard_section() -> str:
             parts.append(render_oh_table(top5))
             if top5:
                 parts.append("\n" + render_perf_section(top5))
-        elif game in ("oc", "oq"):
+        elif game == "oq":
+            top10 = lb.get("top10", lb.get("top5", []))
+            parts.append(render_oc_oq_table(top10, game))
+            if top10:
+                parts.append("\n" + render_perf_section(top10))
+        elif game == "oc":
             top5 = lb.get("top5", [])
             parts.append(render_oc_oq_table(top5, game))
             if top5:
@@ -974,7 +987,7 @@ def main() -> None:
 
     # Check if an entry for this (filename, commit) already exists anywhere
     # in the leaderboard — only possible when the file is already committed.
-    _dry_all: list[dict] = list(lb_dry.get("top15", lb_dry.get("top5", [])))
+    _dry_all: list[dict] = list(lb_dry.get("top15", lb_dry.get("top10", lb_dry.get("top5", []))))
     if args.game == "ot":
         for _v in lb_dry.get("by_variant", {}).values():
             _dry_all.extend(_v.get("top15", _v.get("top5", [])))
@@ -1001,11 +1014,14 @@ def main() -> None:
                 if vch:
                     _would_change = True
                     break
+    elif args.game == "oq":
+        entry_dry = make_entry(result, args.strategy)
+        _, _would_change = update_leaderboard_top5(lb_dry.get("top10", []), entry_dry, max_entries=10)
     else:
         entry_dry = make_entry(result, args.strategy)
         _, _would_change = update_leaderboard_top5(lb_dry.get("top5", []), entry_dry)
 
-    _top_n_label = "top 15" if args.game == "ot" else "top 5"
+    _top_n_label = "top 15" if args.game == "ot" else ("top 10" if args.game == "oq" else "top 5")
     if _would_change:
         if _would_be_update:
             print(f"\n*** This result would update an existing {_top_n_label} entry. ***")
