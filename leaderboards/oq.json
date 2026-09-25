@@ -65,17 +65,19 @@
     {
       "filename": "kelinimo_adaptive_ev.js",
       "commit": "7ac88d8",
-      "date": "2026-04-25",
+      "date": "2026-09-24",
       "ev": 348.032,
       "stdev": 50.8498,
       "red_rate": 0.962,
       "n_boards": 12650,
       "games_per_s": 944.3,
-      "harness_elapsed_s": 13.525,
-      "games_per_cpu_s": 46.9,
-      "setup_cpu_s": 0.044,
-      "n_threads": 20,
-      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+      "harness_elapsed_s": 14.04,
+      "games_per_cpu_s": 37.7,
+      "setup_cpu_s": 0.059,
+      "n_threads": 24,
+      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+      "avg_clicks": 9.9544,
+      "stdev_clicks": 0.2433
     },
     {
       "filename": "gap22_backtrack_solver.js",
