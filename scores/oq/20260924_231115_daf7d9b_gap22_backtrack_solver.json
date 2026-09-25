@@ -1,0 +1,19 @@
+{
+  "timestamp": "2026-09-24T23:11:15",
+  "commit": "daf7d9b",
+  "filename": "gap22_backtrack_solver.js",
+  "game": "oq",
+  "strategy": "/home/colblitz/mudae-sphere-games-evaluation/strategies/oq/gap22_backtrack_solver.js",
+  "n_boards": 12650,
+  "ev": 346.5909,
+  "stdev": 58.7161,
+  "avg_clicks": 9.9189,
+  "stdev_clicks": 0.3,
+  "red_rate": 0.9266,
+  "init_run_elapsed_s": 0.0513,
+  "harness_elapsed_s": 2.424,
+  "n_threads": 24,
+  "games_per_cpu_s": 222.1,
+  "setup_cpu_s": 0.051,
+  "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+}
