@@ -1,21 +1,23 @@
 {
   "game": "oq",
   "metric": "ev",
-  "updated": "2026-06-28",
+  "updated": "2026-09-24",
   "top10": [
     {
       "filename": "colblitz_v4.cpp",
       "commit": "0ae66ae",
-      "date": "2026-06-28",
+      "date": "2026-09-24",
       "ev": 356.3071,
       "stdev": 45.9176,
       "red_rate": 0.981,
       "n_boards": 12650,
-      "games_per_cpu_s": 938.1,
-      "setup_cpu_s": 18.763,
-      "harness_elapsed_s": 19.325,
+      "games_per_cpu_s": 950.4,
+      "setup_cpu_s": 19.253,
+      "harness_elapsed_s": 19.807,
       "n_threads": 24,
-      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+      "avg_clicks": 9.9759,
+      "stdev_clicks": 0.1898
     },
     {
       "filename": "zavex_ev.js",
