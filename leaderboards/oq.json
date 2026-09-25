@@ -22,16 +22,18 @@
     {
       "filename": "zavex_ev.js",
       "commit": "bb90da3",
-      "date": "2026-06-28",
+      "date": "2026-09-24",
       "ev": 355.9466,
       "stdev": 45.753,
       "red_rate": 0.9812,
       "n_boards": 12650,
-      "games_per_cpu_s": 661.6,
-      "setup_cpu_s": 2.156,
-      "harness_elapsed_s": 2.952,
+      "games_per_cpu_s": 637.2,
+      "setup_cpu_s": 2.169,
+      "harness_elapsed_s": 2.996,
       "n_threads": 24,
-      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K",
+      "avg_clicks": 9.9759,
+      "stdev_clicks": 0.1906
     },
     {
       "filename": "zavex_wr.js",
