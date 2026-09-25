@@ -194,7 +194,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 |------|----------|----|-------|-------|------------|--------|------|
 | 1 | `colblitz_v4.cpp` | 356.31 | 45.92 | 98.10% | 9.98 | `0ae66ae` | 2026-09-24 |
 | 2 | `zavex_ev.js` | 355.95 | 45.75 | 98.12% | — | `bb90da3` | 2026-06-28 |
-| 3 | `zavex_wr.js` | 352.44 | 44.32 | 98.96% | — | `bb90da3` | 2026-06-28 |
+| 3 | `zavex_wr.js` | 352.44 | 44.32 | 98.96% | 9.99 | `bb90da3` | 2026-09-24 |
 | 4 | `zavex_book_heuristic.js` | 350.86 | 44.04 | 98.96% | — | `da54712` | 2026-04-25 |
 | 5 | `zavex_book_heuristic.js` | 350.86 | 44.04 | 98.96% | 9.98 | `bb90da3` | 2026-09-24 |
 | 6 | `kelinimo_adaptive_ev.js` | 348.03 | 50.85 | 96.20% | 9.95 | `7ac88d8` | 2026-09-24 |
@@ -209,7 +209,7 @@ The top 5 strategies per game, ranked by expected value (EV). Updated automatica
 |----------|-------------|-------------|----------------|---------|-----|
 | `colblitz_v4.cpp` | 950 | 19.25 | 19.8 | 24 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `zavex_ev.js` | 662 | 2.16 | 3.0 | 24 | 13th Gen Intel(R) Core(TM) i7-13700K |
-| `zavex_wr.js` | 487 | 2.15 | 3.2 | 24 | 13th Gen Intel(R) Core(TM) i7-13700K |
+| `zavex_wr.js` | 628 | 2.18 | 3.0 | 24 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `zavex_book_heuristic.js` | 919 | 1.91 | 2.6 | 20 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `zavex_book_heuristic.js` | 632 | 2.32 | 3.2 | 24 | 13th Gen Intel(R) Core(TM) i7-13700K |
 | `kelinimo_adaptive_ev.js` | 38 | 0.06 | 14.0 | 24 | 13th Gen Intel(R) Core(TM) i7-13700K |
