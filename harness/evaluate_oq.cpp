@@ -2,9 +2,12 @@
  * evaluate_oq.cpp — Exhaustive evaluator for /sphere quest (oq).
  *
  * Runs the strategy against all 12,650 valid boards and reports:
- *   ev       — mean score across all boards
- *   stdev    — standard deviation of per-board scores
- *   red_rate — fraction of boards where the red sphere was clicked
+ *   ev           — mean score across all boards
+ *   stdev        — standard deviation of per-board scores
+ *   red_rate     — fraction of boards where the red sphere was clicked
+ *   avg_clicks   — average total clicks issued per game (7 budget clicks +
+ *                  free spP clicks; invalid/duplicate clicks count, matching ot)
+ *   stdev_clicks — standard deviation of per-board click counts
  *
  * Board model:
  *   5×5 grid, all cells start covered.  Non-purple click budget: 7.
@@ -34,6 +37,7 @@
 #include <cstdint>
 #include <random>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #ifdef _OPENMP
@@ -138,7 +142,7 @@ struct GameTrace {
 // Simulate one oq game
 // ---------------------------------------------------------------------------
 
-static std::pair<double, bool> run_oq_game(
+static std::tuple<double, bool, int> run_oq_game(
     uint32_t        purple_mask,
     StrategyBridge& strategy,
     GameTrace*      trace = nullptr)
@@ -157,6 +161,7 @@ static std::pair<double, bool> run_oq_game(
     int    purples    = 0;
     int    clicks_left = MAX_CLICKS;
     int    move_num = 0;
+    int    clicks_issued = 0;
 
     std::string meta = "{\"clicks_left\":" + std::to_string(clicks_left)
                      + ",\"max_clicks\":" + std::to_string(MAX_CLICKS)
@@ -174,6 +179,7 @@ static std::pair<double, bool> run_oq_game(
         Click c = strategy.next_click(board_vec, meta);
 
         int idx = rc_to_idx(c.row, c.col);
+        ++clicks_issued;
         if (idx < 0 || idx >= N_CELLS || game_board[idx].clicked) {
             --clicks_left;
             continue;
@@ -227,7 +233,7 @@ static std::pair<double, bool> run_oq_game(
         }
     }
 
-    return {score, red_found};
+    return {score, red_found, clicks_issued};
 }
 
 // ---------------------------------------------------------------------------
@@ -352,7 +358,7 @@ int main(int argc, char* argv[]) {
                 gt.actual_board[c]  = oq_cell_color(boards[idx], c, 0);
             }
 
-            auto [score, _red] = run_oq_game(boards[idx], *bridge, &gt);
+            auto [score, _red, _clicks] = run_oq_game(boards[idx], *bridge, &gt);
             gt.score = score;
             traces.push_back(std::move(gt));
         }
@@ -381,6 +387,7 @@ int main(int argc, char* argv[]) {
         std::chrono::steady_clock::now() - t_init0).count();
 
     std::vector<Welford>  ev_acc(n_threads);
+    std::vector<Welford>  clicks_acc(n_threads);
     std::vector<uint64_t> red_count(n_threads, 0);
 
     std::atomic<uint64_t> done_count(0);
@@ -399,15 +406,16 @@ int main(int argc, char* argv[]) {
 #else
         int tid = 0;
 #endif
-        double score = 0.0; bool red_found = false;
+        double score = 0.0; bool red_found = false; int clicks_issued = 0;
         try {
-            auto [s, r] = run_oq_game(boards[i], *bridges[tid]);
-            score = s; red_found = r;
+            auto [s, r, cl] = run_oq_game(boards[i], *bridges[tid]);
+            score = s; red_found = r; clicks_issued = cl;
         } catch (const std::exception& e) {
             fprintf(stderr, "\nERROR on board %lld: %s\n", (long long)i, e.what());
             exit(1);
         }
         ev_acc[tid].update(score);
+        clicks_acc[tid].update(static_cast<double>(clicks_issued));
         if (red_found) ++red_count[tid];
 
         uint64_t d = done_count.fetch_add(1) + 1;
@@ -421,21 +429,29 @@ int main(int argc, char* argv[]) {
 
     // Merge per-thread accumulators (Chan's parallel Welford)
     double   mean_total = 0.0, M2_total = 0.0;
+    double   clicks_mean_total = 0.0, M2_clicks_total = 0.0;
     uint64_t count_total = 0, total_red = 0;
     for (int t = 0; t < n_threads; ++t) {
         uint64_t nb = ev_acc[t].count;
         if (nb == 0) continue;
-        double delta = ev_acc[t].mean - mean_total;
+        double delta   = ev_acc[t].mean - mean_total;
+        double delta_c = clicks_acc[t].mean - clicks_mean_total;
         uint64_t nc  = count_total + nb;
         mean_total  += delta * static_cast<double>(nb) / static_cast<double>(nc);
         M2_total    += ev_acc[t].M2 + delta * delta
                        * static_cast<double>(count_total)
                        * static_cast<double>(nb) / static_cast<double>(nc);
+        clicks_mean_total += delta_c * static_cast<double>(nb) / static_cast<double>(nc);
+        M2_clicks_total   += clicks_acc[t].M2 + delta_c * delta_c
+                             * static_cast<double>(count_total)
+                             * static_cast<double>(nb) / static_cast<double>(nc);
         count_total  = nc;
         total_red   += red_count[t];
     }
     double stdev_total = count_total > 1
         ? std::sqrt(M2_total / static_cast<double>(count_total - 1)) : 0.0;
+    double stdev_clicks_total = count_total > 1
+        ? std::sqrt(M2_clicks_total / static_cast<double>(count_total - 1)) : 0.0;
 
     double red_rate = static_cast<double>(total_red) / static_cast<double>(count_total);
     printf("\nRESULT_JSON: {\"game\":\"oq\","
@@ -443,12 +459,16 @@ int main(int argc, char* argv[]) {
            "\"n_boards\":%llu,"
            "\"ev\":%.4f,"
            "\"stdev\":%.4f,"
+           "\"avg_clicks\":%.4f,"
+           "\"stdev_clicks\":%.4f,"
            "\"red_rate\":%.4f,"
            "\"init_run_elapsed_s\":%.4f}\n",
            strategy_path.c_str(),
            (unsigned long long)count_total,
            mean_total,
            stdev_total,
+           clicks_mean_total,
+           stdev_clicks_total,
            red_rate,
            init_run_elapsed);
     fflush(stdout);

@@ -569,15 +569,18 @@ def render_oh_table(top5: list[dict]) -> str:
 
 def render_oc_oq_table(top5: list[dict], game: str) -> str:
     label = "Red Rate"
+    clicks_hdr = " Avg Clicks |" if game == "oq" else ""
+    clicks_sep = "------------|" if game == "oq" else ""
     lines = [
-        f"| Rank | Strategy | EV | Stdev | {label} | Commit | Date |",
-        f"|------|----------|----|-------|{'-------' if len(label) < 9 else '-' * len(label)}|--------|------|",
+        f"| Rank | Strategy | EV | Stdev | {label} |{clicks_hdr} Commit | Date |",
+        f"|------|----------|----|-------|{'-------' if len(label) < 9 else '-' * len(label)}|{clicks_sep}--------|------|",
     ]
     for i, e in enumerate(top5, 1):
         fname = Path(e.get("filename", "")).name
+        clicks_cell = f" {_fmt_f(e.get('avg_clicks', '—'))} |" if game == "oq" else ""
         lines.append(
             f"| {i} | `{fname}` | {_fmt_f(e.get('ev'))} | {_fmt_f(e.get('stdev'))} "
-            f"| {_fmt_pct(e.get('red_rate', '—'))} | `{e.get('commit','?')}` | {e.get('date','?')} |"
+            f"| {_fmt_pct(e.get('red_rate', '—'))} |{clicks_cell} `{e.get('commit','?')}` | {e.get('date','?')} |"
         )
     return "\n".join(lines)
 

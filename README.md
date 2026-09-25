@@ -578,7 +578,7 @@ std::string init_evaluation_run() override {
 - **Auto-reveal:** after clicking the 3rd purple, the harness automatically reveals the 4th purple as `spR` (`color="spR"`, `clicked=false`) in the board passed to the next `next_click` call. Clicking it costs 1 click and is worth 150 SP.
 - **Goal:** click 3 purples → click the auto-revealed red (`spR`, 150 SP). Spend remaining budget greedily on highest-value derivable tiles.
 
-**Evaluation:** exhaustive over all C(25,4) = 12,650 boards. Stats: `ev`, `stdev`, `red_rate`.
+**Evaluation:** exhaustive over all C(25,4) = 12,650 boards. Stats: `ev`, `stdev`, `red_rate` (fraction of boards where red was clicked), `avg_clicks` (mean clicks issued per game, including free purple clicks), `stdev_clicks` (stdev of per-game clicks).
 
 ### /sphere trace (ot)
 
