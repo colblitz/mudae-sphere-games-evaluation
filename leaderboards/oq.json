@@ -63,6 +63,22 @@
       "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
     },
     {
+      "filename": "zavex_book_heuristic.js",
+      "commit": "bb90da3",
+      "date": "2026-09-24",
+      "ev": 350.8617,
+      "stdev": 44.0388,
+      "red_rate": 0.9896,
+      "avg_clicks": 9.9826,
+      "stdev_clicks": 0.1903,
+      "n_boards": 12650,
+      "games_per_cpu_s": 631.8,
+      "setup_cpu_s": 2.324,
+      "harness_elapsed_s": 3.159,
+      "n_threads": 24,
+      "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700K"
+    },
+    {
       "filename": "kelinimo_adaptive_ev.js",
       "commit": "7ac88d8",
       "date": "2026-09-24",
